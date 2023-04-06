@@ -1,0 +1,109 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_ray_query : enable
+
+#include "common.glsl"
+#include "random.glsl"
+#include "sample.glsl"
+#include "raytrace.glsl"
+
+layout(binding = 0) uniform UBO
+{
+	mat4 view_inv;
+	mat4 projection_inv;
+	mat4 view_projection_inv;
+	mat4 view_projection;
+	mat4 prev_view_projection;
+	vec4 cam_pos;
+	vec4 jitter;
+} ubo;
+
+layout(binding = 1, r32ui) uniform uimage2D raytraced_image;
+layout(binding = 2) uniform sampler2D gbufferB;
+layout(binding = 3) uniform sampler2D depth_buffer;
+layout(binding = 4) uniform sampler2D sobol_sequence;
+layout(binding = 5) uniform sampler2D scrambling_ranking_tile;
+layout(binding = 6) uniform accelerationStructureEXT tlas;
+
+layout(push_constant) uniform PushConstants
+{
+	float ray_length;
+	float bias;
+	int gbuffer_mip;
+}push_constants;
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+vec2 random_sample(ivec2 coord)
+{
+    return vec2(sample_blue_noise(coord, int(ubo.cam_pos.w), 0, sobol_sequence, scrambling_ranking_tile),
+                sample_blue_noise(coord, int(ubo.cam_pos.w), 1, sobol_sequence, scrambling_ranking_tile));
+}
+
+mat3 make_rotation_matrix(vec3 z)
+{
+    const vec3 ref = abs(dot(z, vec3(0, 1, 0))) > 0.99f ? vec3(0, 0, 1) : vec3(0, 1, 0);
+
+    const vec3 x = normalize(cross(ref, z));
+    const vec3 y = cross(z, x);
+
+    return mat3(x, y, z);
+}
+
+// ------------------------------------------------------------------------
+
+vec3 sample_cosine_lobe(in vec3 n, in vec2 r)
+{
+    vec2 rand_sample = max(vec2(0.00001f), r);
+
+    const float phi = 2.0f * PI * rand_sample.y;
+
+    const float cos_theta = sqrt(rand_sample.x);
+    const float sin_theta = sqrt(1 - rand_sample.x);
+
+    vec3 t = vec3(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta);
+
+    return normalize(make_rotation_matrix(n) * t);
+}
+
+shared uint shared_ao;
+
+void main() 
+{
+	if(gl_LocalInvocationIndex == 0)
+	{
+		shared_ao = 0;
+	}
+
+	barrier();
+
+	const ivec2 size = textureSize(gbufferB, int(push_constants.gbuffer_mip));
+	const ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+	const vec2 pixel = vec2(pos) + vec2(0.5);
+	const vec2 uv = pixel / vec2(size);
+
+	float depth = texelFetch(depth_buffer, pos, push_constants.gbuffer_mip).r;
+
+	uint result = 0;
+
+	if(depth != 1.0)
+	{
+		vec3 world_pos = world_position_from_depth(uv, depth, ubo.view_projection_inv);
+		vec3 normal = octohedral_to_direction(texelFetch(gbufferB, pos, push_constants.gbuffer_mip).rg);
+		vec3 org = world_pos + normal * push_constants.bias;
+		vec2 rnd = random_sample(pos);
+		//vec3 dir = local_to_world(normal, sample_cosine_hemisphere(rnd));
+		vec3 dir = sample_cosine_lobe(normal, rnd);
+		result = uint(query_visibility(tlas, org, dir, push_constants.ray_length,  gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT));
+	}
+	
+	atomicOr(shared_ao, result << gl_LocalInvocationIndex);
+	
+	barrier();
+
+	if (gl_LocalInvocationIndex == 0)
+	{
+		imageStore(raytraced_image, ivec2(gl_WorkGroupID.xy), uvec4(shared_ao));
+	}
+}

@@ -35,7 +35,6 @@ struct AccelerationStructure
 	VkAccelerationStructureKHR vk_as = VK_NULL_HANDLE;
 
 	Buffer buffer;
-	Buffer scratch_buffer;
 	Buffer instance_buffer;
 
 	VkDeviceAddress device_address = 0;
@@ -84,5 +83,7 @@ struct Context
 
 	~Context();
 
-	void set_object_name(const VkDebugUtilsObjectNameInfoEXT &info) const;
+	void set_object_name(VkObjectType type, uint64_t handle, const char* name) const;
+	void begin_marker(VkCommandBuffer cmd_buffer, const char* name) const;
+	void end_marker(VkCommandBuffer cmd_buffer) const;
 };

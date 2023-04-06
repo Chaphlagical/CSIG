@@ -1,7 +1,10 @@
 #pragma once
 
+#include "render/common.hpp"
 #include "render/context.hpp"
-#include "render/pipeline/ui.hpp"
+#include "render/pipeline/gbuffer.hpp"
+#include "render/pipeline/raytraced_ao.hpp"
+#include "render/pipeline/ui/ui.hpp"
 #include "render/scene.hpp"
 
 #include <memory>
@@ -9,7 +12,7 @@
 struct ApplicationConfig
 {
 	ContextConfig context_config;
-	std::string   scene_file = "scene/PBR/PBR.gltf";
+	std::string   scene_file = "assets/scenes/PBR/PBR.gltf";
 };
 
 class Application
@@ -24,7 +27,10 @@ class Application
   private:
 	void begin_render();
 	void end_render();
+	void update_ui();
 	void update();
+	void render(VkCommandBuffer cmd_buffer);
+	void present(VkCommandBuffer cmd_buffer, VkImage image);
 
   private:
 	Context m_context;
@@ -33,12 +39,31 @@ class Application
 
 	struct
 	{
-		std::unique_ptr<UI> ui = nullptr;
+		UI          ui;
+		GBufferPass gbuffer_pass;
+		RayTracedAO raytraced_ao;
 	} m_renderer;
+
+	struct
+	{
+		glm::vec3 position = glm::vec3(0.f);
+		float     yaw      = 0.f;
+		float     pitch    = 0.f;
+		float     sensity  = 0.1f;
+		float     speed    = 1.f;
+		glm::vec3 velocity = glm::vec3(0.f);
+
+		glm::mat4 view = glm::mat4(1.f);
+		glm::mat4 proj = glm::mat4(1.f);
+	} m_camera;
+
 	Scene m_scene;
+	BlueNoise m_blue_noise;
 
 	uint32_t m_current_frame = 0;
+	uint32_t m_num_frames    = 0;
 	uint32_t m_image_index   = 0;
 
+	bool m_update    = true;
 	bool m_enable_ui = true;
 };

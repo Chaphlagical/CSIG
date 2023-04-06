@@ -15,6 +15,7 @@ class UI
 	void render(VkCommandBuffer cmd_buffer, uint32_t frame_idx);
 	void begin_frame();
 	void end_frame();
+	void set_style();
 
   private:
 	void create_render_pass();

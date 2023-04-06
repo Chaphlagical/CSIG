@@ -14,7 +14,7 @@
 
 #include <vector>
 
-static VkDebugUtilsMessengerEXT  vkDebugUtilsMessengerEXT;
+static VkDebugUtilsMessengerEXT vkDebugUtilsMessengerEXT;
 
 inline const std::vector<const char *> get_instance_extension_supported(const std::vector<const char *> &extensions)
 {
@@ -288,14 +288,6 @@ Context::Context(const ContextConfig &config)
 
 		// Enable validation layers
 #ifdef DEBUG
-		std::vector<VkValidationFeatureEnableEXT> validation_extensions = {
-		    VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_RESERVE_BINDING_SLOT_EXT,
-		    VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT,
-		    VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT};
-		VkValidationFeaturesEXT validation_features{VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT};
-		validation_features.enabledValidationFeatureCount = static_cast<uint32_t>(validation_extensions.size());
-		validation_features.pEnabledValidationFeatures    = validation_extensions.data();
-
 		uint32_t layer_count;
 		vkEnumerateInstanceLayerProperties(&layer_count, nullptr);
 
@@ -309,7 +301,6 @@ Context::Context(const ContextConfig &config)
 			{
 				create_info.enabledLayerCount   = static_cast<uint32_t>(validation_layers.size());
 				create_info.ppEnabledLayerNames = validation_layers.data();
-				create_info.pNext               = &validation_features;
 				break;
 			}
 			else
@@ -495,6 +486,10 @@ Context::Context(const ContextConfig &config)
 
 			ENABLE_DEVICE_FEATURE(physical_device_vulkan12_features, physical_device_vulkan12_features_enable, descriptorIndexing);
 			ENABLE_DEVICE_FEATURE(physical_device_vulkan12_features, physical_device_vulkan12_features_enable, bufferDeviceAddress);
+			ENABLE_DEVICE_FEATURE(physical_device_vulkan12_features, physical_device_vulkan12_features_enable, runtimeDescriptorArray);
+			ENABLE_DEVICE_FEATURE(physical_device_vulkan12_features, physical_device_vulkan12_features_enable, descriptorBindingSampledImageUpdateAfterBind);
+			ENABLE_DEVICE_FEATURE(physical_device_vulkan12_features, physical_device_vulkan12_features_enable, descriptorBindingPartiallyBound);
+			ENABLE_DEVICE_FEATURE(physical_device_vulkan13_features, physical_device_vulkan13_features_enable, dynamicRendering);
 			ENABLE_DEVICE_FEATURE(physical_device_vulkan13_features, physical_device_vulkan13_features_enable, maintenance4);
 
 			auto support_extensions = get_device_extension_support(vk_physical_device, device_extensions);
@@ -574,14 +569,10 @@ Context::Context(const ContextConfig &config)
 		    .flags            = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
 		    .physicalDevice   = vk_physical_device,
 		    .device           = vk_device,
+		    .pVulkanFunctions = &vma_vulkan_func,
 		    .instance         = vk_instance,
 		    .vulkanApiVersion = VK_API_VERSION_1_3,
 		};
-
-		VkPhysicalDeviceMemoryProperties memory_properties = {};
-		vkGetPhysicalDeviceMemoryProperties(vk_physical_device, &memory_properties);
-
-		allocator_info.pVulkanFunctions = &vma_vulkan_func;
 
 		if (vmaCreateAllocator(&allocator_info, &vma_allocator) != VK_SUCCESS)
 		{
@@ -675,7 +666,7 @@ Context::Context(const ContextConfig &config)
 		createInfo.imageColorSpace  = surface_format.colorSpace;
 		createInfo.imageExtent      = extent;
 		createInfo.imageArrayLayers = 1;
-		createInfo.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+		createInfo.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
 		uint32_t queueFamilyIndices[] = {present_family.value()};
 
@@ -777,12 +768,13 @@ Context::Context(const ContextConfig &config)
 			        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000},
 			        {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000},
 			    };
-			VkDescriptorPoolCreateInfo pool_info = {};
-			pool_info.sType                      = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-			pool_info.flags                      = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-			pool_info.maxSets                    = 1000 * static_cast<uint32_t>(pool_sizes.size());
-			pool_info.poolSizeCount              = (uint32_t) static_cast<uint32_t>(pool_sizes.size());
-			pool_info.pPoolSizes                 = pool_sizes.data();
+			VkDescriptorPoolCreateInfo pool_info = {
+			    .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+			    .flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT | VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT,
+			    .maxSets       = 1000 * static_cast<uint32_t>(pool_sizes.size()),
+			    .poolSizeCount = (uint32_t) static_cast<uint32_t>(pool_sizes.size()),
+			    .pPoolSizes    = pool_sizes.data(),
+			};
 			vkCreateDescriptorPool(vk_device, &pool_info, nullptr, &vk_descriptor_pool);
 		}
 	}
@@ -825,7 +817,34 @@ Context::~Context()
 	vkDestroyInstance(vk_instance, nullptr);
 }
 
-void Context::set_object_name(const VkDebugUtilsObjectNameInfoEXT &info) const
+void Context::set_object_name(VkObjectType type, uint64_t handle, const char *name) const
 {
+#ifdef DEBUG
+	VkDebugUtilsObjectNameInfoEXT info = {
+	    .sType        = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+	    .objectType   = type,
+	    .objectHandle = (uint64_t) handle,
+	    .pObjectName  = name,
+	};
 	vkSetDebugUtilsObjectNameEXT(vk_device, &info);
+#endif        // DEBUG
+}
+
+void Context::begin_marker(VkCommandBuffer cmd_buffer, const char *name) const
+{
+#ifdef DEBUG
+	VkDebugUtilsLabelEXT label = {
+	    .sType      = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
+	    .pLabelName = name,
+	    .color      = {0, 1, 0, 0},
+	};
+	vkCmdBeginDebugUtilsLabelEXT(cmd_buffer, &label);
+#endif        // DEBUG
+}
+
+void Context::end_marker(VkCommandBuffer cmd_buffer) const
+{
+#ifdef DEBUG
+	vkCmdEndDebugUtilsLabelEXT(cmd_buffer);
+#endif        // DEBUG
 }

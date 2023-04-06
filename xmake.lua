@@ -14,7 +14,7 @@ set_warnings("all")
 
 add_requires("glfw", "vulkan-headers", "vulkan-memory-allocator", "spdlog", "stb", "glm", "cgltf")
 add_requires("volk", {configs = {header_only = true}})
-add_requires("imgui", {configs = {glfw = false, vulkan = false}})
+add_requires("imgui", {configs = {glfw = true}})
 add_requires("glslang", {configs = {binaryonly = true}})
 
 package("cgltf")
@@ -31,7 +31,7 @@ package_end()
 
 target("raytracer")
     set_kind("binary")
-    add_rules("utils.glsl2spv", {bin2c = true})
+    add_rules("utils.glsl2spv", {bin2c = true, targetenv="vulkan1.3"})
 
     set_rundir("$(projectdir)")
 
@@ -46,12 +46,27 @@ target("raytracer")
     end
 
     add_files("src/raytracer/**.cpp")
-    add_files("src/shaders/**.comp")
 
-    add_headerfiles("include/**.hpp")
-    add_headerfiles("src/shaders/**.comp")
-    add_includedirs("include")
+    add_files(
+        "src/shaders/**.comp",
+        "src/shaders/**.rchit",
+        "src/shaders/**.rgen",
+        "src/shaders/**.rmiss",
+        "src/shaders/**.vert",
+        "src/shaders/**.frag")
+
+    add_headerfiles(
+        "include/**.hpp",
+        "src/shaders/**.glsl",
+        "src/shaders/**.rchit",
+        "src/shaders/**.rgen",
+        "src/shaders/**.rmiss",
+        "src/shaders/**.comp",
+        "src/shaders/**.vert",
+        "src/shaders/**.frag")
+
     add_includedirs("include", {public  = true})
+    add_includedirs("src/shaders/")
 
     add_packages("glfw", "vulkan-headers", "vulkan-memory-allocator", "spdlog", "stb", "glm", "volk", "imgui", "glslang", "cgltf")
 target_end()
