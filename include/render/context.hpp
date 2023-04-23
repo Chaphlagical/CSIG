@@ -28,6 +28,7 @@ struct Buffer
 	VkBuffer        vk_buffer      = VK_NULL_HANDLE;
 	VmaAllocation   vma_allocation = VK_NULL_HANDLE;
 	VkDeviceAddress device_address = 0;
+	void           *mapped_data    = nullptr;
 };
 
 struct AccelerationStructure
@@ -75,7 +76,9 @@ struct Context
 
 	std::array<VkFence, 3> fences = {VK_NULL_HANDLE};
 
-	VkExtent2D extent = {};
+	VkExtent2D extent      = {};
+	uint32_t   image_index = 0;
+	bool       ping_pong   = false;
 
 	VkPhysicalDeviceProperties physical_device_properties;
 
@@ -83,7 +86,7 @@ struct Context
 
 	~Context();
 
-	void set_object_name(VkObjectType type, uint64_t handle, const char* name) const;
-	void begin_marker(VkCommandBuffer cmd_buffer, const char* name) const;
+	void set_object_name(VkObjectType type, uint64_t handle, const char *name) const;
+	void begin_marker(VkCommandBuffer cmd_buffer, const char *name) const;
 	void end_marker(VkCommandBuffer cmd_buffer) const;
 };

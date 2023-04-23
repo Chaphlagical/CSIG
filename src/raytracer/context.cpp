@@ -288,6 +288,16 @@ Context::Context(const ContextConfig &config)
 
 		// Enable validation layers
 #ifdef DEBUG
+		const std::vector<VkValidationFeatureEnableEXT> validation_extensions =
+#	ifdef DEBUG
+		    {VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT};
+#	else
+		    {};
+#	endif        // DEBUG
+		VkValidationFeaturesEXT validation_features{VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT};
+		validation_features.enabledValidationFeatureCount = static_cast<uint32_t>(validation_extensions.size());
+		validation_features.pEnabledValidationFeatures    = validation_extensions.data();
+
 		uint32_t layer_count;
 		vkEnumerateInstanceLayerProperties(&layer_count, nullptr);
 
@@ -301,6 +311,7 @@ Context::Context(const ContextConfig &config)
 			{
 				create_info.enabledLayerCount   = static_cast<uint32_t>(validation_layers.size());
 				create_info.ppEnabledLayerNames = validation_layers.data();
+				create_info.pNext               = &validation_features;
 				break;
 			}
 			else
@@ -673,7 +684,7 @@ Context::Context(const ContextConfig &config)
 		createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		createInfo.preTransform     = capabilities.currentTransform;
 		createInfo.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-		createInfo.presentMode      = VK_PRESENT_MODE_MAILBOX_KHR;
+		createInfo.presentMode      = VK_PRESENT_MODE_FIFO_KHR;
 		createInfo.clipped          = VK_TRUE;
 
 		vkCreateSwapchainKHR(vk_device, &createInfo, nullptr, &vk_swapchain);

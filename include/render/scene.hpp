@@ -9,6 +9,15 @@
 
 struct Context;
 
+struct SceneConfig
+{
+	enum class LightLoadingConfig
+	{
+		AsPointLight,
+		AsEmissive,
+	} light_config = LightLoadingConfig::AsEmissive;
+};
+
 struct GlobalBuffer
 {
 	glm::mat4 view_inv;
@@ -22,9 +31,9 @@ struct GlobalBuffer
 
 struct Vertex
 {
-	glm::vec4 position  = glm::vec4(0.f);        // xyz - position, w - texcoord u
-	glm::vec4 normal    = glm::vec4(0.f);        // xyz - normal, w - texcoord v
-	glm::vec4 tangent   = glm::vec4(0.f);
+	glm::vec4 position = glm::vec4(0.f);        // xyz - position, w - texcoord u
+	glm::vec4 normal   = glm::vec4(0.f);        // xyz - normal, w - texcoord v
+	glm::vec4 tangent  = glm::vec4(0.f);
 };
 
 struct Instance
@@ -39,6 +48,19 @@ struct Instance
 
 	alignas(16) uint32_t mesh = ~0u;
 	uint32_t material         = ~0u;
+};
+
+struct PointLight
+{
+	glm::vec3 intensity            = glm::vec3(0.f);
+	uint32_t  instance_id                 = ~0u;
+	alignas(16) glm::vec3 position = glm::vec3(0.f);
+};
+
+struct AreaLight
+{
+	glm::mat4 transform             = glm::mat4(1.f);
+	alignas(16) glm::vec3 intensity = glm::vec3(1.f);
 };
 
 struct Material
@@ -65,34 +87,44 @@ struct Scene
 	std::vector<AccelerationStructure> blas;
 
 	Buffer instance_buffer;
-	Buffer light_buffer;
+	Buffer point_light_buffer;
+	Buffer area_light_buffer;
 	Buffer material_buffer;
 	Buffer vertex_buffer;
 	Buffer index_buffer;
 	Buffer indirect_draw_buffer;
 	Buffer global_buffer;
+	Buffer scene_buffer;
+
+	std::vector<AreaLight> area_lights;
 
 	std::vector<Texture>     textures;
 	std::vector<VkImageView> texture_views;
 
 	Texture envmap;
 
-	VkSampler default_sampler = VK_NULL_HANDLE;
+	VkSampler linear_sampler  = VK_NULL_HANDLE;
+	VkSampler nearest_sampler = VK_NULL_HANDLE;
 
-	uint32_t vertices_count = 0;
-	uint32_t indices_count  = 0;
-	uint32_t instance_count = 0;
-	uint32_t material_count = 0;
+	struct
+	{
+		uint32_t vertices_count    = 0;
+		uint32_t indices_count     = 0;
+		uint32_t instance_count    = 0;
+		uint32_t material_count    = 0;
+		uint32_t point_light_count = 0;
+		uint32_t area_light_count  = 0;
+	} scene_info;
 
-	Scene(const std::string &filename, const Context &context);
+	Scene(const std::string &filename, const Context &context, const SceneConfig &config = SceneConfig{});
 
 	~Scene();
 
-	void load_scene(const std::string &filename);
+	void load_scene(const std::string &filename, const SceneConfig &config);
 
 	void load_envmap(const std::string &filename);
 
-	void update_camera(const glm::vec3 &position, float yaw, float pitch);
+	void update_area_light();
 
   private:
 	void destroy_scene();

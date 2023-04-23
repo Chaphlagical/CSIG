@@ -49,18 +49,12 @@ target("raytracer")
 
     add_files(
         "src/shaders/**.comp",
-        "src/shaders/**.rchit",
-        "src/shaders/**.rgen",
-        "src/shaders/**.rmiss",
         "src/shaders/**.vert",
         "src/shaders/**.frag")
 
     add_headerfiles(
         "include/**.hpp",
         "src/shaders/**.glsl",
-        "src/shaders/**.rchit",
-        "src/shaders/**.rgen",
-        "src/shaders/**.rmiss",
         "src/shaders/**.comp",
         "src/shaders/**.vert",
         "src/shaders/**.frag")

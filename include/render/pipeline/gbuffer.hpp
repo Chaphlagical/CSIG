@@ -19,23 +19,23 @@ class GBufferPass
   public:
 	// RGB: Albedo, A: Metallic
 	// RGBA8
-	Texture gbufferA;
+	Texture gbufferA[2];
 
 	// RG: Normal, BA: Motion Vector
 	// RGBA16
-	Texture gbufferB;
+	Texture gbufferB[2];
 
 	// R: Roughness, G: Curvature, B: Instance ID, A: Linear Z
 	// RGBA16
-	Texture gbufferC;
+	Texture gbufferC[2];
 
 	// Depth stencil buffer
-	Texture depth_buffer;
+	Texture depth_buffer[2];
 
-	VkImageView gbufferA_view      = VK_NULL_HANDLE;
-	VkImageView gbufferB_view      = VK_NULL_HANDLE;
-	VkImageView gbufferC_view      = VK_NULL_HANDLE;
-	VkImageView depth_stencil_view = VK_NULL_HANDLE;
+	VkImageView gbufferA_view[2];
+	VkImageView gbufferB_view[2];
+	VkImageView gbufferC_view[2];
+	VkImageView depth_buffer_view[2];
 
 	uint32_t width     = 0;
 	uint32_t height    = 0;
@@ -49,8 +49,8 @@ class GBufferPass
 	VkDescriptorSetLayout m_descriptor_set_layout = VK_NULL_HANDLE;
 	VkDescriptorSet       m_descriptor_set        = VK_NULL_HANDLE;
 
-	VkRenderingAttachmentInfo m_gbufferA_attachment_info           = {};
-	VkRenderingAttachmentInfo m_gbufferB_attachment_info           = {};
-	VkRenderingAttachmentInfo m_gbufferC_attachment_info           = {};
-	VkRenderingAttachmentInfo m_depth_stencil_view_attachment_info = {};
+	VkRenderingAttachmentInfo m_gbufferA_attachment_info[2]           = {};
+	VkRenderingAttachmentInfo m_gbufferB_attachment_info[2]           = {};
+	VkRenderingAttachmentInfo m_gbufferC_attachment_info[2]           = {};
+	VkRenderingAttachmentInfo m_depth_stencil_view_attachment_info[2] = {};
 };

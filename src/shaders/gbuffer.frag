@@ -57,7 +57,9 @@ vec4 fetch_base_color(in Material material, in vec2 uv)
 	}
 	else
 	{
-		return texture(textures[material.base_color_texture], uv) * material.base_color;
+		vec4 base_color = texture(textures[material.base_color_texture], uv);
+		base_color.rgb = pow(base_color.rgb, vec3(2.2));
+		return base_color * material.base_color;
 	}
 }
 
@@ -118,8 +120,8 @@ void main()
 	{
 		discard;
 	}
-
-	GBufferA = vec4(fetch_normal(material, inTexcoord), roughness_metallic.g);
+	
+	GBufferA = vec4(base_color.rgb, roughness_metallic.g);
 	GBufferB = vec4(normal, motion_vector);
 	GBufferC = vec4(roughness_metallic.r, curvature, instance_id, linear_z);
 }

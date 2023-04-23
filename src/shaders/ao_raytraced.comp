@@ -41,30 +41,14 @@ vec2 random_sample(ivec2 coord)
                 sample_blue_noise(coord, int(ubo.cam_pos.w), 1, sobol_sequence, scrambling_ranking_tile));
 }
 
-mat3 make_rotation_matrix(vec3 z)
+vec3 sample_cosine_lobe(vec3 n, vec2 rnd)
 {
-    const vec3 ref = abs(dot(z, vec3(0, 1, 0))) > 0.99f ? vec3(0, 0, 1) : vec3(0, 1, 0);
-
-    const vec3 x = normalize(cross(ref, z));
-    const vec3 y = cross(z, x);
-
-    return mat3(x, y, z);
-}
-
-// ------------------------------------------------------------------------
-
-vec3 sample_cosine_lobe(in vec3 n, in vec2 r)
-{
-    vec2 rand_sample = max(vec2(0.00001f), r);
-
-    const float phi = 2.0f * PI * rand_sample.y;
-
-    const float cos_theta = sqrt(rand_sample.x);
-    const float sin_theta = sqrt(1 - rand_sample.x);
-
-    vec3 t = vec3(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta);
-
-    return normalize(make_rotation_matrix(n) * t);
+	rnd = max(rnd, vec2(0.00001));
+	const float phi = 2.0 * PI * rnd.y;
+	const float cos_theta = sqrt(rnd.x);
+	const float sin_theta = sqrt(1.0 - rnd.x);
+	vec3 t = vec3(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta);
+	return local_to_world(n, t);
 }
 
 shared uint shared_ao;
@@ -93,7 +77,6 @@ void main()
 		vec3 normal = octohedral_to_direction(texelFetch(gbufferB, pos, push_constants.gbuffer_mip).rg);
 		vec3 org = world_pos + normal * push_constants.bias;
 		vec2 rnd = random_sample(pos);
-		//vec3 dir = local_to_world(normal, sample_cosine_hemisphere(rnd));
 		vec3 dir = sample_cosine_lobe(normal, rnd);
 		result = uint(query_visibility(tlas, org, dir, push_constants.ray_length,  gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT));
 	}

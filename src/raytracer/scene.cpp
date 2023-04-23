@@ -5,6 +5,7 @@
 #define CGLTF_IMPLEMENTATION
 #include <cgltf.h>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/matrix_decompose.hpp>
 #include <stb/stb_image.h>
 
 #include <filesystem>
@@ -17,14 +18,6 @@ struct Mesh
 	uint32_t indices_offset  = 0;
 	uint32_t indices_count   = 0;
 	uint32_t material        = ~0u;
-};
-
-struct Light
-{
-	glm::vec3 color;
-	uint32_t  mesh;
-	glm::vec3 position;
-	float     radius;
 };
 
 static inline size_t align(size_t x, size_t alignment)
@@ -533,10 +526,10 @@ inline Buffer upload_buffer(const Context &context, VkBufferUsageFlags usage, vo
 	return result;
 }
 
-Scene::Scene(const std::string &filename, const Context &context) :
+Scene::Scene(const std::string &filename, const Context &context, const SceneConfig &config) :
     m_context(&context)
 {
-	load_scene(filename);
+	load_scene(filename, config);
 
 	// Create sampler
 	{
@@ -557,7 +550,11 @@ Scene::Scene(const std::string &filename, const Context &context) :
 		    .maxLod           = 12.f,
 		    .borderColor      = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
 		};
-		vkCreateSampler(m_context->vk_device, &create_info, nullptr, &default_sampler);
+		vkCreateSampler(m_context->vk_device, &create_info, nullptr, &linear_sampler);
+		create_info.magFilter  = VK_FILTER_NEAREST;
+		create_info.minFilter  = VK_FILTER_NEAREST;
+		create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+		vkCreateSampler(m_context->vk_device, &create_info, nullptr, &nearest_sampler);
 	}
 
 	// Create global buffer
@@ -572,6 +569,7 @@ Scene::Scene(const std::string &filename, const Context &context) :
 		    .usage = VMA_MEMORY_USAGE_CPU_TO_GPU};
 		VmaAllocationInfo allocation_info = {};
 		vmaCreateBuffer(m_context->vma_allocator, &create_info, &allocation_create_info, &global_buffer.vk_buffer, &global_buffer.vma_allocation, &allocation_info);
+		vmaMapMemory(m_context->vma_allocator, global_buffer.vma_allocation, &global_buffer.mapped_data);
 	}
 }
 
@@ -579,11 +577,14 @@ Scene::~Scene()
 {
 	destroy_scene();
 
-	vkDestroySampler(m_context->vk_device, default_sampler, nullptr);
+	vkDestroySampler(m_context->vk_device, linear_sampler, nullptr);
+	vkDestroySampler(m_context->vk_device, nearest_sampler, nullptr);
+	vmaUnmapMemory(m_context->vma_allocator, global_buffer.vma_allocation);
 	vmaDestroyBuffer(m_context->vma_allocator, global_buffer.vk_buffer, global_buffer.vma_allocation);
+	global_buffer.mapped_data = nullptr;
 }
 
-void Scene::load_scene(const std::string &filename)
+void Scene::load_scene(const std::string &filename, const SceneConfig &config)
 {
 	destroy_scene();
 
@@ -606,9 +607,10 @@ void Scene::load_scene(const std::string &filename)
 	std::unordered_map<cgltf_material *, uint32_t>          material_map;
 	std::unordered_map<cgltf_mesh *, std::vector<uint32_t>> mesh_map;
 
-	std::vector<Material> materials;
-	std::vector<Mesh>     meshes;
-	std::vector<Instance> instances;
+	std::vector<PointLight> point_lights;
+	std::vector<Material>   materials;
+	std::vector<Mesh>       meshes;
+	std::vector<Instance>   instances;
 
 	// Load material
 	{
@@ -638,6 +640,7 @@ void Scene::load_scene(const std::string &filename)
 			{
 				material.transmission_factor = raw_material.transmission.transmission_factor;
 			}
+
 			materials.emplace_back(material);
 			material_map[&raw_material] = static_cast<uint32_t>(materials.size() - 1);
 		}
@@ -663,7 +666,7 @@ void Scene::load_scene(const std::string &filename)
 				vmaFlushAllocation(m_context->vma_allocator, material_buffer.vma_allocation, 0, materials.size() * sizeof(Material));
 				mapped_data = nullptr;
 			}
-			material_count = static_cast<uint32_t>(materials.size());
+			scene_info.material_count = static_cast<uint32_t>(materials.size());
 		}
 	}
 
@@ -694,11 +697,9 @@ void Scene::load_scene(const std::string &filename)
 				};
 
 				indices.resize(indices.size() + primitive.indices->count);
-				for (size_t i = 0; i < primitive.indices->count; i += 3)
+				for (size_t i = 0; i < primitive.indices->count; i++)
 				{
-					indices[mesh.indices_offset + i + 0] = static_cast<uint32_t>(cgltf_accessor_read_index(primitive.indices, i + 0));
-					indices[mesh.indices_offset + i + 1] = static_cast<uint32_t>(cgltf_accessor_read_index(primitive.indices, i + 2));
-					indices[mesh.indices_offset + i + 2] = static_cast<uint32_t>(cgltf_accessor_read_index(primitive.indices, i + 1));
+					indices[mesh.indices_offset + i] = static_cast<uint32_t>(cgltf_accessor_read_index(primitive.indices, i));
 				}
 
 				for (size_t attr_id = 0; attr_id < primitive.attributes_count; attr_id++)
@@ -785,8 +786,8 @@ void Scene::load_scene(const std::string &filename)
 			}
 		}
 
-		vertices_count = static_cast<uint32_t>(vertices.size());
-		indices_count  = static_cast<uint32_t>(indices.size());
+		scene_info.vertices_count = static_cast<uint32_t>(vertices.size());
+		scene_info.indices_count  = static_cast<uint32_t>(indices.size());
 
 		vertex_buffer = upload_buffer(*m_context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, vertices.data(), vertices.size() * sizeof(Vertex));
 		index_buffer  = upload_buffer(*m_context, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, indices.data(), indices.size() * sizeof(uint32_t));
@@ -819,18 +820,56 @@ void Scene::load_scene(const std::string &filename)
 					Instance instance = {
 					    .vertices_offset = mesh.vertices_offset,
 					    .vertices_count  = mesh.vertices_offset,
-					    .indices_offset  = mesh.vertices_offset,
-					    .indices_count   = mesh.vertices_offset,
+					    .indices_offset  = mesh.indices_offset,
+					    .indices_count   = mesh.indices_count,
 					    .mesh            = mesh_id,
 					    .material        = mesh.material,
 					};
 					std::memcpy(glm::value_ptr(instance.transform), matrix, sizeof(instance.transform));
 					instance.transform_inv = glm::inverse(instance.transform);
 					instances.push_back(instance);
+
+					if (config.light_config == SceneConfig::LightLoadingConfig::AsPointLight)
+					{
+						if (materials[mesh.material].emissive_factor != glm::vec3(0.f))
+						{
+							point_lights.push_back(
+							    PointLight{
+							        .intensity   = materials[mesh.material].emissive_factor,
+							        .instance_id = static_cast<uint32_t>(instances.size() - 1),
+							        .position    = instance.transform[3],
+							    });
+						}
+					}
 				}
 			}
 		}
-		instance_count = static_cast<uint32_t>(instances.size());
+		scene_info.instance_count = static_cast<uint32_t>(instances.size());
+
+		// Build point light buffer
+		{
+			VkBufferCreateInfo buffer_create_info = {
+			    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+			    .size        = std::max(point_lights.size(), 1ull) * sizeof(PointLight),
+			    .usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+			    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+			};
+			VmaAllocationCreateInfo allocation_create_info = {
+			    .usage = VMA_MEMORY_USAGE_CPU_TO_GPU,
+			};
+			VmaAllocationInfo allocation_info = {};
+			vmaCreateBuffer(m_context->vma_allocator, &buffer_create_info, &allocation_create_info, &point_light_buffer.vk_buffer, &point_light_buffer.vma_allocation, &allocation_info);
+			if (!point_lights.empty())
+			{
+				uint8_t *mapped_data = nullptr;
+				vmaMapMemory(m_context->vma_allocator, point_light_buffer.vma_allocation, reinterpret_cast<void **>(&mapped_data));
+				std::memcpy(mapped_data, point_lights.data(), point_lights.size() * sizeof(PointLight));
+				vmaUnmapMemory(m_context->vma_allocator, point_light_buffer.vma_allocation);
+				vmaFlushAllocation(m_context->vma_allocator, point_light_buffer.vma_allocation, 0, point_lights.size() * sizeof(PointLight));
+				mapped_data = nullptr;
+			}
+			scene_info.point_light_count = static_cast<uint32_t>(point_lights.size());
+		}
 
 		// Build draw indirect command buffer
 		{
@@ -937,7 +976,7 @@ void Scene::load_scene(const std::string &filename)
 				    .geometry     = {
 				            .triangles = {
 				                .sType        = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR,
-				                .vertexFormat = VK_FORMAT_R32G32B32A32_SFLOAT,
+				                .vertexFormat = VK_FORMAT_R32G32B32_SFLOAT,
 				                .vertexData   = {
 				                      .deviceAddress = vertex_buffer.device_address,
                             },
@@ -952,7 +991,7 @@ void Scene::load_scene(const std::string &filename)
                             },
                         },
                     },
-				    .flags = VK_GEOMETRY_OPAQUE_BIT_KHR,
+				    .flags = VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR,
 				};
 
 				VkAccelerationStructureBuildRangeInfoKHR range_info = {
@@ -1062,20 +1101,38 @@ void Scene::load_scene(const std::string &filename)
 		{
 			std::vector<VkAccelerationStructureInstanceKHR> vk_instances;
 			vk_instances.reserve(instances.size());
-			for (auto &instance : instances)
+			for (uint32_t instance_id = 0; instance_id < instances.size(); instance_id++)
 			{
-				VkAccelerationStructureInstanceKHR vk_instance = {};
+				const auto &instance  = instances[instance_id];
+				auto        transform = glm::mat3x4(glm::transpose(instance.transform));
 
-				auto transform = glm::mat3x4(glm::transpose(instance.transform));
+				VkTransformMatrixKHR transform_matrix = {};
+				std::memcpy(&transform_matrix, &transform, sizeof(VkTransformMatrixKHR));
 
-				std::memcpy(&vk_instance.transform, &transform, sizeof(VkTransformMatrixKHR));
-				vk_instance.instanceCustomIndex                    = 0;
-				vk_instance.mask                                   = 0xFF;
-				vk_instance.instanceShaderBindingTableRecordOffset = 0;
-				vk_instance.flags                                  = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-				vk_instance.accelerationStructureReference         = blas.at(instance.mesh).device_address;
+				VkAccelerationStructureInstanceKHR vk_instance = {
+				    .transform                              = transform_matrix,
+				    .instanceCustomIndex                    = instance_id,
+				    .mask                                   = 0xFF,
+				    .instanceShaderBindingTableRecordOffset = 0,
+				    .flags                                  = 0,
+				    .accelerationStructureReference         = blas.at(instance.mesh).device_address,
+				};
 
-				vk_instances.emplace_back(std::move(vk_instance));
+				const Material &material = materials[instance.material];
+
+				if (material.alpha_mode == 0 ||
+				    (material.base_color.w == 1.f &&
+				     material.base_color_texture == ~0u))
+				{
+					vk_instance.flags |= VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;
+				}
+
+				if (material.double_sided == 1)
+				{
+					vk_instance.flags |= VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+				}
+
+				vk_instances.emplace_back(vk_instance);
 			}
 
 			AccelerationStructure acceleration_structure = {};
@@ -1190,6 +1247,10 @@ void Scene::load_scene(const std::string &filename)
 			    &as_build_range_infos);
 
 			tlas = acceleration_structure;
+			m_context->set_object_name(
+			    VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR,
+			    (uint64_t) tlas.vk_as,
+			    "Scene TLAS");
 			scratch_buffers.push_back(scratch_buffer);
 		}
 
@@ -1225,6 +1286,31 @@ void Scene::load_scene(const std::string &filename)
 
 		scratch_buffers.clear();
 	}
+
+	// Create scene buffer
+	{
+		VkBufferCreateInfo buffer_create_info = {
+		    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		    .size        = sizeof(scene_info),
+		    .usage       = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+		    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		};
+		VmaAllocationCreateInfo allocation_create_info = {
+		    .usage = VMA_MEMORY_USAGE_CPU_TO_GPU,
+		};
+		VmaAllocationInfo allocation_info = {};
+		vmaCreateBuffer(m_context->vma_allocator, &buffer_create_info, &allocation_create_info, &scene_buffer.vk_buffer, &scene_buffer.vma_allocation, &allocation_info);
+		{
+			uint8_t *mapped_data = nullptr;
+			vmaMapMemory(m_context->vma_allocator, scene_buffer.vma_allocation, reinterpret_cast<void **>(&mapped_data));
+			std::memcpy(mapped_data, &scene_info, sizeof(scene_info));
+			vmaUnmapMemory(m_context->vma_allocator, scene_buffer.vma_allocation);
+			vmaFlushAllocation(m_context->vma_allocator, scene_buffer.vma_allocation, 0, sizeof(scene_info));
+			mapped_data = nullptr;
+		}
+	}
+
+	update_area_light();
 }
 
 void Scene::load_envmap(const std::string &filename)
@@ -1323,8 +1409,82 @@ void Scene::destroy_scene()
 		material_buffer.vma_allocation = VK_NULL_HANDLE;
 		material_buffer.device_address = 0;
 	}
+
+	if (scene_buffer.vk_buffer && scene_buffer.vma_allocation)
+	{
+		vmaDestroyBuffer(m_context->vma_allocator, scene_buffer.vk_buffer, scene_buffer.vma_allocation);
+		scene_buffer.vk_buffer      = VK_NULL_HANDLE;
+		scene_buffer.vma_allocation = VK_NULL_HANDLE;
+		scene_buffer.device_address = 0;
+	}
+
+	if (point_light_buffer.vk_buffer && point_light_buffer.vma_allocation)
+	{
+		vmaDestroyBuffer(m_context->vma_allocator, point_light_buffer.vk_buffer, point_light_buffer.vma_allocation);
+		point_light_buffer.vk_buffer      = VK_NULL_HANDLE;
+		point_light_buffer.vma_allocation = VK_NULL_HANDLE;
+		point_light_buffer.device_address = 0;
+	}
+
+	if (area_light_buffer.vk_buffer && area_light_buffer.vma_allocation)
+	{
+		vmaDestroyBuffer(m_context->vma_allocator, area_light_buffer.vk_buffer, area_light_buffer.vma_allocation);
+		area_light_buffer.vk_buffer      = VK_NULL_HANDLE;
+		area_light_buffer.vma_allocation = VK_NULL_HANDLE;
+		area_light_buffer.device_address = 0;
+	}
 }
 
-void Scene::update_camera(const glm::vec3 &position, float yaw, float pitch)
+void Scene::update_area_light()
 {
+	if (area_light_buffer.vk_buffer == VK_NULL_HANDLE)
+	{
+		VkBufferCreateInfo buffer_create_info = {
+		    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		    .size        = sizeof(AreaLight),
+		    .usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+		    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		};
+		VmaAllocationCreateInfo allocation_create_info = {
+		    .usage = VMA_MEMORY_USAGE_CPU_TO_GPU,
+		};
+		VmaAllocationInfo allocation_info = {};
+		vmaCreateBuffer(m_context->vma_allocator, &buffer_create_info, &allocation_create_info, &area_light_buffer.vk_buffer, &area_light_buffer.vma_allocation, &allocation_info);
+	}
+
+	if (area_lights.size() > scene_info.area_light_count)
+	{
+		vkDeviceWaitIdle(m_context->vk_device);
+		vmaDestroyBuffer(m_context->vma_allocator, area_light_buffer.vk_buffer, area_light_buffer.vma_allocation);
+		VkBufferCreateInfo buffer_create_info = {
+		    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		    .size        = area_lights.size() * sizeof(AreaLight),
+		    .usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+		    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		};
+		VmaAllocationCreateInfo allocation_create_info = {
+		    .usage = VMA_MEMORY_USAGE_CPU_TO_GPU,
+		};
+		VmaAllocationInfo allocation_info = {};
+		vmaCreateBuffer(m_context->vma_allocator, &buffer_create_info, &allocation_create_info, &area_light_buffer.vk_buffer, &area_light_buffer.vma_allocation, &allocation_info);
+	}
+
+	{
+		decltype(scene_info) *mapped_data = nullptr;
+		vmaMapMemory(m_context->vma_allocator, scene_buffer.vma_allocation, reinterpret_cast<void **>(&mapped_data));
+		mapped_data->area_light_count = static_cast<uint32_t>(area_lights.size());
+		vmaUnmapMemory(m_context->vma_allocator, scene_buffer.vma_allocation);
+		vmaFlushAllocation(m_context->vma_allocator, scene_buffer.vma_allocation, 0, sizeof(scene_info));
+		mapped_data = nullptr;
+	}
+
+	if (!area_lights.empty())
+	{
+		void *mapped_data = nullptr;
+		vmaMapMemory(m_context->vma_allocator, area_light_buffer.vma_allocation, reinterpret_cast<void **>(&mapped_data));
+		std::memcpy(mapped_data, area_lights.data(), area_lights.size() * sizeof(AreaLight));
+		vmaUnmapMemory(m_context->vma_allocator, area_light_buffer.vma_allocation);
+		vmaFlushAllocation(m_context->vma_allocator, area_light_buffer.vma_allocation, 0, area_lights.size() * sizeof(AreaLight));
+		mapped_data = nullptr;
+	}
 }

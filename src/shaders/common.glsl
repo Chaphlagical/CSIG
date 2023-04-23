@@ -9,6 +9,7 @@ const float PIOver2 = 1.57079632679489661923;
 const float PIOver4 = 0.78539816339744830961;
 const float Sqrt2 = 1.41421356237309504880;
 const float ShadowEpsilon = 0.0001;
+const float Epsilon = 1e-7;
 const float Infinity = 1e32;
 
 struct Instance
@@ -40,6 +41,26 @@ struct Material
 	uint  normal_texture;
 	uint  metallic_roughness_texture;
 	vec2  padding;
+};
+
+struct Vertex
+{
+	vec4 position;
+	vec4 normal;
+	vec4 tangent;
+};
+
+struct PointLight
+{
+	vec3 intensity;
+	uint instance_id;
+	vec3 position;
+};
+
+struct AreaLight
+{
+	mat4 transform;
+	vec3 intensity;
 };
 
 void coordinate_system(vec3 v1, out vec3 v2, out vec3 v3)

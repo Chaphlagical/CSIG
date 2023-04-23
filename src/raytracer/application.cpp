@@ -27,9 +27,10 @@ Application::Application(const ApplicationConfig &config) :
     m_context(config.context_config),
     m_renderer{
         .ui{m_context},
+        .path_tracing{m_context},
         .gbuffer_pass{m_context},
         .raytraced_ao{m_context}},
-    m_scene(config.scene_file, m_context),
+    m_scene(config.scene_file, m_context, config.scene_config),
     m_blue_noise(m_context)
 {
 	glfwSetWindowUserPointer(m_context.window, this);
@@ -79,6 +80,7 @@ Application::Application(const ApplicationConfig &config) :
 		vkBeginCommandBuffer(cmd_buffer, &begin_info);
 		m_renderer.gbuffer_pass.init(cmd_buffer);
 		m_renderer.raytraced_ao.init(cmd_buffer);
+		m_renderer.path_tracing.init(cmd_buffer);
 
 		std::vector<VkImageMemoryBarrier> image_barriers;
 		for (auto &image : m_context.swapchain_images)
@@ -160,15 +162,15 @@ void Application::run()
 		render(cmd_buffer);
 		end_render();
 
-		m_current_frame = (m_current_frame + 1) % 3;
-		m_num_frames++;
+		m_current_frame     = (m_current_frame + 1) % 3;
+		m_context.ping_pong = !m_context.ping_pong;
 	}
 }
 
 void Application::begin_render()
 {
-	m_image_index = 0;
-	vkAcquireNextImageKHR(m_context.vk_device, m_context.vk_swapchain, UINT64_MAX, m_context.present_complete, nullptr, &m_image_index);
+	m_context.image_index = 0;
+	vkAcquireNextImageKHR(m_context.vk_device, m_context.vk_swapchain, UINT64_MAX, m_context.present_complete, nullptr, &m_context.image_index);
 
 	vkWaitForFences(m_context.vk_device, 1, &m_context.fences[m_current_frame], VK_TRUE, UINT64_MAX);
 	vkResetFences(m_context.vk_device, 1, &m_context.fences[m_current_frame]);
@@ -206,7 +208,7 @@ void Application::end_render()
 	present_info.pNext              = NULL;
 	present_info.swapchainCount     = 1;
 	present_info.pSwapchains        = &m_context.vk_swapchain;
-	present_info.pImageIndices      = &m_image_index;
+	present_info.pImageIndices      = &m_context.image_index;
 	present_info.pWaitSemaphores    = &m_context.render_complete;
 	present_info.waitSemaphoreCount = 1;
 
@@ -300,23 +302,26 @@ void Application::update()
 
 		m_camera.view = glm::lookAt(m_camera.position, m_camera.position + front, up);
 		m_camera.proj = glm::perspective(glm::radians(60.f), static_cast<float>(m_context.extent.width) / static_cast<float>(m_context.extent.height), 0.01f, 1000.f);
+
+		m_num_frames = 0;
 	}
 	else
 	{
 		m_camera.velocity = glm::vec3(0.f);
 		hide_cursor       = false;
+		m_num_frames++;
 	}
 
 	if (m_update)
 	{
 		m_renderer.gbuffer_pass.update(m_scene);
-		m_renderer.raytraced_ao.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass.gbufferB_view, m_renderer.gbuffer_pass.depth_stencil_view);
+		m_renderer.path_tracing.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
+		m_renderer.raytraced_ao.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
 	}
 
 	// Copy to device
 	{
-		GlobalBuffer *mapped_data = nullptr;
-		vmaMapMemory(m_context.vma_allocator, m_scene.global_buffer.vma_allocation, reinterpret_cast<void **>(&mapped_data));
+		GlobalBuffer *mapped_data = reinterpret_cast<GlobalBuffer *>(m_scene.global_buffer.mapped_data);
 
 		GlobalBuffer global_buffer = {
 		    .view_inv             = glm::inverse(m_camera.view),
@@ -327,11 +332,7 @@ void Application::update()
 		    .cam_pos              = glm::vec4(m_camera.position, static_cast<float>(m_num_frames)),
 		    .jitter               = glm::vec4(0.f),
 		};
-
-		std::memcpy(mapped_data, &global_buffer, sizeof(GlobalBuffer));
-		vmaUnmapMemory(m_context.vma_allocator, m_scene.global_buffer.vma_allocation);
-		vmaFlushAllocation(m_context.vma_allocator, m_scene.global_buffer.vma_allocation, 0, sizeof(GlobalBuffer));
-		mapped_data = nullptr;
+		std::memcpy(m_scene.global_buffer.mapped_data, &global_buffer, sizeof(GlobalBuffer));
 	}
 
 	m_update = false;
@@ -341,38 +342,47 @@ void Application::render(VkCommandBuffer cmd_buffer)
 {
 	m_renderer.gbuffer_pass.draw(cmd_buffer, m_scene);
 
+	if (!m_pathtracing)
+	{
+		m_renderer.raytraced_ao.draw(cmd_buffer);
+	}
+	else
+	{
+		m_renderer.path_tracing.draw(cmd_buffer);
+	}
+
 	{
 		VkImageMemoryBarrier image_barriers[] = {
-		    {
+		    /*{
 		        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		        .srcAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-		        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-		        .oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+		        .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+		        .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .image               = m_renderer.gbuffer_pass.gbufferB.vk_image,
+		        .image               = m_renderer.gbuffer_pass.gbufferA[m_context.ping_pong].vk_image,
 		        .subresourceRange    = VkImageSubresourceRange{
 		               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 		               .baseMipLevel   = 0,
 		               .levelCount     = m_renderer.gbuffer_pass.mip_level,
 		               .baseArrayLayer = 0,
 		               .layerCount     = 1,
-                },
-		    },
+		        },
+		    },*/
 		    {
 		        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		        .srcAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
-		        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-		        .oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		        .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+		        .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+		        .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+		        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .image               = m_renderer.gbuffer_pass.depth_buffer.vk_image,
+		        .image               = m_renderer.path_tracing.path_tracing_image[m_context.ping_pong].vk_image,
 		        .subresourceRange    = VkImageSubresourceRange{
-		               .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
+		               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 		               .baseMipLevel   = 0,
-		               .levelCount     = m_renderer.gbuffer_pass.mip_level,
+		               .levelCount     = 1,
 		               .baseArrayLayer = 0,
 		               .layerCount     = 1,
                 },
@@ -385,7 +395,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 		        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .image               = m_context.swapchain_images[m_image_index],
+		        .image               = m_context.swapchain_images[m_context.image_index],
 		        .subresourceRange    = VkImageSubresourceRange{
 		               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 		               .baseMipLevel   = 0,
@@ -397,80 +407,46 @@ void Application::render(VkCommandBuffer cmd_buffer)
 		};
 		vkCmdPipelineBarrier(
 		    cmd_buffer,
-		    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+		    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 		    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-		    0, 0, nullptr, 0, nullptr, 3, image_barriers);
+		    0, 0, nullptr, 0, nullptr, 2, image_barriers);
 	}
-	present(cmd_buffer, m_renderer.gbuffer_pass.gbufferA.vk_image);
 
-	m_renderer.raytraced_ao.draw(cmd_buffer);
+	// present(cmd_buffer, m_renderer.gbuffer_pass.gbufferA[m_context.ping_pong].vk_image);
+	present(cmd_buffer, m_renderer.path_tracing.path_tracing_image[m_context.ping_pong].vk_image);
 
 	{
 		VkImageMemoryBarrier image_barriers[] = {
+		    /*{
+		        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		        .srcAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+		        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+		        .oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		        .image               = m_renderer.gbuffer_pass.gbufferA[m_context.ping_pong].vk_image,
+		        .subresourceRange    = VkImageSubresourceRange{
+		               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		               .baseMipLevel   = 0,
+		               .levelCount     = m_renderer.gbuffer_pass.mip_level,
+		               .baseArrayLayer = 0,
+		               .layerCount     = 1,
+		        },
+		    },*/
 		    {
 		        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 		        .srcAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
-		        .dstAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+		        .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
 		        .oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		        .newLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
 		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .image               = m_renderer.gbuffer_pass.gbufferA.vk_image,
+		        .image               = m_renderer.path_tracing.path_tracing_image[m_context.ping_pong].vk_image,
 		        .subresourceRange    = VkImageSubresourceRange{
 		               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 		               .baseMipLevel   = 0,
-		               .levelCount     = m_renderer.gbuffer_pass.mip_level,
-		               .baseArrayLayer = 0,
-		               .layerCount     = 1,
-                },
-		    },
-		    {
-		        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-		        .dstAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-		        .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		        .newLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .image               = m_renderer.gbuffer_pass.gbufferB.vk_image,
-		        .subresourceRange    = VkImageSubresourceRange{
-		               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-		               .baseMipLevel   = 0,
-		               .levelCount     = m_renderer.gbuffer_pass.mip_level,
-		               .baseArrayLayer = 0,
-		               .layerCount     = 1,
-                },
-		    },
-		    {
-		        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		        .srcAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
-		        .dstAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-		        .oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		        .newLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .image               = m_renderer.gbuffer_pass.gbufferC.vk_image,
-		        .subresourceRange    = VkImageSubresourceRange{
-		               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-		               .baseMipLevel   = 0,
-		               .levelCount     = m_renderer.gbuffer_pass.mip_level,
-		               .baseArrayLayer = 0,
-		               .layerCount     = 1,
-                },
-		    },
-		    {
-		        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-		        .dstAccessMask       = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-		        .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		        .newLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .image               = m_renderer.gbuffer_pass.depth_buffer.vk_image,
-		        .subresourceRange    = VkImageSubresourceRange{
-		               .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
-		               .baseMipLevel   = 0,
-		               .levelCount     = m_renderer.gbuffer_pass.mip_level,
+		               .levelCount     = 1,
 		               .baseArrayLayer = 0,
 		               .layerCount     = 1,
                 },
@@ -483,7 +459,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 		        .newLayout           = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .image               = m_context.swapchain_images[m_image_index],
+		        .image               = m_context.swapchain_images[m_context.image_index],
 		        .subresourceRange    = VkImageSubresourceRange{
 		               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 		               .baseMipLevel   = 0,
@@ -498,7 +474,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 		    cmd_buffer,
 		    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
 		    VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
-		    0, 0, nullptr, 0, nullptr, 5, image_barriers);
+		    0, 0, nullptr, 0, nullptr, 2, image_barriers);
 	}
 
 	// Draw UI
@@ -524,5 +500,5 @@ void Application::present(VkCommandBuffer cmd_buffer, VkImage image)
 	    .dstOffsets{{0, 0, 0}, {static_cast<int32_t>(m_context.extent.width), static_cast<int32_t>(m_context.extent.height), 1}},
 	};
 
-	vkCmdBlitImage(cmd_buffer, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_context.swapchain_images[m_image_index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &image_blit, VK_FILTER_LINEAR);
+	vkCmdBlitImage(cmd_buffer, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_context.swapchain_images[m_context.image_index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &image_blit, VK_FILTER_LINEAR);
 }

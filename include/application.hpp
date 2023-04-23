@@ -3,6 +3,7 @@
 #include "render/common.hpp"
 #include "render/context.hpp"
 #include "render/pipeline/gbuffer.hpp"
+#include "render/pipeline/pathtracing.hpp"
 #include "render/pipeline/raytraced_ao.hpp"
 #include "render/pipeline/ui/ui.hpp"
 #include "render/scene.hpp"
@@ -12,7 +13,8 @@
 struct ApplicationConfig
 {
 	ContextConfig context_config;
-	std::string   scene_file = "assets/scenes/PBR/PBR.gltf";
+	SceneConfig   scene_config = {.light_config = SceneConfig::LightLoadingConfig::AsPointLight};
+	std::string   scene_file   = "assets/scenes/GI/GI.gltf";
 };
 
 class Application
@@ -40,6 +42,7 @@ class Application
 	struct
 	{
 		UI          ui;
+		PathTracing path_tracing;
 		GBufferPass gbuffer_pass;
 		RayTracedAO raytraced_ao;
 	} m_renderer;
@@ -57,13 +60,13 @@ class Application
 		glm::mat4 proj = glm::mat4(1.f);
 	} m_camera;
 
-	Scene m_scene;
+	Scene     m_scene;
 	BlueNoise m_blue_noise;
 
 	uint32_t m_current_frame = 0;
 	uint32_t m_num_frames    = 0;
-	uint32_t m_image_index   = 0;
 
-	bool m_update    = true;
-	bool m_enable_ui = true;
+	bool m_update      = true;
+	bool m_enable_ui   = true;
+	bool m_pathtracing = true;
 };

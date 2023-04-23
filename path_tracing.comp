@@ -1,0 +1,271 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_ray_query : enable
+
+#include "common.glsl"
+#include "random.glsl"
+#include "sample.glsl"
+#include "raytrace.glsl"
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(binding = 0) uniform UBO
+{
+	mat4 view_inv;
+	mat4 projection_inv;
+	mat4 view_projection_inv;
+	mat4 view_projection;
+	mat4 prev_view_projection;
+	vec4 cam_pos;
+	vec4 jitter;
+} ubo;
+layout(binding = 1) uniform sampler2D gbufferA;
+layout(binding = 2) uniform sampler2D gbufferB;
+layout(binding = 3) uniform sampler2D gbufferC;
+layout(binding = 4) uniform sampler2D depth_buffer;
+layout(binding = 5) uniform sampler2D sobol_sequence;
+layout(binding = 6) uniform sampler2D scrambling_ranking_tile;
+layout(binding = 7) uniform accelerationStructureEXT tlas;
+layout(binding = 8, rgba16f) uniform image2D prev_path_tracing_image;
+layout(binding = 9, rgba16f) uniform image2D path_tracing_image;
+
+layout(std430, binding = 10) buffer VertexBuffer {
+	Vertex vertices[];
+};
+
+layout(std430, binding = 11) buffer IndexBuffer {
+	uint indices[];
+};
+
+layout(std430, binding = 12) buffer MaterialBuffer {
+	Material materials[];
+};
+
+layout(std430, binding = 13) buffer PointLightBuffer {
+	PointLight point_lights[];
+};
+
+layout(std430, binding = 14) buffer AreaLightBuffer {
+	AreaLight area_lights[];
+};
+
+layout(binding = 15) uniform SceneBuffer
+{
+	uint vertices_count;
+	uint indices_count;
+	uint instance_count;
+	uint material_count;
+	uint point_light_count;
+	uint area_light_count;
+} scene_buffer;
+
+layout(std430, binding = 16) buffer InstanceBuffer {
+	Instance instances[];
+};
+
+layout(push_constant) uniform PushConstants
+{
+	uint max_depth;
+}push_constants;
+
+vec3 offset_ray_origin(vec3 p, vec3 dir, vec3 n)
+{
+    vec3 abs_p = abs(dir);
+	float max_p = max(abs_p.x, max(abs_p.y, abs_p.z));
+	float mag = (1.0 + max_p) * Epsilon;
+	mag *= sign(dot(dir, n));
+	return mag * n + p;
+}
+
+vec3 sample_light(inout uvec2 rng, vec3 org, vec3 world_normal, out float pdf, out vec3 dir)
+{
+	const uint light_count = scene_buffer.point_light_count + scene_buffer.area_light_count;
+	uint light_id = uint(float(light_count) * next_float(rng));
+	vec3 pos = vec3(0.0);
+	uint light_instance_id = ~0;
+	vec3 light_norm = vec3(0.0);
+	bool is_point_light = false;
+	vec3 intensity = vec3(0.0);
+	if(light_id < scene_buffer.point_light_count)
+	{
+		// Select point light
+		PointLight light = point_lights[light_id];
+		pos = light.position;
+		light_instance_id = light.instance_id;
+		intensity = light.intensity;
+		pdf = 1;
+		is_point_light = true;
+	}
+	else
+	{
+		// Select area light
+		AreaLight light = area_lights[light_id - scene_buffer.point_light_count];
+		vec2 sample_uv = next_vec2(rng);
+		vec3 p0 = (light.transform * vec4(-1, 0, -1, 1)).xyz;
+		vec3 p1 = (light.transform * vec4(1, 0, -1, 1)).xyz;
+		vec3 p2 = (light.transform * vec4(-1, 0, 1, 1)).xyz;
+		light_norm = cross(p1 - p0, p2 - p0);
+		float area = length(light_norm);
+		light_norm = normalize(light_norm);
+		pos = sample_uv.x * (p1 - p0) + sample_uv.y * (p2 - p0);
+		intensity = light.intensity;
+		pdf = 1.0 / area;
+	}
+
+	// Visibility test
+	org += world_normal * 0.01;
+	dir = normalize(pos - org);
+	float dist = length(pos - org);
+	uint hit_instance_id = ~0;
+	if(query_visibility(tlas, org, dir, (1.0 - ShadowEpsilon) * dist,  gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, hit_instance_id) == 0.0)
+	{
+		if(is_point_light && hit_instance_id == light_instance_id)
+		{
+			pdf *= dist * dist;
+			return intensity * 10;
+		}
+	}
+	else
+	{
+		if(is_point_light)
+		{
+			pdf *= dist * dist;
+			return intensity;
+		}
+		else
+		{
+			pdf *= dist * dist / dot(light_norm, dir);
+			return intensity;
+		}
+	}
+
+	return vec3(0.0);
+}
+
+vec3 eval_bsdf(vec3 wo, vec3 wi, Material material)
+{
+	if(wi.z < Epsilon || wo.z < Epsilon)
+	{
+		return vec3(0.0);
+	}
+	else
+	{
+		return material.base_color.rgb * InvPI * wo.z;
+	}
+}
+
+float pdf_bsdf(vec3 wo, vec3 wi, Material material)
+{
+	if(wi.z < Epsilon || wo.z < Epsilon)
+	{
+		return 0.0;
+	}
+	else
+	{
+		return InvPI * wo.z;
+	}
+}
+
+vec3 sample_bsdf(inout uvec2 rng, vec3 wi, Material material, out vec3 wo, out float pdf, out float eta)
+{
+	if(wi.z < Epsilon)
+	{
+		pdf = 0.0;
+		return vec3(0.0);
+	}
+
+	wo = sample_cosine_hemisphere(next_vec2(rng));
+	pdf = InvPI * wo.z;
+	return material.base_color.rgb * InvPI * wo.z;
+}
+
+struct Frame
+{
+	vec3 s;
+	vec3 t;
+	vec3 n;
+};
+
+vec3 to_local(Frame frame, vec3 v)
+{
+	return vec3(dot(v, frame.s), dot(v, frame.t), dot(v, frame.n));
+}
+
+vec3 to_world(Frame frame, vec3 v)
+{
+	return frame.s * v.x + frame.t * v.y + frame.n * v.z;
+}
+
+void main()
+{
+	const ivec2 size = textureSize(gbufferA, 0);
+	const ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+
+	const uint num_frames = uint(ubo.cam_pos.w);
+	uvec2 rng = rng_init(gl_GlobalInvocationID.xy, num_frames);
+
+	const vec2 jittered_coord = vec2(coord) + vec2(0.5) + vec2(next_float(rng), next_float(rng));
+	const vec2 tex_coord = jittered_coord / vec2(size);
+
+	const vec4 gbufferA_data = texelFetch(gbufferA, ivec2(jittered_coord), 0);
+	const vec4 gbufferB_data = texelFetch(gbufferB, ivec2(jittered_coord), 0);
+	const vec4 gbufferC_data = texelFetch(gbufferC, ivec2(jittered_coord), 0);
+	const float depth = texelFetch(depth_buffer, ivec2(jittered_coord), 0).r;
+
+	vec3 world_pos = world_position_from_depth(tex_coord, depth, ubo.view_projection_inv);
+	vec3 world_normal = octohedral_to_direction(gbufferB_data.rg);
+	uint instance_id = uint(gbufferC_data.b);
+
+	Instance instance = instances[instance_id];
+	Material material = materials[instance.material];
+	material.base_color.rgb = gbufferA_data.rgb;
+
+	vec3 radiance = vec3(0.0);
+	vec3 throughout = vec3(1.0);
+	float eta = 1.0;
+	vec3 wi = normalize(ubo.cam_pos.xyz - world_pos);
+
+	for(uint trace_depth = 0; trace_depth < push_constants.max_depth; trace_depth++)
+	{
+		Frame frame;
+		frame.n = world_normal;
+		coordinate_system(frame.n, frame.s, frame.t);
+
+		if(any(notEqual(material.emissive_factor, vec3(0.0))) && trace_depth == 0)
+		{
+			radiance += throughout * material.emissive_factor;
+		}
+
+		// Light sampling
+		float nee_pdf = 0.0;
+		vec3 dir = vec3(0.0);
+		vec3 wo;
+		vec3 light_value = sample_light(rng, world_pos, world_normal, nee_pdf, wo);
+		if(any(notEqual(light_value, vec3(0.0))))
+		{
+			vec3 local_wo = to_local(frame, wo);
+			vec3 local_wi = to_local(frame, wi);
+			vec3 bsdf_val = eval_bsdf(local_wo, local_wi, material);
+			float bsdf_pdf = pdf_bsdf(local_wo, local_wi, material);
+			float mis_weight = (nee_pdf * nee_pdf) / (nee_pdf * nee_pdf + bsdf_pdf * bsdf_pdf);
+			radiance += light_value * bsdf_val * mis_weight;
+		}
+
+		//wo = to_world(frame, wo);
+
+		//radiance = wo;
+
+		break;
+	}
+
+	if(num_frames == 0)
+	{
+		imageStore(path_tracing_image, ivec2(gl_GlobalInvocationID.xy), vec4(radiance, 1));
+	}
+	else
+	{
+		vec3 prev_color = imageLoad(prev_path_tracing_image, ivec2(gl_GlobalInvocationID.xy)).rgb;
+		vec3 accumulated_color = prev_color + (radiance - prev_color) / float(num_frames);
+		imageStore(path_tracing_image, ivec2(gl_GlobalInvocationID.xy), vec4(accumulated_color, 1));
+	}
+}
