@@ -54,7 +54,7 @@ class RayTracedAO
 	{
 		struct
 		{
-			float   ray_length  = 1.8f;
+			float   ray_length  = 0.3f;
 			float   bias        = 0.01f;
 			int32_t gbuffer_mip = 0;
 		} push_constant;
@@ -73,6 +73,7 @@ class RayTracedAO
 			{
 				float   alpha       = 0.2f;
 				int32_t gbuffer_mip = 0;
+				uint32_t debug       = 0;
 			} push_constant;
 
 			VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;

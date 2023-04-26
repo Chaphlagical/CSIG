@@ -4,7 +4,7 @@
 #include <spdlog/fmt/fmt.h>
 
 static const int RAY_TRACE_NUM_THREADS_X = 8;
-static const int RAY_TRACE_NUM_THREADS_Y = 8;
+static const int RAY_TRACE_NUM_THREADS_Y = 4;
 
 static const uint32_t TEMPORAL_ACCUMULATION_NUM_THREADS_X = 8;
 static const uint32_t TEMPORAL_ACCUMULATION_NUM_THREADS_Y = 8;
@@ -1142,11 +1142,10 @@ void RayTracedAO::draw(VkCommandBuffer cmd_buffer)
 		m_context->begin_marker(cmd_buffer, "Temporal Accumulation");
 		{
 			m_denoise.temporal_accumulation.push_constant.gbuffer_mip = m_gbuffer_mip;
-
 			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_denoise.temporal_accumulation.pipeline_layout, 0, 1, &m_denoise.temporal_accumulation.descriptor_sets[m_context->ping_pong], 0, nullptr);
 			vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_denoise.temporal_accumulation.pipeline);
 			vkCmdPushConstants(cmd_buffer, m_denoise.temporal_accumulation.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_denoise.temporal_accumulation.push_constant), &m_denoise.temporal_accumulation.push_constant);
-			vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_width) / float(RAY_TRACE_NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(RAY_TRACE_NUM_THREADS_Y))), 1);
+			vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_width) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_Y))), 1);
 		}
 		m_context->end_marker(cmd_buffer);
 
@@ -1189,6 +1188,7 @@ bool RayTracedAO::draw_ui()
 		{
 			update |= ImGui::SliderFloat("Ray Length", &m_raytraced.push_constant.ray_length, 0.0f, 10.0f);
 			update |= ImGui::DragFloat("Ray Traced Bias", &m_raytraced.push_constant.bias, 0.001f, 0.0f, 100.0f, "%.3f");
+			update |= ImGui::Checkbox("Debug", reinterpret_cast<bool*>(&m_denoise.temporal_accumulation.push_constant.debug));
 		}
 		ImGui::TreePop();
 	}

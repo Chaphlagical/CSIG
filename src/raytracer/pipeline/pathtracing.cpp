@@ -715,13 +715,16 @@ void PathTracing::draw(VkCommandBuffer cmd_buffer)
 			    0, 0, nullptr, 0, nullptr, 2, image_barriers);
 		}
 
+		m_context->begin_marker(cmd_buffer, "Path Tracing");
 		{
 			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout, 0, 1, &m_descriptor_sets[m_context->ping_pong], 0, nullptr);
 			vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline);
 			vkCmdPushConstants(cmd_buffer, m_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_push_constant), &m_push_constant);
 			vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_context->extent.width) / float(RAY_TRACE_NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_context->extent.height) / float(RAY_TRACE_NUM_THREADS_Y))), 1);
 		}
+		m_context->end_marker(cmd_buffer);
 	}
+	m_push_constant.frame_count++;
 }
 
 bool PathTracing::draw_ui()
@@ -734,4 +737,9 @@ bool PathTracing::draw_ui()
 		update |= ImGui::DragFloat("Bias", &m_push_constant.bias, 0.0000000001f, -1.f, 1.f, "%.10f");
 	}
 	return update;
+}
+
+void PathTracing::reset_frames()
+{
+	m_push_constant.frame_count = 0;
 }

@@ -1129,17 +1129,17 @@ void GBufferPass::draw(VkCommandBuffer cmd_buffer, const Scene &scene)
 				    cmd_buffer,
 				    gbufferA[m_context->ping_pong].vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 				    gbufferA[m_context->ping_pong].vk_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-				    1, &blit_info, VK_FILTER_LINEAR);
+				    1, &blit_info, VK_FILTER_NEAREST);
 				vkCmdBlitImage(
 				    cmd_buffer,
 				    gbufferB[m_context->ping_pong].vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 				    gbufferB[m_context->ping_pong].vk_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-				    1, &blit_info, VK_FILTER_LINEAR);
+				    1, &blit_info, VK_FILTER_NEAREST);
 				vkCmdBlitImage(
 				    cmd_buffer,
 				    gbufferC[m_context->ping_pong].vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 				    gbufferC[m_context->ping_pong].vk_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-				    1, &blit_info, VK_FILTER_LINEAR);
+				    1, &blit_info, VK_FILTER_NEAREST);
 				blit_info.srcSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 				blit_info.dstSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 				vkCmdBlitImage(

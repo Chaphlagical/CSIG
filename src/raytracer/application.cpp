@@ -7,6 +7,8 @@
 
 #include <vector>
 
+#define HALTON_SAMPLES 16
+
 inline glm::vec3 smooth_step(const glm::vec3 &v1, const glm::vec3 &v2, float t)
 {
 	t = glm::clamp(t, 0.f, 1.f);
@@ -15,6 +17,20 @@ inline glm::vec3 smooth_step(const glm::vec3 &v1, const glm::vec3 &v2, float t)
 	glm::vec3 v = glm::mix(v1, v2, t);
 
 	return v;
+}
+
+inline float halton_sequence(int base, int index)
+{
+	float result = 0;
+	float f      = 1;
+	while (index > 0)
+	{
+		f /= base;
+		result += f * (index % base);
+		index = floor(index / base);
+	}
+
+	return result;
 }
 
 bool is_key_pressed(GLFWwindow *window, uint32_t keycode)
@@ -131,6 +147,11 @@ Application::Application(const ApplicationConfig &config) :
 		vkDestroyFence(m_context.vk_device, fence, nullptr);
 		vkFreeCommandBuffers(m_context.vk_device, m_context.graphics_cmd_pool, 1, &cmd_buffer);
 	}
+
+	for (int32_t i = 1; i <= HALTON_SAMPLES; i++)
+	{
+		m_jitter_samples.push_back(glm::vec2((2.f * halton_sequence(2, i) - 1.f), (2.f * halton_sequence(3, i) - 1.f)));
+	}
 }
 
 Application::~Application()
@@ -162,6 +183,7 @@ void Application::run()
 
 		m_current_frame     = (m_current_frame + 1) % 3;
 		m_context.ping_pong = !m_context.ping_pong;
+		m_num_frames++;
 	}
 }
 
@@ -231,21 +253,21 @@ void Application::update_ui()
 		ImGui::Text("FPS: %.f", ImGui::GetIO().Framerate);
 		ImGui::Text("Frames: %.d", m_num_frames);
 		ImGui::Combo("Mode", reinterpret_cast<int32_t *>(&m_render_mode), render_modes, 2);
-		bool update_ui = false;
+		bool ui_update=false;
 		switch (m_render_mode)
 		{
 			case RenderMode::Hybrid:
-				update_ui |= m_renderer.raytraced_ao.draw_ui();
+				ui_update|=m_renderer.raytraced_ao.draw_ui();
 				break;
 			case RenderMode::PathTracing:
-				update_ui |= m_renderer.path_tracing.draw_ui();
+				ui_update |= m_renderer.path_tracing.draw_ui();
 				break;
 			default:
 				break;
 		}
-		if (update_ui)
+		if (ui_update)
 		{
-			m_num_frames = 0;
+			m_renderer.path_tracing.reset_frames();
 		}
 		ImGui::End();
 	}
@@ -325,13 +347,16 @@ void Application::update(VkCommandBuffer cmd_buffer)
 		              0, 0, -1, 0,
 		              0, 0, 1, 1) *
 		    glm::perspective(glm::radians(60.f), static_cast<float>(m_context.extent.width) / static_cast<float>(m_context.extent.height), 0.0001f, 1000.f);
-		m_num_frames = 0;
+		m_renderer.path_tracing.reset_frames();
 	}
 	else
 	{
 		m_camera.velocity = glm::vec3(0.f);
-		hide_cursor       = false;
-		m_num_frames++;
+		m_prev_jitter     = m_current_jitter;
+		glm::vec2 halton  = m_jitter_samples[m_num_frames % m_jitter_samples.size()];
+		m_current_jitter  = glm::vec2(halton.x / float(m_context.extent.width), halton.y / float(m_context.extent.height));
+
+		hide_cursor = false;
 	}
 
 	if (m_update)
@@ -345,15 +370,17 @@ void Application::update(VkCommandBuffer cmd_buffer)
 	// Copy to device
 	{
 		m_context.begin_marker(cmd_buffer, "Update Uniform Buffer");
-		m_camera.view_proj         = m_camera.proj * m_camera.view;
+		glm::mat4 jitter_proj = glm::translate(glm::mat4(1.0f), glm::vec3(m_current_jitter, 0.0f)) * m_camera.proj;
+		m_camera.view_proj    = jitter_proj * m_camera.view;
+
 		GlobalBuffer global_buffer = {
 		    .view_inv             = glm::inverse(m_camera.view),
-		    .projection_inv       = glm::inverse(m_camera.proj),
-		    .view_projection_inv  = glm::inverse(m_camera.proj * m_camera.view),
+		    .projection_inv       = glm::inverse(jitter_proj),
+		    .view_projection_inv  = glm::inverse(jitter_proj * m_camera.view),
 		    .view_projection      = m_camera.view_proj,
 		    .prev_view_projection = m_camera.prev_view_proj,
 		    .cam_pos              = glm::vec4(m_camera.position, static_cast<float>(m_num_frames)),
-		    .jitter               = glm::vec4(0.f),
+		    .jitter               = glm::vec4(m_current_jitter, m_prev_jitter),
 		};
 		m_camera.prev_view_proj = m_camera.view_proj;
 
@@ -522,11 +549,11 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.gbuffer_pass.gbufferA[m_context.ping_pong].vk_image,
+			        .image               = m_renderer.raytraced_ao.ao_image[m_context.ping_pong].vk_image,
 			        .subresourceRange    = VkImageSubresourceRange{
 			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 			               .baseMipLevel   = 0,
-			               .levelCount     = m_renderer.gbuffer_pass.mip_level,
+			               .levelCount     = 1,
 			               .baseArrayLayer = 0,
 			               .layerCount     = 1,
                     },
@@ -556,7 +583,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			    0, 0, nullptr, 0, nullptr, 2, image_barriers);
 		}
 
-		present(cmd_buffer, m_renderer.gbuffer_pass.gbufferA[m_context.ping_pong].vk_image);
+		present(cmd_buffer, m_renderer.raytraced_ao.ao_image[m_context.ping_pong].vk_image);
 
 		{
 			VkImageMemoryBarrier image_barriers[] = {
@@ -568,11 +595,11 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.gbuffer_pass.gbufferA[m_context.ping_pong].vk_image,
+			        .image               = m_renderer.raytraced_ao.ao_image[m_context.ping_pong].vk_image,
 			        .subresourceRange    = VkImageSubresourceRange{
 			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 			               .baseMipLevel   = 0,
-			               .levelCount     = m_renderer.gbuffer_pass.mip_level,
+			               .levelCount     = 1,
 			               .baseArrayLayer = 0,
 			               .layerCount     = 1,
                     },

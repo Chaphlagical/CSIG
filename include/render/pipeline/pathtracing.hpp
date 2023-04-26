@@ -20,6 +20,8 @@ class PathTracing
 
 	bool draw_ui();
 
+	void reset_frames();
+
   public:
 	Texture     path_tracing_image[2];
 	VkImageView path_tracing_image_view[2];
@@ -32,6 +34,7 @@ class PathTracing
 		int32_t max_depth     = 5;
 		float   emitter_scale = 100.f;
 		float   bias          = 0.01f;
+		uint32_t frame_count   = 0;
 	} m_push_constant;
 
 	VkPipelineLayout      m_pipeline_layout       = VK_NULL_HANDLE;

@@ -72,6 +72,11 @@ class Application
 	bool m_update    = true;
 	bool m_enable_ui = true;
 
+	std::vector<glm::vec2> m_jitter_samples;
+
+	glm::vec2 m_current_jitter = glm::vec2(0.f);
+	glm::vec2 m_prev_jitter    = glm::vec2(0.f);
+
 	enum class RenderMode
 	{
 		Hybrid,

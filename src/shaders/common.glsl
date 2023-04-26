@@ -80,8 +80,8 @@ void coordinate_system(vec3 N, out vec3 Nt, out vec3 Nb)
 
 vec2 direction_to_octohedral(vec3 normal)
 {
-    vec2 p = normal.xy * (1.0f / dot(abs(normal), vec3(1.0)));
-    return normal.z > 0.0f ? p : (1.0f - abs(p.yx)) * (step(0.0, p) * 2.0 - vec2(1.0));
+    vec2 p = normal.xy * (1.0 / dot(abs(normal), vec3(1.0)));
+    return normal.z > 0.0 ? p : (1.0 - abs(p.yx)) * (step(0.0, p) * 2.0 - vec2(1.0));
 }
 
 vec3 octohedral_to_direction(vec2 e)
@@ -110,7 +110,7 @@ vec3 local_to_world(vec3 n, vec3 v)
 	const vec3 ref = abs(dot(n, vec3(0, 1, 0))) > 0.99 ? vec3(0, 0, 1) : vec3(0, 1, 0);
     const vec3 x = normalize(cross(ref, n));
     const vec3 y = cross(n, x);
-	return normalize(mat3(x,y,n) * v);
+	return normalize(mat3(x, y, n) * v);
 }
 
 vec3 offset_ray(vec3 p, vec3 n)
