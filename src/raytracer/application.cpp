@@ -215,6 +215,8 @@ void Application::end_render()
 
 void Application::update_ui()
 {
+	const char *const render_modes[] = {"Hybrid Pipeline", "Path Tracing Pipeline"};
+
 	m_renderer.ui.begin_frame();
 
 	if (ImGui::IsKeyPressed(ImGuiKey_G, false))
@@ -227,9 +229,20 @@ void Application::update_ui()
 		ImGui::Begin("UI", &m_enable_ui);
 		ImGui::Text("CSIG 2023 RayTracer");
 		ImGui::Text("FPS: %.f", ImGui::GetIO().Framerate);
+		ImGui::Text("Frames: %.d", m_num_frames);
+		ImGui::Combo("Mode", reinterpret_cast<int32_t *>(&m_render_mode), render_modes, 2);
 		bool update_ui = false;
-		update_ui |= m_renderer.raytraced_ao.draw_ui();
-		update_ui |= m_renderer.path_tracing.draw_ui();
+		switch (m_render_mode)
+		{
+			case RenderMode::Hybrid:
+				update_ui |= m_renderer.raytraced_ao.draw_ui();
+				break;
+			case RenderMode::PathTracing:
+				update_ui |= m_renderer.path_tracing.draw_ui();
+				break;
+			default:
+				break;
+		}
 		if (update_ui)
 		{
 			m_num_frames = 0;
@@ -392,139 +405,202 @@ void Application::render(VkCommandBuffer cmd_buffer)
 {
 	m_renderer.gbuffer_pass.draw(cmd_buffer, m_scene);
 
-	if (!m_pathtracing)
+	switch (m_render_mode)
 	{
-		m_renderer.raytraced_ao.draw(cmd_buffer);
+		case RenderMode::Hybrid:
+			m_renderer.raytraced_ao.draw(cmd_buffer);
+			break;
+		case RenderMode::PathTracing:
+			m_renderer.path_tracing.draw(cmd_buffer);
+			break;
+		default:
+			break;
+	}
+
+	if (m_render_mode == RenderMode::PathTracing)
+	{
+		{
+			VkImageMemoryBarrier image_barriers[] = {
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+			        .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = m_renderer.path_tracing.path_tracing_image[m_context.ping_pong].vk_image,
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = 1,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_MEMORY_READ_BIT,
+			        .dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+			        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = m_context.swapchain_images[m_context.image_index],
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = 1,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
+			};
+			vkCmdPipelineBarrier(
+			    cmd_buffer,
+			    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    0, 0, nullptr, 0, nullptr, 2, image_barriers);
+		}
+
+		present(cmd_buffer, m_renderer.path_tracing.path_tracing_image[m_context.ping_pong].vk_image);
+
+		{
+			VkImageMemoryBarrier image_barriers[] = {
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+			        .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = m_renderer.path_tracing.path_tracing_image[m_context.ping_pong].vk_image,
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = 1,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
+			        .dstAccessMask       = VK_ACCESS_MEMORY_READ_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = m_context.swapchain_images[m_context.image_index],
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = 1,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
+
+			};
+			vkCmdPipelineBarrier(
+			    cmd_buffer,
+			    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+			    VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+			    0, 0, nullptr, 0, nullptr, 2, image_barriers);
+		}
 	}
 	else
 	{
-		m_renderer.path_tracing.draw(cmd_buffer);
-	}
+		{
+			VkImageMemoryBarrier image_barriers[] = {
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+			        .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = m_renderer.gbuffer_pass.gbufferA[m_context.ping_pong].vk_image,
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = m_renderer.gbuffer_pass.mip_level,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_MEMORY_READ_BIT,
+			        .dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+			        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = m_context.swapchain_images[m_context.image_index],
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = 1,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
+			};
+			vkCmdPipelineBarrier(
+			    cmd_buffer,
+			    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    0, 0, nullptr, 0, nullptr, 2, image_barriers);
+		}
 
-	{
-		VkImageMemoryBarrier image_barriers[] = {
-		    /*{
-		        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-		        .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
-		        .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .image               = m_renderer.gbuffer_pass.gbufferA[m_context.ping_pong].vk_image,
-		        .subresourceRange    = VkImageSubresourceRange{
-		               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-		               .baseMipLevel   = 0,
-		               .levelCount     = m_renderer.gbuffer_pass.mip_level,
-		               .baseArrayLayer = 0,
-		               .layerCount     = 1,
-		        },
-		    },*/
-		    {
-		        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		        .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
-		        .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
-		        .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
-		        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .image               = m_renderer.path_tracing.path_tracing_image[m_context.ping_pong].vk_image,
-		        .subresourceRange    = VkImageSubresourceRange{
-		               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-		               .baseMipLevel   = 0,
-		               .levelCount     = 1,
-		               .baseArrayLayer = 0,
-		               .layerCount     = 1,
-                },
-		    },
-		    {
-		        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		        .srcAccessMask       = VK_ACCESS_MEMORY_READ_BIT,
-		        .dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
-		        .oldLayout           = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-		        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .image               = m_context.swapchain_images[m_context.image_index],
-		        .subresourceRange    = VkImageSubresourceRange{
-		               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-		               .baseMipLevel   = 0,
-		               .levelCount     = 1,
-		               .baseArrayLayer = 0,
-		               .layerCount     = 1,
-                },
-		    },
-		};
-		vkCmdPipelineBarrier(
-		    cmd_buffer,
-		    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-		    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-		    0, 0, nullptr, 0, nullptr, 2, image_barriers);
-	}
+		present(cmd_buffer, m_renderer.gbuffer_pass.gbufferA[m_context.ping_pong].vk_image);
 
-	// present(cmd_buffer, m_renderer.gbuffer_pass.gbufferA[m_context.ping_pong].vk_image);
-	present(cmd_buffer, m_renderer.path_tracing.path_tracing_image[m_context.ping_pong].vk_image);
-
-	{
-		VkImageMemoryBarrier image_barriers[] = {
-		    /*{
-		        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		        .srcAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
-		        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-		        .oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .image               = m_renderer.gbuffer_pass.gbufferA[m_context.ping_pong].vk_image,
-		        .subresourceRange    = VkImageSubresourceRange{
-		               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-		               .baseMipLevel   = 0,
-		               .levelCount     = m_renderer.gbuffer_pass.mip_level,
-		               .baseArrayLayer = 0,
-		               .layerCount     = 1,
-		        },
-		    },*/
-		    {
-		        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		        .srcAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
-		        .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
-		        .oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
-		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .image               = m_renderer.path_tracing.path_tracing_image[m_context.ping_pong].vk_image,
-		        .subresourceRange    = VkImageSubresourceRange{
-		               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-		               .baseMipLevel   = 0,
-		               .levelCount     = 1,
-		               .baseArrayLayer = 0,
-		               .layerCount     = 1,
-                },
-		    },
-		    {
-		        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		        .srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
-		        .dstAccessMask       = VK_ACCESS_MEMORY_READ_BIT,
-		        .oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		        .newLayout           = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		        .image               = m_context.swapchain_images[m_context.image_index],
-		        .subresourceRange    = VkImageSubresourceRange{
-		               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-		               .baseMipLevel   = 0,
-		               .levelCount     = 1,
-		               .baseArrayLayer = 0,
-		               .layerCount     = 1,
-                },
-		    },
-
-		};
-		vkCmdPipelineBarrier(
-		    cmd_buffer,
-		    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
-		    VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
-		    0, 0, nullptr, 0, nullptr, 2, image_barriers);
+		{
+			VkImageMemoryBarrier image_barriers[] = {
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+			        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = m_renderer.gbuffer_pass.gbufferA[m_context.ping_pong].vk_image,
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = m_renderer.gbuffer_pass.mip_level,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
+			        .dstAccessMask       = VK_ACCESS_MEMORY_READ_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = m_context.swapchain_images[m_context.image_index],
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = 1,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
+			};
+			vkCmdPipelineBarrier(
+			    cmd_buffer,
+			    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+			    VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+			    0, 0, nullptr, 0, nullptr, 2, image_barriers);
+		}
 	}
 
 	// Draw UI

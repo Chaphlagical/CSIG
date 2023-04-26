@@ -69,7 +69,12 @@ class Application
 	uint32_t m_current_frame = 0;
 	uint32_t m_num_frames    = 0;
 
-	bool m_update      = true;
-	bool m_enable_ui   = true;
-	bool m_pathtracing = true;
+	bool m_update    = true;
+	bool m_enable_ui = true;
+
+	enum class RenderMode
+	{
+		Hybrid,
+		PathTracing,
+	} m_render_mode = RenderMode::Hybrid;
 };

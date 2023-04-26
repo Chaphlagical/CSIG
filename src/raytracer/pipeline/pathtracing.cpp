@@ -727,9 +727,11 @@ void PathTracing::draw(VkCommandBuffer cmd_buffer)
 bool PathTracing::draw_ui()
 {
 	bool update = false;
-	update |= ImGui::SliderInt("Max Bounce", reinterpret_cast<int32_t *>(&m_push_constant.max_depth), 1, 100);
-	update |= ImGui::DragFloat("Emitter Factor", &m_push_constant.emitter_factor, 1.f, 1.f, 1000.f);
-	update |= ImGui::DragFloat("Bias", &m_push_constant.bias, 0.0000000001f, -1.f, 1.f, "%.10f");
-	update |= ImGui::Checkbox("Debug", reinterpret_cast<bool *>(&m_push_constant.debug));
+	if (ImGui::TreeNode("Path Tracing"))
+	{
+		update |= ImGui::SliderInt("Max Depth", reinterpret_cast<int32_t *>(&m_push_constant.max_depth), 1, 100);
+		update |= ImGui::DragFloat("Emitter Scale", &m_push_constant.emitter_scale, 1.f, 1.f, 1000.f);
+		update |= ImGui::DragFloat("Bias", &m_push_constant.bias, 0.0000000001f, -1.f, 1.f, "%.10f");
+	}
 	return update;
 }
