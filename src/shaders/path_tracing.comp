@@ -44,33 +44,31 @@ layout(std430, binding = 12) buffer MaterialBuffer {
 	Material materials[];
 };
 
-layout(std430, binding = 13) buffer PointLightBuffer {
-	PointLight point_lights[];
+layout(std430, binding = 13) buffer EmitterBuffer {
+	Emitter emitters[];
 };
 
-layout(std430, binding = 14) buffer AreaLightBuffer {
-	AreaLight area_lights[];
-};
-
-layout(binding = 15) uniform SceneBuffer
+layout(binding = 14) uniform SceneBuffer
 {
 	uint vertices_count;
 	uint indices_count;
 	uint instance_count;
 	uint material_count;
-	uint point_light_count;
-	uint area_light_count;
+	uint emitter_count;
 } scene_buffer;
 
-layout(std430, binding = 16) buffer InstanceBuffer {
+layout(std430, binding = 15) buffer InstanceBuffer {
 	Instance instances[];
 };
 
-layout(binding = 17) uniform sampler2D textures[];
+layout(binding = 16) uniform sampler2D textures[];
 
 layout(push_constant) uniform PushConstants
 {
-	uint max_depth;
+	int max_depth;
+	float emitter_factor;
+	float bias;
+	uint debug;
 }push_constants;
 
 struct Ray
@@ -100,43 +98,88 @@ struct BSDFSample
 
 struct LightSample
 {
-	vec3 position;
-	vec3 normal;
-	vec3 emission;
+	vec3 radiance;
+	vec3 dir;
+	float dist;
 	float pdf;
+	bool visible;
 };
+
+float power_heuristic(float a, float b)
+{
+  float t = a * a;
+  return t / (b * b + t);
+}
 
 bool hit_test(in rayQueryEXT ray_query, in Ray r)
 {
-	int instance_custom_index = rayQueryGetIntersectionInstanceIdEXT(ray_query, false);
+	int instance_id = rayQueryGetIntersectionInstanceIdEXT(ray_query, false);
 	int primitive_id = rayQueryGetIntersectionPrimitiveIndexEXT(ray_query, false);
+
+	Instance instance = instances[instance_id];
+	Material material = materials[instance.material];
+
+	if(material.alpha_mode == 0)	// Opaque
+	{
+		return true;
+	}
+
+	float base_color_alpha = material.base_color.a;
+	if(material.base_color_texture > -1)
+	{
+		const uint ind0 = indices[instance.indices_offset + primitive_id * 3 + 0];
+		const uint ind1 = indices[instance.indices_offset + primitive_id * 3 + 1];
+		const uint ind2 = indices[instance.indices_offset + primitive_id * 3 + 2];
+
+		const Vertex v0 = vertices[instance.vertices_offset + ind0];
+		const Vertex v1 = vertices[instance.vertices_offset + ind1];
+		const Vertex v2 = vertices[instance.vertices_offset + ind2];
+
+		const vec2 uv0 = vec2(v0.position.w, v0.normal.w);
+		const vec2 uv1 = vec2(v1.position.w, v1.normal.w);
+		const vec2 uv2 = vec2(v2.position.w, v2.normal.w);
+
+		vec2 bary = rayQueryGetIntersectionBarycentricsEXT(ray_query, false);
+		const vec2 tex_coord = uv0 * (1.0 - bary.x - bary.y) + uv1 * bary.x + uv2 * bary.y;
+
+		base_color_alpha *= texture(textures[material.base_color_texture], tex_coord).a;
+	}
+
+	float opacity;
+	if(material.alpha_mode == 1)
+	{
+		// Masking
+		opacity = base_color_alpha > material.cutoff ? 1.0 : 0.0;
+	}
+	else
+	{
+		// Blending
+		opacity = base_color_alpha;
+	}
+
+	if(rand(prd.seed) > opacity)
+	{
+		return false;
+	}
 
 	return true;
 }
 
-struct Interaction
-{
-	bool hit;
-	float t;
-	uint instance_id;
-	uint primitive_id;
-	vec2 barycentric;
-};
-
 void closest_hit(Ray ray)
 {
-	Interaction its;
+	uint ray_flags = gl_RayFlagsCullBackFacingTrianglesEXT;  // gl_RayFlagsNoneEXT
+  	prd.hit_t      = Infinity;
 
+	// Initializes a ray query object but does not start traversal
 	rayQueryEXT ray_query;
-	rayQueryInitializeEXT(
-		ray_query, 
-		tlas, 
-		gl_RayFlagsNoneEXT , 
-		0xFF,
-		ray.origin,
-		0.0,
-		ray.direction,
-		Infinity);
+	rayQueryInitializeEXT(ray_query,
+						tlas,
+						ray_flags,
+						0xFF,
+						ray.origin,
+						0.0,
+						ray.direction,
+						Infinity);
 
 	while(rayQueryProceedEXT(ray_query))
 	{
@@ -165,8 +208,6 @@ void closest_hit(Ray ray)
 
 bool any_hit(Ray ray, float max_dist)
 {
-	Interaction its;
-
 	rayQueryEXT ray_query;
 	rayQueryInitializeEXT(
 		ray_query, 
@@ -192,164 +233,448 @@ bool any_hit(Ray ray, float max_dist)
 	return (rayQueryGetIntersectionTypeEXT(ray_query, true) != gl_RayQueryCommittedIntersectionNoneEXT);
 }
 
-// vec3 sample_light(inout uvec2 rng, vec3 p, out float pdf, out vec3 dir)
-// {
-// 	const uint light_count = scene_buffer.point_light_count + scene_buffer.area_light_count;
-// 	uint light_id = uint(float(light_count) * next_float(rng));
-// 	vec3 pos = vec3(0.0);
-// 	uint light_instance_id = ~0;
-// 	vec3 light_norm = vec3(0.0);
-// 	bool is_point_light = false;
-// 	vec3 intensity = vec3(0.0);
+BSDFSample sample_bsdf(ShadeState sstate, vec3 V)
+{
+	BSDFSample bs;
+	bs.pdf = 0.0;
 
-// 	if(light_id < scene_buffer.point_light_count)
-// 	{
-// 		// Select point light
-// 		PointLight light = point_lights[light_id];
-// 		pos = light.position;
-// 		light_instance_id = light.instance_id;
-// 		intensity = light.intensity;
-// 		pdf = 1;
-// 		is_point_light = true;
-// 	}
-// 	else
-// 	{
-// 		// Select area light
-// 		AreaLight light = area_lights[light_id - scene_buffer.point_light_count];
-// 		vec2 sample_uv = next_vec2(rng);
-// 		vec3 p0 = (light.transform * vec4(-1, 0, -1, 1)).xyz;
-// 		vec3 p1 = (light.transform * vec4(1, 0, -1, 1)).xyz;
-// 		vec3 p2 = (light.transform * vec4(-1, 0, 1, 1)).xyz;
-// 		light_norm = cross(p1 - p0, p2 - p0);
-// 		float area = length(light_norm);
-// 		light_norm = normalize(light_norm);
-// 		pos = sample_uv.x * (p1 - p0) + sample_uv.y * (p2 - p0);
-// 		intensity = light.intensity;
-// 		pdf = 1.0 / area;
-// 	}
+	float r1 = rand(prd.seed);
+	float r2 = rand(prd.seed);
 
-// 	// Visibility test
-// 	float dist = length(pos - p);
-// 	dir = normalize(pos - p);
+	float diffuse_ratio  = 0.5 * (1.0 - sstate.mat.metallic_factor);
+  	float trans_weight   = (1.0 - sstate.mat.metallic_factor) * sstate.mat.transmission_factor;
 
-// 	Ray ray;
-// 	ray.org = p;
-// 	ray.dir = dir;
-// 	ray.tmin = Epsilon;
-// 	ray.tmax = (1 - Epsilon) * dist;
+	vec3 Cdlin = sstate.mat.base_color.rgb;
+	float Cdlum = 0.3 * Cdlin.x + 0.6 * Cdlin.y + 0.1 * Cdlin.z;
+	vec3 Ctint = Cdlum > 0.0 ? Cdlin / Cdlum : vec3(1.0f);
+	vec3 Cspec0 = mix(vec3(0.0), Cdlin, sstate.mat.metallic_factor);
 
-// 	if(any_hit())
-// 	{
-// 		if(is_point_light)
-// 		{
-// 			if(light_instance_id == its.instance_id)
-// 			{
-// 				pdf *= dist * dist;
-// 				return intensity;
-// 			}
-// 		}
-// 	}
-// 	else
-// 	{
-// 		if(is_point_light)
-// 		{
-// 			pdf *= dist * dist;
-// 		}
-// 		else
-// 		{
-// 			pdf *= dist * dist / dot(light_norm, dir);
-// 		}
-// 		return intensity;
-// 	}
-    
-// 	return vec3(0.0);
-// }
+	if(rand(prd.seed) < trans_weight)
+	{
+		// BSDF
+		vec3 H = importance_sample_GTR2(sstate.mat.roughness_factor, r1, r2);
+		H = normalize(sstate.tangent * H.x + sstate.bitangent * H.y + sstate.ffnormal * H.z);
 
-// vec3 eval_bsdf(vec3 wo, vec3 wi, vec3 n, Material material)
-// {
-// 	if(dot(wo, n) < Epsilon || dot(wi, n) < Epsilon)
-// 	{
-// 		return vec3(0.0);
-// 	}
-// 	else
-// 	{
-// 		return material.base_color.rgb * InvPI * dot(wo, n);
-// 	}
-// }
+		vec3  R = reflect(-V, H);
+    	float F = dielectric_fresnel(abs(dot(R, H)), sstate.eta);
 
-// float pdf_bsdf(vec3 wo, vec3 wi, vec3 n, Material material)
-// {
-// 	if(dot(wo, n) < Epsilon || dot(wi, n) < Epsilon)
-// 	{
-// 		return 0.0;
-// 	}
-// 	else
-// 	{
-// 		return InvPI * dot(wo, n);
-// 	}
-// }
+		// Reflection/Total internal reflection
+		if(rand(prd.seed) < F)   
+		{
+			bs.L = normalize(R); 
+			bs.f = eval_dielectric_reflection(sstate, V, sstate.ffnormal, bs.L, H, bs.pdf);
+		}
+		else  // Transmission
+		{
+			bs.L = normalize(refract(-V, H, sstate.eta));
+			bs.f = eval_dielectric_refraction(sstate, V, sstate.ffnormal, bs.L, H, bs.pdf);
+		}
 
-// vec3 sample_bsdf(inout uvec2 rng, vec3 wi, Material material, out vec3 wo, out float pdf, out float eta)
-// {
-// 	if(wi.z < Epsilon)
-// 	{
-// 		pdf = 0.0;
-// 		wo = vec3(0.0);
-// 		return vec3(0.0);
-// 	}
+		bs.f *= trans_weight;
+    	bs.pdf *= trans_weight;
+	}
+	else
+	{
+		// BRDF
+		if(rand(prd.seed) < diffuse_ratio)
+		{
+			// Diffuse
+			vec3 L = cosine_sample_hemisphere(r1, r2);
+			bs.L = sstate.tangent * L.x + sstate.bitangent * L.y + sstate.ffnormal * L.z;
+			vec3 H = normalize(bs.L + V);
+			bs.f = eval_diffuse(sstate, V, sstate.ffnormal, bs.L, H, bs.pdf);
+			bs.pdf *= diffuse_ratio;
+		}
+		else
+		{
+			// Specular
+			float primary_spec_ratio = 1.0 / (1.0 + sstate.mat.clearcoat_factor);
+			// Sample primary specular lobe
+			if(rand(prd.seed) < primary_spec_ratio)
+			{
+				// TODO: Implement http://jcgt.org/published/0007/04/01/
+				vec3 H = importance_sample_GTR2(sstate.mat.roughness_factor, r1, r2);
+				H = sstate.tangent * H.x + sstate.bitangent * H.y + sstate.ffnormal * H.z;
+				bs.L = normalize(reflect(-V, H));
+				bs.f = eval_specular(sstate, Cspec0, V, sstate.normal, bs.L, H, bs.pdf);
+				bs.pdf *= primary_spec_ratio * (1.0 - diffuse_ratio);
+			}
+			else  // Sample clearcoat lobe
+			{
+				vec3 H = importance_sample_GTR2(sstate.mat.clearcoat_roughness_factor, r1, r2);
+				H = sstate.tangent * H.x + sstate.bitangent * H.y + sstate.ffnormal * H.z;
+				bs.L = normalize(reflect(-V, H));
+				bs.f = eval_clearcoat(sstate, V, sstate.normal, bs.L, H, bs.pdf);
+				bs.pdf *= (1.0 - primary_spec_ratio) * (1.0 - diffuse_ratio);
+			}
+		}
 
-// 	wo = sample_cosine_hemisphere(next_vec2(rng));
-// 	pdf = InvPI * wo.z;
-// 	return material.base_color.rgb * InvPI * wo.z;
-// }
+		bs.f *= (1.0 - trans_weight);
+    	bs.pdf *= (1.0 - trans_weight);
+	}
 
-// vec4 fetch_base_color(in Material material, in vec2 uv)
-// {
-// 	if (material.base_color_texture == ~0)
-// 	{
-// 		return material.base_color;
-// 	}
-// 	else
-// 	{
-// 		return texture(textures[material.base_color_texture], uv) * material.base_color;
-// 	}
-// }
+	return bs;
+}
 
-// vec2 fetch_roughness_metallic(in Material material, in vec2 uv)
-// {
-// 	if (material.metallic_roughness_texture == ~0)
-// 	{
-// 		return vec2(material.roughness_factor, material.metallic_factor);
-// 	}
-// 	else
-// 	{
-// 		vec2 roughness_metallic = texture(textures[material.metallic_roughness_texture], uv).gb;
-// 		return roughness_metallic * vec2(material.roughness_factor, material.metallic_factor);
-// 	}
-// }
+vec3 eval_bsdf(ShadeState sstate, vec3 V, vec3 N, vec3 L, out float pdf)
+{
+	vec3 f = vec3(0.0);
 
-// vec3 fetch_normal(in Material material, in vec3 normal, in vec3 tangent, in vec2 uv)
-// {
+	vec3 H;
+
+	if(dot(N, L) < 0.0)
+	{
+		H = normalize(L * (1.0 / sstate.eta) + V);
+	}
+	else
+	{
+		H = normalize(L + V);
+	}
+
+	float diffuse_ratio     = 0.5 * (1.0 - sstate.mat.metallic_factor);
+	float primary_spec_ratio = 1.0 / (1.0 + sstate.mat.clearcoat_factor);
+	float trans_weight      = (1.0 - sstate.mat.metallic_factor) * sstate.mat.transmission_factor;
+
+	vec3  brdf = vec3(0.0);
+	vec3  bsdf = vec3(0.0);
+
+	float brdf_pdf = 0.0;
+	float bsdf_pdf = 0.0;
+
+	// BSDF
+	if(trans_weight > 0.0)
+	{
+		// Transmission
+		if(dot(N, L) < 0.0)
+		{
+			bsdf = eval_dielectric_refraction(sstate, V, N, L, H, bsdf_pdf);
+		}
+		else  // Reflection
+		{
+			bsdf = eval_dielectric_reflection(sstate, V, N, L, H, bsdf_pdf);
+		}
+	}
+
+	float m_pdf;
+
+	if(trans_weight < 1.0)
+	{
+		vec3  Cdlin = sstate.mat.base_color.rgb;
+		float Cdlum = 0.3 * Cdlin.x + 0.6 * Cdlin.y + 0.1 * Cdlin.z;  // luminance approx.
+
+		vec3 Ctint = Cdlum > 0.0 ? Cdlin / Cdlum : vec3(1.0f);  // normalize lum. to isolate hue+sat
+		vec3 Cspec0 = mix(vec3(0.0), Cdlin, sstate.mat.metallic_factor);
+
+		// Diffuse
+		brdf += eval_diffuse(sstate, V, N, L, H, m_pdf);
+		brdf_pdf += m_pdf * diffuse_ratio;
+
+		// Specular
+		brdf += eval_specular(sstate, Cspec0, V, N, L, H, m_pdf);
+		brdf_pdf += m_pdf * primary_spec_ratio * (1.0 - diffuse_ratio);
+
+		// Clearcoat
+		brdf += eval_clearcoat(sstate, V, N, L, H, m_pdf);
+		brdf_pdf += m_pdf * (1.0 - primary_spec_ratio) * (1.0 - diffuse_ratio);
+	}
+
+	pdf = mix(brdf_pdf, bsdf_pdf, trans_weight);
+  	return mix(brdf, bsdf, trans_weight);
+}
+
+LightSample sample_light(Ray ray, ShadeState sstate)
+{
+	LightSample ls;
+	ls.radiance = vec3(0);
+	ls.visible = false;
+
+	if(scene_buffer.emitter_count == 0)
+	{
+		return ls;
+	}
+
+	// Sample a emitter
+	uint emitter_id = uint(float(scene_buffer.emitter_count) * rand(prd.seed));
+
+	if(emitter_id < scene_buffer.emitter_count)
+	{
+		Emitter emitter = emitters[emitter_id];
+		Instance instance = instances[emitter.instance_id];
+
+		// Sample a triangle
+		uint primitive_id = uint(float(instance.indices_count / 3) * rand(prd.seed));
+
+		const uint ind0 = indices[instance.indices_offset + primitive_id * 3 + 0];
+		const uint ind1 = indices[instance.indices_offset + primitive_id * 3 + 1];
+		const uint ind2 = indices[instance.indices_offset + primitive_id * 3 + 2];
+
+		const Vertex v0 = vertices[instance.vertices_offset + ind0];
+		const Vertex v1 = vertices[instance.vertices_offset + ind1];
+		const Vertex v2 = vertices[instance.vertices_offset + ind2];
+
+		const vec3 p0 = (instance.transform * vec4(v0.position.xyz, 1.0)).xyz;
+		const vec3 p1 = (instance.transform * vec4(v1.position.xyz, 1.0)).xyz;
+		const vec3 p2 = (instance.transform * vec4(v2.position.xyz, 1.0)).xyz;
+
+		vec2 bary = rand2(prd.seed);
+		vec3 sample_pos = (1.0 - bary.x - bary.y) * p0 + bary.x * p1 + bary.y * p2;
+
+		ls.dir = normalize(sample_pos - sstate.position);
+		float dist = length(sample_pos - sstate.position);
+
+		Ray shadow_ray;
+		// shadow_ray.origin = offset_ray(sstate.position, dot(ls.dir, sstate.ffnormal) > 0 ? sstate.ffnormal : -sstate.ffnormal);
+		// if(sstate.primary)
+		// {
+			shadow_ray.origin = sstate.position + push_constants.bias * (dot(ls.dir, sstate.ffnormal) > 0 ? sstate.ffnormal : -sstate.ffnormal);
+		// }
+		float max_dist = length(shadow_ray.origin - sample_pos);
+		shadow_ray.direction = ls.dir;
+
+		if(!any_hit(shadow_ray, (1 - ShadowEpsilon) * max_dist))
+		{
+			ls.visible = true;
+			ls.pdf = dist * dist / (instance.area * abs(dot(ls.dir, sstate.ffnormal)));
+			if(dot(ls.dir, sstate.ffnormal) > 0)
+			{
+				float bsdf_pdf;
+				vec3 f = eval_bsdf(sstate, -ray.direction, sstate.ffnormal, ls.dir, bsdf_pdf);
+				float mis_weight = max(0.0, power_heuristic(ls.pdf, bsdf_pdf));
+				ls.radiance = mis_weight * f * abs(dot(ls.dir, sstate.ffnormal)) * emitter.intensity * push_constants.emitter_factor / ls.pdf;
+			}
+		}
+	}
 	
-// 	if (material.normal_texture == ~0)
-// 	{
-// 		return normalize(normal);
-// 	}
-// 	else
-// 	{
-// 		mat3 TBN = mat3(normalize(tangent), normalize(cross(normal, tangent)), normalize(normal));
-// 		normal = normalize(texture(textures[material.normal_texture], uv).rgb * 2.0-1.0);
-// 		return normalize(TBN * normal);
-// 	}
-// }
+	return ls;
+}
 
-// float mis_weight(float pdf_a, float pdf_b)
-// {
-// 	pdf_a *= pdf_a;
-// 	pdf_b *= pdf_b;
-// 	float w = pdf_a / (pdf_a + pdf_b);
-// 	return pdf_a == 0.0 && pdf_b == 0.0 ? 0.0 : w;
-// }
+ShadeState GetShadeState(Ray ray, PtPayload payload)
+{
+	const uint instance_id = payload.instance_custom_index;
+	const uint primitive_id = payload.primitive_id;
+	const vec3 bary = vec3(1.0 - payload.bary_coord.x - payload.bary_coord.y, payload.bary_coord.x, payload.bary_coord.y);
+	const Instance instance = instances[instance_id];
+	
+	const uint ind0 = indices[instance.indices_offset + primitive_id * 3 + 0];
+	const uint ind1 = indices[instance.indices_offset + primitive_id * 3 + 1];
+	const uint ind2 = indices[instance.indices_offset + primitive_id * 3 + 2];
+
+	const Vertex v0 = vertices[instance.vertices_offset + ind0];
+	const Vertex v1 = vertices[instance.vertices_offset + ind1];
+	const Vertex v2 = vertices[instance.vertices_offset + ind2];
+
+	const vec3 position = v0.position.xyz * bary.x + v1.position.xyz * bary.y + v2.position.xyz * bary.z;
+	const vec3 world_position = vec3(payload.object_to_world * vec4(position, 1.0));
+
+	const vec3 normal = v0.normal.xyz * bary.x + v1.normal.xyz * bary.y + v2.normal.xyz * bary.z;
+	vec3 world_normal = normalize(vec3(normal * payload.world_to_object));
+  	vec3 geom_normal  = normalize(cross(v1.position.xyz - v0.position.xyz, v2.position.xyz - v0.position.xyz));
+  	vec3 wgeom_normal = normalize(vec3(geom_normal * payload.world_to_object));
+	vec3 ffnormal = dot(world_normal, ray.direction) <= 0.0 ? world_normal : -world_normal;
+
+	vec3 tangent = v0.tangent.xyz * bary.x + v1.tangent.xyz * bary.y + v2.tangent.xyz * bary.z;
+	vec3 world_tangent  = normalize(vec3(tangent * payload.world_to_object));
+	world_tangent = normalize(world_tangent - dot(world_tangent, world_normal) * world_normal);
+	vec3 world_bitangent = normalize(cross(world_normal, world_tangent));
+
+	const vec2 uv0 = vec2(v0.position.w, v0.normal.w);
+	const vec2 uv1 = vec2(v1.position.w, v1.normal.w);
+	const vec2 uv2 = vec2(v2.position.w, v2.normal.w);
+
+	const vec2 tex_coord = uv0 * bary.x + uv1 * bary.y + uv2 * bary.z;
+
+	Material material = materials[instance.material];
+
+	if(material.normal_texture > -1)
+	{
+		mat3 TBN = mat3(world_tangent, world_bitangent, world_normal);
+		vec3 normal_vec = textureLod(textures[material.normal_texture], tex_coord, 0).xyz;
+		normal_vec = normalize(normal_vec * 2.0 - 1.0);
+		world_normal = normalize(TBN * normal_vec);
+		ffnormal = dot(world_normal, ray.direction) <= 0.0 ? world_normal : -world_normal;
+		coordinate_system(ffnormal, world_tangent, world_bitangent);
+	}
+
+	if(material.metallic_roughness_texture > -1)
+	{
+		vec3 metallic_roughness = textureLod(textures[material.metallic_roughness_texture], tex_coord, 0).xyz;
+		material.roughness_factor *= metallic_roughness.g;
+		material.metallic_factor *= metallic_roughness.b;
+	}
+	material.roughness_factor = max(0.001, material.roughness_factor);
+
+	if(material.base_color_texture > -1)
+	{
+		vec4 base_color = textureLod(textures[material.base_color_texture], tex_coord, 0);
+		base_color.rgb = pow(base_color.rgb, vec3(2.2));
+		material.base_color *= base_color;
+	}
+
+	ShadeState sstate;
+	sstate.normal = world_normal;
+	sstate.geom_normal = wgeom_normal;
+	sstate.ffnormal = ffnormal;
+	sstate.position = world_position;
+	sstate.tangent = world_tangent;
+	sstate.bitangent = world_bitangent;
+	sstate.mat = material;
+
+	if(dot(sstate.normal, sstate.geom_normal) <= 0)
+	{
+		sstate.normal *= -1.0f;
+	}
+
+	sstate.eta = dot(sstate.normal, sstate.ffnormal) > 0.0 ? 1.0 / 1.5 : 1.5;
+	sstate.primary = false;
+	return sstate;
+}
+
+ShadeState GetPrimaryState(vec2 screen_coord, vec2 resolution)
+{
+	const vec4 gbufferA_data = texelFetch(gbufferA, ivec2(screen_coord), 0);
+	const vec4 gbufferB_data = texelFetch(gbufferB, ivec2(screen_coord), 0);
+	const vec4 gbufferC_data = texelFetch(gbufferC, ivec2(screen_coord), 0);
+	const float depth = texelFetch(depth_buffer, ivec2(screen_coord), 0).r;
+
+	uint instance_id = uint(gbufferC_data.b);
+	Instance instance = instances[instance_id];
+	Material material = materials[instance.material];
+
+	vec3 p = world_position_from_depth(screen_coord / resolution, depth, ubo.view_projection_inv);
+	vec3 n = octohedral_to_direction(gbufferB_data.rg);
+	material.base_color.rgb = gbufferA_data.rgb; 
+	material.roughness_factor = max(0.001, gbufferC_data.r);
+	material.metallic_factor = gbufferA_data.a;
+
+	prd.hit_t = depth == 0 ? Infinity : length(p - ubo.cam_pos.xyz);
+
+	ShadeState sstate;
+	sstate.normal = n;
+	sstate.geom_normal = n;
+	sstate.ffnormal = dot(n, p - ubo.cam_pos.xyz) < 0.0 ? n : -n;;
+	sstate.position = p;
+	sstate.mat = material;
+	
+	coordinate_system(sstate.ffnormal, sstate.tangent, sstate.bitangent);
+
+	sstate.eta = dot(sstate.normal, sstate.ffnormal) > 0.0 ? 1.0 / 1.5 : 1.5;
+	sstate.primary = true;
+
+	return sstate;
+}
+
+vec3 path_trace(vec2 screen_coord, vec2 resolution)
+{
+	vec3 radiance   = vec3(0.0);
+  	vec3 throughout = vec3(1.0);
+	Ray ray;
+	for(uint trace_depth = 0; trace_depth < push_constants.max_depth; trace_depth++)
+	{
+		/*
+		struct ShadeState
+		{
+			vec3 normal;
+			vec3 geom_normal;
+			vec3 ffnormal;
+			vec3 position;
+			vec3 tangent;
+			vec3 bitangent;
+			float eta;
+			Material mat;
+		};
+		*/
+		const vec4 gbufferC_data = texelFetch(gbufferC, ivec2(screen_coord), 0);
+		ShadeState sstate;
+		if(trace_depth == 0)
+		{
+
+			
+			if(push_constants.debug == 1)
+			{
+				sstate = GetPrimaryState(screen_coord, resolution);
+
+				const vec2 inUV        = screen_coord / resolution;
+				vec2       d           = inUV * 2.0 - 1.0;
+				vec4 origin    = ubo.view_inv * vec4(0, 0, 0, 1);
+				vec4 target    = ubo.projection_inv * vec4(d.x, d.y, 1, 1);
+				vec4 direction = ubo.view_inv * vec4(normalize(target.xyz), 0);
+
+				ray.origin = origin.xyz;
+				ray.direction = direction.xyz;
+
+				// ray.origin = ubo.cam_pos.xyz;
+				// ray.direction = normalize(sstate.position - ubo.cam_pos.xyz);
+
+				closest_hit(ray);
+				ShadeState ssstate = GetShadeState(ray, prd);
+				sstate.position = ssstate.position;
+			}
+			else
+			{
+				sstate = GetPrimaryState(screen_coord, resolution);
+				ray.origin = ubo.cam_pos.xyz;
+				ray.direction = normalize(sstate.position - ubo.cam_pos.xyz);
+				// sstate.position = temp_sstate.position;
+				// return sstate.position;
+				// sstate.position += sstate.ffnormal * push_constants.bias;
+				// return abs(vec3((sstate.position - temp_sstate.position))) * 10;
+			}
+
+		}
+		else
+		{
+			closest_hit(ray);
+			sstate = GetShadeState(ray, prd);
+		}
+
+		if(prd.hit_t == Infinity)
+		{
+			radiance += vec3(0.5) * throughout;
+			break;
+		}
+
+		radiance += sstate.mat.emissive_factor * push_constants.emitter_factor * throughout;
+
+		LightSample ls = sample_light(ray, sstate);
+		if(ls.visible)
+		{
+			radiance += ls.radiance * throughout;
+		}
+
+		BSDFSample bs = sample_bsdf(sstate, -ray.direction);
+
+		if(bs.pdf > 0.0)
+		{
+			throughout *= bs.f * abs(dot(sstate.ffnormal, bs.L)) / bs.pdf;
+		}
+		else
+		{
+			break;
+		}
+
+		float rrPcont = (trace_depth >= 3) ?
+					min(max(throughout.x, max(throughout.y, throughout.z)) * sstate.eta * sstate.eta + 0.001, 0.95) :
+					1.0;
+
+		if(rand(prd.seed) >= rrPcont)
+		{
+			break;
+		}
+
+		throughout /= rrPcont;
+
+		ray.direction = bs.L;
+		ray.origin = sstate.position + push_constants.bias * (dot(bs.L, sstate.ffnormal) > 0 ? sstate.ffnormal : -sstate.ffnormal);
+	}
+
+	float lum = dot(radiance, vec3(0.212671, 0.715160, 0.072169));
+	if(lum > 1.0)
+	{
+		radiance *= 1.0 / lum;
+	}
+
+	return radiance;
+}
 
 void main()
 {
@@ -357,142 +682,26 @@ void main()
 	const ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
 
 	const uint num_frames = uint(ubo.cam_pos.w);
-	uvec2 rng = rng_init(gl_GlobalInvocationID.xy, num_frames);
+	prd.seed = tea(size.x * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x, num_frames * push_constants.max_depth);
 
-	const vec2 jittered_coord = vec2(coord) + vec2(0.5) + vec2(next_float(rng), next_float(rng));
+	const vec2 jittered_coord = vec2(coord) + rand2(prd.seed);
 	const vec2 tex_coord = jittered_coord / vec2(size);
 	const vec2 tex_coord_neg_to_pos = tex_coord * 2.0 - 1.0;
 
-	const vec4 gbufferA_data = texelFetch(gbufferA, ivec2(jittered_coord), 0);
-	const vec4 gbufferB_data = texelFetch(gbufferB, ivec2(jittered_coord), 0);
-	const vec4 gbufferC_data = texelFetch(gbufferC, ivec2(jittered_coord), 0);
-	const float depth = texelFetch(depth_buffer, ivec2(jittered_coord), 0).r;
-
-	uint instance_id = uint(gbufferC_data.b);
-	Instance instance = instances[instance_id];
-	Material material = materials[instance.material];
-
-	vec3 p = world_position_from_depth(tex_coord, depth, ubo.view_projection_inv);
-	vec3 n = octohedral_to_direction(gbufferB_data.rg);
-	material.base_color.rgb *= gbufferA_data.rgb; 
-	material.roughness_factor *= gbufferC_data.r; 
-	material.metallic_factor *= gbufferC_data.g;
-	vec3 wi = normalize(ubo.cam_pos.xyz - p);
-
-	vec3 radiance = vec3(0.0);
-	vec3 throughout = vec3(1.0);
-	float eta = 1.0;
-
-	vec4 origin    = ubo.view_inv * vec4(0.0, 0.0, 0.0, 1.0);
-    vec4 target    = ubo.projection_inv * vec4(tex_coord_neg_to_pos.x, tex_coord_neg_to_pos.y, 1.0, 1.0);
-	vec4 direction = ubo.view_inv * vec4(normalize(target.xyz), 0.0);
-
-	Ray ray;
-	ray.origin = ubo.cam_pos.xyz;
-	ray.direction = normalize(p - ray.origin.xyz);
-
-	closest_hit(ray);
-		// radiance = vec3(abs(length(ray.org + its.t * ray.dir - p)));
-	radiance = vec3(prd.bary_coord.x, prd.bary_coord.y, 1-prd.bary_coord.x - prd.bary_coord.y);
-	// Direct lighting
-	for(uint trace_depth = 0; trace_depth < push_constants.max_depth; trace_depth++)
-	{
-		// Direct emission
-		// if(any(greaterThan(material.emissive_factor, vec3(0.0))) && trace_depth == 0)
-		// {
-		// 	radiance += throughout * material.emissive_factor;
-		// }
-
-		// Emitter sampling
-		// float emitter_pdf = 0.0;
-		// vec3 wo;
-		// vec3 emitter_weight = sample_light(rng, p + 0.001 * n, emitter_pdf, wo);
-
-		// // if(any(notEqual(emitter_weight, vec3(0.0))))
-		// // {
-		// // 	emitter_weight = (emitter_pdf != 0.0 ? emitter_weight / emitter_pdf : vec3(0.0));
-		// // }
-
-		// vec3 bsdf_val = eval_bsdf(wo, wi, n, material);
-		// float bsdf_pdf = pdf_bsdf(wo, wi, n, material);
-		// float mis_emitter = mis_weight(emitter_pdf, bsdf_pdf);
-		// radiance += throughout * bsdf_val * emitter_weight*100;
-		break;
-		// Light sampling
-		/*float nee_pdf = 0.0;
-		vec3 wo;
-		vec3 light_value = sample_light(rng, its, nee_pdf, wo) * 100;
-		vec3 local_wi = to_local(its.frame, its.wi);
-		if(any(notEqual(light_value, vec3(0.0))))
-		{
-			vec3 local_wo = to_local(its.frame, wo);
-			vec3 bsdf_val = eval_bsdf(local_wo, local_wi, its.material);
-			float bsdf_pdf = pdf_bsdf(local_wo, local_wi, its.material);
-			float mis_weight = (nee_pdf * nee_pdf) / (nee_pdf * nee_pdf + bsdf_pdf * bsdf_pdf);
-			radiance += throughout * light_value * bsdf_val * mis_weight;
-		}
-
-		vec3 local_wo;
-		float bsdf_pdf, bsdf_eta;
-		vec3 bsdf_weight = sample_bsdf(rng, local_wi, its.material, local_wo, bsdf_pdf, bsdf_eta);
-
-		if(any(equal(bsdf_weight, vec3(0.0))))
-		{
-			break;
-		}
-
-		wo = to_world(its.frame, local_wo);
-		vec3 org = its.p + (dot(its.frame.n, wo) > 0 ? its.frame.n : -its.frame.n) * 0.01;
-		uint primitive_id;
-		vec2 barycentric;
-		float t;
-
-		if(!scene_intersect(tlas, org, wo, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, instance_id, primitive_id, barycentric, t))
-		{
-			break;
-		}
-		
-		instance = instances[instance_id];
-		Vertex v0 = vertices[instance.vertices_offset + indices[instance.indices_offset + primitive_id * 3]];
-		Vertex v1 = vertices[instance.vertices_offset + indices[instance.indices_offset + primitive_id * 3 + 1]];
-		Vertex v2 = vertices[instance.vertices_offset + indices[instance.indices_offset + primitive_id * 3 + 2]];
-		vec2 uv0 = vec2(v0.position.w, v0.normal.w);
-		vec2 uv1 = vec2(v1.position.w, v1.normal.w);
-		vec2 uv2 = vec2(v2.position.w, v2.normal.w);
-		vec2 uv = uv0 * barycentric.x + uv1 * barycentric.y + uv2 * (1.0 - barycentric.x - barycentric.y);
-		vec3 normal = v0.normal.xyz * barycentric.x + v1.normal.xyz * barycentric.y + v2.normal.xyz * (1.0 - barycentric.x - barycentric.y);
-		vec3 tangent = v0.tangent.xyz * barycentric.x + v1.tangent.xyz * barycentric.y + v2.tangent.xyz * (1.0 - barycentric.x - barycentric.y);
-		mat3 normal_mat = transpose(inverse(mat3(instance.transform)));
-		normal = normal_mat * normal;
-		tangent = normal_mat * tangent;
-		
-		its.p = org + t * wo;
-		its.material = materials[instance.material];
-
-		vec4 base_color = fetch_base_color(its.material, uv);
-		vec2 roughness_metallic = fetch_roughness_metallic(its.material, uv);
-
-		its.frame.n = fetch_normal(its.material, normal, tangent, uv);
-		its.material.base_color = base_color;
-		its.material.metallic_factor = roughness_metallic.g;
-		its.material.roughness_factor = roughness_metallic.r;
-		its.wi = -wo;
-		
-		throughout *= bsdf_weight;
-		eta *= bsdf_eta;*/
-
-	}
-
-	// radiance = pow(radiance, vec3(1.0 / 2.2));
+	vec3 pixel_color = path_trace(jittered_coord, vec2(size));
+	pixel_color = pow(pixel_color, vec3(1.0 / 2.2));
 
 	if(num_frames == 0)
 	{
-		imageStore(path_tracing_image, ivec2(gl_GlobalInvocationID.xy), vec4(radiance, 1));
+		imageStore(path_tracing_image, ivec2(gl_GlobalInvocationID.xy), vec4(pixel_color, 1));
 	}
 	else
 	{
-		vec3 prev_color = imageLoad(prev_path_tracing_image, ivec2(gl_GlobalInvocationID.xy)).rgb;
-		vec3 accumulated_color = prev_color + (radiance - prev_color) / float(num_frames);
-		imageStore(path_tracing_image, ivec2(gl_GlobalInvocationID.xy), vec4(accumulated_color, 1));
+		if(!any(isnan(pixel_color)))
+		{
+			vec3 prev_color = imageLoad(prev_path_tracing_image, ivec2(gl_GlobalInvocationID.xy)).rgb;
+			vec3 accumulated_color = mix(prev_color, pixel_color, 1.0 / float(num_frames));
+			imageStore(path_tracing_image, ivec2(gl_GlobalInvocationID.xy), vec4(accumulated_color, 1));
+		}
 	}
 }

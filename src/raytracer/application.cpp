@@ -131,8 +131,6 @@ Application::Application(const ApplicationConfig &config) :
 		vkDestroyFence(m_context.vk_device, fence, nullptr);
 		vkFreeCommandBuffers(m_context.vk_device, m_context.graphics_cmd_pool, 1, &cmd_buffer);
 	}
-
-	update();
 }
 
 Application::~Application()
@@ -155,10 +153,10 @@ void Application::run()
 
 		auto cmd_buffer = m_cmd_buffers[m_current_frame];
 
-		update();
 		update_ui();
 
 		begin_render();
+		update(cmd_buffer);
 		render(cmd_buffer);
 		end_render();
 
@@ -229,16 +227,22 @@ void Application::update_ui()
 		ImGui::Begin("UI", &m_enable_ui);
 		ImGui::Text("CSIG 2023 RayTracer");
 		ImGui::Text("FPS: %.f", ImGui::GetIO().Framerate);
-		m_renderer.raytraced_ao.draw_ui();
+		bool update_ui = false;
+		update_ui |= m_renderer.raytraced_ao.draw_ui();
+		update_ui |= m_renderer.path_tracing.draw_ui();
+		if (update_ui)
+		{
+			m_num_frames = 0;
+		}
 		ImGui::End();
 	}
 	m_renderer.ui.end_frame();
 }
 
-void Application::update()
+void Application::update(VkCommandBuffer cmd_buffer)
 {
 	static bool hide_cursor = false;
-	if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || m_update)
+	if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
 	{
 		static double cursor_xpos, cursor_ypos;
 		if (!hide_cursor)
@@ -301,8 +305,13 @@ void Application::update()
 		m_camera.position += ImGui::GetIO().DeltaTime * m_camera.velocity;
 
 		m_camera.view = glm::lookAt(m_camera.position, m_camera.position + front, up);
-		m_camera.proj = glm::perspective(glm::radians(60.f), static_cast<float>(m_context.extent.width) / static_cast<float>(m_context.extent.height), 0.01f, 1000.f);
-
+		// Reversed Z
+		m_camera.proj =
+		    glm::mat4(1, 0, 0, 0,
+		              0, 1, 0, 0,
+		              0, 0, -1, 0,
+		              0, 0, 1, 1) *
+		    glm::perspective(glm::radians(60.f), static_cast<float>(m_context.extent.width) / static_cast<float>(m_context.extent.height), 0.0001f, 1000.f);
 		m_num_frames = 0;
 	}
 	else
@@ -314,6 +323,7 @@ void Application::update()
 
 	if (m_update)
 	{
+		vkDeviceWaitIdle(m_context.vk_device);
 		m_renderer.gbuffer_pass.update(m_scene);
 		m_renderer.path_tracing.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
 		m_renderer.raytraced_ao.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
@@ -321,18 +331,58 @@ void Application::update()
 
 	// Copy to device
 	{
-		GlobalBuffer *mapped_data = reinterpret_cast<GlobalBuffer *>(m_scene.global_buffer.mapped_data);
-
+		m_context.begin_marker(cmd_buffer, "Update Uniform Buffer");
+		m_camera.view_proj         = m_camera.proj * m_camera.view;
 		GlobalBuffer global_buffer = {
 		    .view_inv             = glm::inverse(m_camera.view),
 		    .projection_inv       = glm::inverse(m_camera.proj),
 		    .view_projection_inv  = glm::inverse(m_camera.proj * m_camera.view),
-		    .view_projection      = m_camera.proj * m_camera.view,
-		    .prev_view_projection = mapped_data->view_projection,
+		    .view_projection      = m_camera.view_proj,
+		    .prev_view_projection = m_camera.prev_view_proj,
 		    .cam_pos              = glm::vec4(m_camera.position, static_cast<float>(m_num_frames)),
 		    .jitter               = glm::vec4(0.f),
 		};
-		std::memcpy(m_scene.global_buffer.mapped_data, &global_buffer, sizeof(GlobalBuffer));
+		m_camera.prev_view_proj = m_camera.view_proj;
+
+		{
+			VkBufferMemoryBarrier buffer_barrier = {
+			    .sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+			    .pNext               = nullptr,
+			    .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+			    .dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
+			    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			    .buffer              = m_scene.global_buffer.vk_buffer,
+			    .offset              = 0,
+			    .size                = sizeof(GlobalBuffer),
+			};
+			vkCmdPipelineBarrier(
+			    cmd_buffer,
+			    VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    VK_PIPELINE_STAGE_TRANSFER_BIT,
+			    0, 0, nullptr, 1, &buffer_barrier, 0, nullptr);
+		}
+		vkCmdUpdateBuffer(cmd_buffer, m_scene.global_buffer.vk_buffer, 0, sizeof(GlobalBuffer), &global_buffer);
+		{
+			VkBufferMemoryBarrier buffer_barrier = {
+			    .sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+			    .pNext               = nullptr,
+			    .srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
+			    .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+			    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			    .buffer              = m_scene.global_buffer.vk_buffer,
+			    .offset              = 0,
+			    .size                = sizeof(GlobalBuffer),
+			};
+			vkCmdPipelineBarrier(
+			    cmd_buffer,
+			    VK_PIPELINE_STAGE_TRANSFER_BIT,
+			    VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    0, 0, nullptr, 1, &buffer_barrier, 0, nullptr);
+		}
+
+		m_context.end_marker(cmd_buffer);
 	}
 
 	m_update = false;

@@ -18,7 +18,7 @@ class RayTracedAO
 
 	void draw(VkCommandBuffer cmd_buffer);
 
-	void draw_ui();
+	bool draw_ui();
 
   public:
 	// Raytraced AO image

@@ -684,7 +684,7 @@ Context::Context(const ContextConfig &config)
 		createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		createInfo.preTransform     = capabilities.currentTransform;
 		createInfo.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-		createInfo.presentMode      = VK_PRESENT_MODE_FIFO_KHR;
+		createInfo.presentMode      = VK_PRESENT_MODE_MAILBOX_KHR;
 		createInfo.clipped          = VK_TRUE;
 
 		vkCreateSwapchainKHR(vk_device, &createInfo, nullptr, &vk_swapchain);
@@ -826,6 +826,49 @@ Context::~Context()
 	vkDestroyDebugUtilsMessengerEXT(vk_instance, vkDebugUtilsMessengerEXT, nullptr);
 #endif        // DEBUG
 	vkDestroyInstance(vk_instance, nullptr);
+}
+
+VkCommandBuffer Context::create_command_buffer(bool compute) const
+{
+	VkCommandBuffer             cmd_buffer = VK_NULL_HANDLE;
+	VkCommandBufferAllocateInfo allocate_info =
+	    {
+	        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+	        .commandPool        = compute ? compute_cmd_pool : graphics_cmd_pool,
+	        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+	        .commandBufferCount = 1,
+	    };
+	vkAllocateCommandBuffers(vk_device, &allocate_info, &cmd_buffer);
+	return cmd_buffer;
+}
+
+void Context::flush_command_buffer(VkCommandBuffer cmd_buffer, bool compute) const
+{
+	VkFence           fence       = VK_NULL_HANDLE;
+	VkFenceCreateInfo create_info = {
+	    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+	    .flags = 0,
+	};
+	vkCreateFence(vk_device, &create_info, nullptr, &fence);
+	VkSubmitInfo submit_info = {
+	    .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+	    .waitSemaphoreCount   = 0,
+	    .pWaitSemaphores      = nullptr,
+	    .pWaitDstStageMask    = 0,
+	    .commandBufferCount   = 1,
+	    .pCommandBuffers      = &cmd_buffer,
+	    .signalSemaphoreCount = 0,
+	    .pSignalSemaphores    = nullptr,
+	};
+	vkQueueSubmit(compute ? compute_queue : graphics_queue, 1, &submit_info, fence);
+
+	// Wait
+	vkWaitForFences(vk_device, 1, &fence, VK_TRUE, UINT64_MAX);
+	vkResetFences(vk_device, 1, &fence);
+
+	// Release resource
+	vkDestroyFence(vk_device, fence, nullptr);
+	vkFreeCommandBuffers(vk_device, compute ? compute_cmd_pool : graphics_cmd_pool, 1, &cmd_buffer);
 }
 
 void Context::set_object_name(VkObjectType type, uint64_t handle, const char *name) const

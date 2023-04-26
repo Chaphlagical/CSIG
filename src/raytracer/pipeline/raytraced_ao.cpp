@@ -1180,15 +1180,17 @@ void RayTracedAO::draw(VkCommandBuffer cmd_buffer)
 	m_context->end_marker(cmd_buffer);
 }
 
-void RayTracedAO::draw_ui()
+bool RayTracedAO::draw_ui()
 {
+	bool update = false;
 	if (ImGui::TreeNode("Ray Traced AO"))
 	{
 		if (ImGui::TreeNode("Ray Traced"))
 		{
-			ImGui::SliderFloat("Ray Length", &m_raytraced.push_constant.ray_length, 0.0f, 10.0f);
-			ImGui::DragFloat("Ray Traced Bias", &m_raytraced.push_constant.bias, 0.001f, 0.0f, 100.0f, "%.3f");
+			update |= ImGui::SliderFloat("Ray Length", &m_raytraced.push_constant.ray_length, 0.0f, 10.0f);
+			update |= ImGui::DragFloat("Ray Traced Bias", &m_raytraced.push_constant.bias, 0.001f, 0.0f, 100.0f, "%.3f");
 		}
 		ImGui::TreePop();
 	}
+	return update;
 }

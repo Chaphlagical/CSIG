@@ -1,6 +1,72 @@
 #ifndef RANDOM_GLSL
 #define RANDOM_GLSL
 
+uint tea(in uint val0, in uint val1)
+{
+  uint v0 = val0;
+  uint v1 = val1;
+  uint s0 = 0;
+
+  for(uint n = 0; n < 16; n++)
+  {
+    s0 += 0x9e3779b9;
+    v0 += ((v1 << 4) + 0xa341316c) ^ (v1 + s0) ^ ((v1 >> 5) + 0xc8013ea4);
+    v1 += ((v0 << 4) + 0xad90777d) ^ (v0 + s0) ^ ((v0 >> 5) + 0x7e95761e);
+  }
+
+  return v0;
+}
+
+uint init_random(in uvec2 resolution, in uvec2 screen_coord, in uint frame)
+{
+  return tea(screen_coord.y * resolution.x + screen_coord.x, frame);
+}
+
+uint pcg(inout uint state)
+{
+  uint prev = state * 747796405u + 2891336453u;
+  uint word = ((prev >> ((prev >> 28u) + 4u)) ^ prev) * 277803737u;
+  state     = prev;
+  return (word >> 22u) ^ word;
+}
+
+uvec2 pcg2d(uvec2 v)
+{
+  v = v * 1664525u + 1013904223u;
+  v.x += v.y * 1664525u;
+  v.y += v.x * 1664525u;
+  v = v ^ (v >> 16u);
+  v.x += v.y * 1664525u;
+  v.y += v.x * 1664525u;
+  v = v ^ (v >> 16u);
+  return v;
+}
+
+uvec3 pcg3d(uvec3 v)
+{
+  v = v * 1664525u + uvec3(1013904223u);
+  v.x += v.y * v.z;
+  v.y += v.z * v.x;
+  v.z += v.x * v.y;
+  v ^= v >> uvec3(16u);
+  v.x += v.y * v.z;
+  v.y += v.z * v.x;
+  v.z += v.x * v.y;
+  return v;
+}
+
+float rand(inout uint seed)
+{
+  uint r = pcg(seed);
+  return uintBitsToFloat(0x3f800000 | (r >> 9)) - 1.0f;
+}
+
+vec2 rand2(inout uint prev)
+{
+  return vec2(rand(prev), rand(prev));
+}
+
+
 float sample_blue_noise(ivec2 coord, int sample_index, int sample_dimension, sampler2D sobol_sequence_tex, sampler2D scrambling_ranking_tex)
 {
 	coord.x = coord.x % 128;
@@ -16,64 +82,6 @@ float sample_blue_noise(ivec2 coord, int sample_index, int sample_dimension, sam
 
 	float v = (0.5 + value) / 256.0;
 	return v;
-}
-
-uint rng_rotl(uint x, uint k)
-{
-	return (x << k) | (x >> (32 - k));
-}
-
-uint rng_next(inout uvec2 rng)
-{
-	uint result = rng.x * 0x9e3779bb;
-	rng.y ^= rng.x;
-	rng.x = rng_rotl(rng.x, 26) ^ rng.y ^ (rng.y << 9);
-	rng.y = rng_rotl(rng.y, 13);
-	return result;
-}
-
-uint rng_hash(uint seed)
-{
-	seed = (seed ^ 61) ^ (seed >> 16);
-	seed *= 9;
-	seed = seed ^ (seed >> 4);
-	seed *= 0x27d4eb2d;
-	seed = seed ^ (seed >> 15);
-	return seed;
-}
-
-uvec2 rng_init(uvec2 id, uint frameIndex)
-{
-	uint s0 = (id.x << 16) | id.y;
-	uint s1 = frameIndex;
-
-	uvec2 rng;
-	rng.x = rng_hash(s0);
-	rng.y = rng_hash(s1);
-	rng_next(rng);
-	return rng;
-}
-
-float next_float(inout uvec2 rng)
-{
-	uint u = 0x3f800000 | (rng_next(rng) >> 9);
-	return uintBitsToFloat(u) - 1.0;
-}
-
-uint next_uint(inout uvec2 rng, uint nmax)
-{
-	float f = next_float(rng);
-	return uint(floor(f * nmax));
-}
-
-vec2 next_vec2(inout uvec2 rng)
-{
-	return vec2(next_float(rng), next_float(rng));
-}
-
-vec3 next_vec3(inout uvec2 rng)
-{
-	return vec3(next_float(rng), next_float(rng), next_float(rng));
 }
 
 #endif

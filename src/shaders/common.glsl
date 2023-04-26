@@ -22,12 +22,13 @@ struct Instance
 	uint indices_count;
 	uint mesh;
 	uint material;
-	vec2 padding;
+	float area;
+	float padding;
 };
 
 struct Material
 {
-	uint  alpha_mode;
+	uint  alpha_mode; // 0 - opaque, 1 - mask, 2 - blend
 	uint  double_sided;
 	float cutoff;
 	float metallic_factor;
@@ -37,9 +38,9 @@ struct Material
 	float clearcoat_roughness_factor;
 	vec4  base_color;
 	vec3  emissive_factor;
-	uint  base_color_texture;
-	uint  normal_texture;
-	uint  metallic_roughness_texture;
+	int  base_color_texture;
+	int  normal_texture;
+	int  metallic_roughness_texture;
 	vec2  padding;
 };
 
@@ -50,24 +51,31 @@ struct Vertex
 	vec4 tangent;
 };
 
-struct PointLight
-{
-	vec3 intensity;
-	uint instance_id;
-	vec3 position;
-};
-
-struct AreaLight
+struct Emitter
 {
 	mat4 transform;
 	vec3 intensity;
+	uint instance_id;
 };
 
-void coordinate_system(vec3 v1, out vec3 v2, out vec3 v3)
+struct ShadeState
 {
-	const vec3 ref = abs(dot(v1, vec3(0, 1, 0))) > 0.99f ? vec3(0, 0, 1) : vec3(0, 1, 0);
-	v2 = normalize(cross(ref, v1));
-	v3 = cross(v1, v2);
+	vec3 normal;
+	vec3 geom_normal;
+	vec3 ffnormal;
+	vec3 position;
+	vec3 tangent;
+	vec3 bitangent;
+	float eta;
+	bool primary;
+	Material mat;
+};
+
+void coordinate_system(vec3 N, out vec3 Nt, out vec3 Nb)
+{
+	Nt = normalize(((abs(N.z) > 0.99999f) ? vec3(-N.x * N.y, 1.0f - N.y * N.y, -N.y * N.z) :
+                                          vec3(-N.x * N.z, -N.y * N.z, 1.0f - N.z * N.z)));
+	Nb = normalize(cross(Nt, N));
 }
 
 vec2 direction_to_octohedral(vec3 normal)
@@ -103,6 +111,23 @@ vec3 local_to_world(vec3 n, vec3 v)
     const vec3 x = normalize(cross(ref, n));
     const vec3 y = cross(n, x);
 	return normalize(mat3(x,y,n) * v);
+}
+
+vec3 offset_ray(vec3 p, vec3 n)
+{
+  const float intScale   = 256.0f;
+  const float floatScale = 1.0f / 65536.0f;
+  const float origin     = 1.0f / 32.0f;
+
+  ivec3 of_i = ivec3(intScale * n.x, intScale * n.y, intScale * n.z);
+
+  vec3 p_i = vec3(intBitsToFloat(floatBitsToInt(p.x) + ((p.x < 0) ? -of_i.x : of_i.x)),
+                  intBitsToFloat(floatBitsToInt(p.y) + ((p.y < 0) ? -of_i.y : of_i.y)),
+                  intBitsToFloat(floatBitsToInt(p.z) + ((p.z < 0) ? -of_i.z : of_i.z)));
+
+  return vec3(abs(p.x) < origin ? p.x + floatScale * n.x : p_i.x,  //
+              abs(p.y) < origin ? p.y + floatScale * n.y : p_i.y,  //
+              abs(p.z) < origin ? p.z + floatScale * n.z : p_i.z);
 }
 
 #endif        // !COMMON_GLSL

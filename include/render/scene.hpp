@@ -48,19 +48,14 @@ struct Instance
 
 	alignas(16) uint32_t mesh = ~0u;
 	uint32_t material         = ~0u;
+	float    area             = 0.f;
 };
 
-struct PointLight
+struct Emitter
 {
-	glm::vec3 intensity            = glm::vec3(0.f);
-	uint32_t  instance_id                 = ~0u;
-	alignas(16) glm::vec3 position = glm::vec3(0.f);
-};
-
-struct AreaLight
-{
-	glm::mat4 transform             = glm::mat4(1.f);
-	alignas(16) glm::vec3 intensity = glm::vec3(1.f);
+	glm::mat4 transform   = glm::mat4(1.f);
+	glm::vec3 intensity   = glm::vec3(1.f);
+	uint32_t  instance_id = ~0u;
 };
 
 struct Material
@@ -75,9 +70,9 @@ struct Material
 	float     clearcoat_roughness_factor = 0.f;
 	glm::vec4 base_color                 = glm::vec4(1.f);
 	glm::vec3 emissive_factor            = glm::vec3(1.f);
-	uint32_t  base_color_texture         = ~0u;
-	alignas(16) uint32_t normal_texture  = ~0u;
-	uint32_t metallic_roughness_texture  = ~0u;
+	int32_t   base_color_texture         = -1;
+	alignas(16) int32_t normal_texture   = -1;
+	int32_t metallic_roughness_texture   = -1;
 };
 
 struct Scene
@@ -87,16 +82,13 @@ struct Scene
 	std::vector<AccelerationStructure> blas;
 
 	Buffer instance_buffer;
-	Buffer point_light_buffer;
-	Buffer area_light_buffer;
+	Buffer emitter_buffer;
 	Buffer material_buffer;
 	Buffer vertex_buffer;
 	Buffer index_buffer;
 	Buffer indirect_draw_buffer;
 	Buffer global_buffer;
 	Buffer scene_buffer;
-
-	std::vector<AreaLight> area_lights;
 
 	std::vector<Texture>     textures;
 	std::vector<VkImageView> texture_views;
@@ -108,12 +100,11 @@ struct Scene
 
 	struct
 	{
-		uint32_t vertices_count    = 0;
-		uint32_t indices_count     = 0;
-		uint32_t instance_count    = 0;
-		uint32_t material_count    = 0;
-		uint32_t point_light_count = 0;
-		uint32_t area_light_count  = 0;
+		uint32_t vertices_count = 0;
+		uint32_t indices_count  = 0;
+		uint32_t instance_count = 0;
+		uint32_t material_count = 0;
+		uint32_t emitter_count  = 0;
 	} scene_info;
 
 	Scene(const std::string &filename, const Context &context, const SceneConfig &config = SceneConfig{});
@@ -123,8 +114,6 @@ struct Scene
 	void load_scene(const std::string &filename, const SceneConfig &config);
 
 	void load_envmap(const std::string &filename);
-
-	void update_area_light();
 
   private:
 	void destroy_scene();

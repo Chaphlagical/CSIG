@@ -11,6 +11,11 @@
 #include <filesystem>
 #include <fstream>
 
+static inline size_t Align(size_t x, size_t alignment)
+{
+	return (x + (alignment - 1)) & ~(alignment - 1);
+}
+
 struct Mesh
 {
 	uint32_t vertices_offset = 0;
@@ -18,6 +23,7 @@ struct Mesh
 	uint32_t indices_offset  = 0;
 	uint32_t indices_count   = 0;
 	uint32_t material        = ~0u;
+	float    area            = 0.f;
 };
 
 static inline size_t align(size_t x, size_t alignment)
@@ -70,7 +76,7 @@ inline uint32_t load_texture(const Context &context, const std::string &filename
 		uint8_t *data = static_cast<uint8_t *>(gltf_texture->image->buffer_view->buffer->data) + gltf_texture->image->buffer_view->offset;
 		size_t   size = gltf_texture->image->buffer_view->size;
 
-		raw_data = stbi_load_from_memory(static_cast<stbi_uc *>(raw_data), raw_size, &width, &height, &channel, req_channel);
+		raw_data = stbi_load_from_memory(static_cast<stbi_uc *>(data), size, &width, &height, &channel, req_channel);
 	}
 
 	raw_size = static_cast<size_t>(width) * static_cast<size_t>(height) * static_cast<size_t>(req_channel) * sizeof(uint8_t);
@@ -409,7 +415,7 @@ inline uint32_t load_texture(const Context &context, const std::string &filename
 	return texture_map.at(gltf_texture);
 }
 
-inline Buffer upload_buffer(const Context &context, VkBufferUsageFlags usage, void *data, size_t size)
+inline Buffer create_buffer(const Context &context, VkBufferUsageFlags usage, void *data, size_t size)
 {
 	Buffer result;
 	{
@@ -526,6 +532,56 @@ inline Buffer upload_buffer(const Context &context, VkBufferUsageFlags usage, vo
 	return result;
 }
 
+inline AccelerationStructure create_acceleration_structure(const Context &context, VkAccelerationStructureTypeKHR type, VkAccelerationStructureBuildSizesInfoKHR build_size_info)
+{
+	AccelerationStructure as                 = {};
+	VkBufferCreateInfo    buffer_create_info = {
+	       .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+	       .size  = build_size_info.accelerationStructureSize,
+	       .usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+    };
+	VmaAllocationCreateInfo allocation_create_info = {
+	    .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+	};
+	VmaAllocationInfo allocation_info = {};
+	vmaCreateBuffer(context.vma_allocator, &buffer_create_info, &allocation_create_info, &as.buffer.vk_buffer, &as.buffer.vma_allocation, &allocation_info);
+	VkAccelerationStructureCreateInfoKHR as_create_info = {
+	    .sType  = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
+	    .buffer = as.buffer.vk_buffer,
+	    .size   = build_size_info.accelerationStructureSize,
+	    .type   = type,
+	};
+	vkCreateAccelerationStructureKHR(context.vk_device, &as_create_info, nullptr, &as.vk_as);
+	VkAccelerationStructureDeviceAddressInfoKHR as_device_address_info = {
+	    .sType                 = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
+	    .accelerationStructure = as.vk_as,
+	};
+	as.device_address = vkGetAccelerationStructureDeviceAddressKHR(context.vk_device, &as_device_address_info);
+	return as;
+}
+
+inline Buffer create_scratch_buffer(const Context &context, VkDeviceSize size)
+{
+	Buffer buffer = {};
+
+	VkBufferCreateInfo buffer_create_info = {
+	    .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+	    .size  = size,
+	    .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+	};
+	VmaAllocationCreateInfo allocation_create_info = {
+	    .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+	};
+	VmaAllocationInfo allocation_info = {};
+	vmaCreateBuffer(context.vma_allocator, &buffer_create_info, &allocation_create_info, &buffer.vk_buffer, &buffer.vma_allocation, &allocation_info);
+	VkBufferDeviceAddressInfoKHR buffer_device_address_info = {
+	    .sType  = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+	    .buffer = buffer.vk_buffer,
+	};
+	buffer.device_address = vkGetBufferDeviceAddressKHR(context.vk_device, &buffer_device_address_info);
+	return buffer;
+}
+
 Scene::Scene(const std::string &filename, const Context &context, const SceneConfig &config) :
     m_context(&context)
 {
@@ -562,14 +618,13 @@ Scene::Scene(const std::string &filename, const Context &context, const SceneCon
 		VkBufferCreateInfo create_info = {
 		    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
 		    .size        = sizeof(GlobalBuffer),
-		    .usage       = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+		    .usage       = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 		    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
 		};
 		VmaAllocationCreateInfo allocation_create_info = {
 		    .usage = VMA_MEMORY_USAGE_CPU_TO_GPU};
 		VmaAllocationInfo allocation_info = {};
 		vmaCreateBuffer(m_context->vma_allocator, &create_info, &allocation_create_info, &global_buffer.vk_buffer, &global_buffer.vma_allocation, &allocation_info);
-		vmaMapMemory(m_context->vma_allocator, global_buffer.vma_allocation, &global_buffer.mapped_data);
 	}
 }
 
@@ -579,9 +634,7 @@ Scene::~Scene()
 
 	vkDestroySampler(m_context->vk_device, linear_sampler, nullptr);
 	vkDestroySampler(m_context->vk_device, nearest_sampler, nullptr);
-	vmaUnmapMemory(m_context->vma_allocator, global_buffer.vma_allocation);
 	vmaDestroyBuffer(m_context->vma_allocator, global_buffer.vk_buffer, global_buffer.vma_allocation);
-	global_buffer.mapped_data = nullptr;
 }
 
 void Scene::load_scene(const std::string &filename, const SceneConfig &config)
@@ -607,10 +660,10 @@ void Scene::load_scene(const std::string &filename, const SceneConfig &config)
 	std::unordered_map<cgltf_material *, uint32_t>          material_map;
 	std::unordered_map<cgltf_mesh *, std::vector<uint32_t>> mesh_map;
 
-	std::vector<PointLight> point_lights;
-	std::vector<Material>   materials;
-	std::vector<Mesh>       meshes;
-	std::vector<Instance>   instances;
+	std::vector<Emitter>  emitters;
+	std::vector<Material> materials;
+	std::vector<Mesh>     meshes;
+	std::vector<Instance> instances;
 
 	// Load material
 	{
@@ -694,6 +747,7 @@ void Scene::load_scene(const std::string &filename, const SceneConfig &config)
 				    .indices_offset  = static_cast<uint32_t>(indices.size()),
 				    .indices_count   = static_cast<uint32_t>(primitive.indices->count),
 				    .material        = material_map.at(primitive.material),
+				    .area            = 0.f,
 				};
 
 				indices.resize(indices.size() + primitive.indices->count);
@@ -774,6 +828,8 @@ void Scene::load_scene(const std::string &filename, const SceneConfig &config)
 					vertices[i0].tangent += glm::vec4(tangent, 0.f);
 					vertices[i1].tangent += glm::vec4(tangent, 0.f);
 					vertices[i2].tangent += glm::vec4(tangent, 0.f);
+
+					mesh.area += glm::length(glm::cross(e1, e2)) * 0.5f;
 				}
 
 				for (uint32_t i = 0; i < mesh.vertices_count; i++)
@@ -789,8 +845,8 @@ void Scene::load_scene(const std::string &filename, const SceneConfig &config)
 		scene_info.vertices_count = static_cast<uint32_t>(vertices.size());
 		scene_info.indices_count  = static_cast<uint32_t>(indices.size());
 
-		vertex_buffer = upload_buffer(*m_context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, vertices.data(), vertices.size() * sizeof(Vertex));
-		index_buffer  = upload_buffer(*m_context, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, indices.data(), indices.size() * sizeof(uint32_t));
+		vertex_buffer = create_buffer(*m_context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, vertices.data(), vertices.size() * sizeof(Vertex));
+		index_buffer  = create_buffer(*m_context, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, indices.data(), indices.size() * sizeof(uint32_t));
 
 		m_context->set_object_name(
 		    VK_OBJECT_TYPE_BUFFER,
@@ -824,33 +880,31 @@ void Scene::load_scene(const std::string &filename, const SceneConfig &config)
 					    .indices_count   = mesh.indices_count,
 					    .mesh            = mesh_id,
 					    .material        = mesh.material,
+					    .area            = mesh.area,
 					};
 					std::memcpy(glm::value_ptr(instance.transform), matrix, sizeof(instance.transform));
 					instance.transform_inv = glm::inverse(instance.transform);
 					instances.push_back(instance);
 
-					if (config.light_config == SceneConfig::LightLoadingConfig::AsPointLight)
+					if (materials[mesh.material].emissive_factor != glm::vec3(0.f))
 					{
-						if (materials[mesh.material].emissive_factor != glm::vec3(0.f))
-						{
-							point_lights.push_back(
-							    PointLight{
-							        .intensity   = materials[mesh.material].emissive_factor,
-							        .instance_id = static_cast<uint32_t>(instances.size() - 1),
-							        .position    = instance.transform[3],
-							    });
-						}
+						emitters.push_back(
+						    Emitter{
+						        .transform   = instance.transform,
+						        .intensity   = materials[mesh.material].emissive_factor,
+						        .instance_id = static_cast<uint32_t>(instances.size() - 1),
+						    });
 					}
 				}
 			}
 		}
 		scene_info.instance_count = static_cast<uint32_t>(instances.size());
 
-		// Build point light buffer
+		// Build emitter buffer
 		{
 			VkBufferCreateInfo buffer_create_info = {
 			    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-			    .size        = std::max(point_lights.size(), 1ull) * sizeof(PointLight),
+			    .size        = std::max(emitters.size(), 1ull) * sizeof(Emitter),
 			    .usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 			    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
 			};
@@ -858,17 +912,17 @@ void Scene::load_scene(const std::string &filename, const SceneConfig &config)
 			    .usage = VMA_MEMORY_USAGE_CPU_TO_GPU,
 			};
 			VmaAllocationInfo allocation_info = {};
-			vmaCreateBuffer(m_context->vma_allocator, &buffer_create_info, &allocation_create_info, &point_light_buffer.vk_buffer, &point_light_buffer.vma_allocation, &allocation_info);
-			if (!point_lights.empty())
+			vmaCreateBuffer(m_context->vma_allocator, &buffer_create_info, &allocation_create_info, &emitter_buffer.vk_buffer, &emitter_buffer.vma_allocation, &allocation_info);
+			if (!emitters.empty())
 			{
 				uint8_t *mapped_data = nullptr;
-				vmaMapMemory(m_context->vma_allocator, point_light_buffer.vma_allocation, reinterpret_cast<void **>(&mapped_data));
-				std::memcpy(mapped_data, point_lights.data(), point_lights.size() * sizeof(PointLight));
-				vmaUnmapMemory(m_context->vma_allocator, point_light_buffer.vma_allocation);
-				vmaFlushAllocation(m_context->vma_allocator, point_light_buffer.vma_allocation, 0, point_lights.size() * sizeof(PointLight));
+				vmaMapMemory(m_context->vma_allocator, emitter_buffer.vma_allocation, reinterpret_cast<void **>(&mapped_data));
+				std::memcpy(mapped_data, emitters.data(), emitters.size() * sizeof(Emitter));
+				vmaUnmapMemory(m_context->vma_allocator, emitter_buffer.vma_allocation);
+				vmaFlushAllocation(m_context->vma_allocator, emitter_buffer.vma_allocation, 0, emitters.size() * sizeof(Emitter));
 				mapped_data = nullptr;
 			}
-			scene_info.point_light_count = static_cast<uint32_t>(point_lights.size());
+			scene_info.emitter_count = static_cast<uint32_t>(emitters.size());
 		}
 
 		// Build draw indirect command buffer
@@ -934,37 +988,6 @@ void Scene::load_scene(const std::string &filename, const SceneConfig &config)
 	// Build acceleration structure
 	{
 		std::vector<Buffer> scratch_buffers;
-		// Allocate command buffer
-		VkCommandBuffer cmd_buffer = VK_NULL_HANDLE;
-		{
-			VkCommandBufferAllocateInfo allocate_info =
-			    {
-			        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-			        .commandPool        = m_context->compute_cmd_pool,
-			        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-			        .commandBufferCount = 1,
-			    };
-			vkAllocateCommandBuffers(m_context->vk_device, &allocate_info, &cmd_buffer);
-		}
-
-		// Create fence
-		VkFence fence = VK_NULL_HANDLE;
-		{
-			VkFenceCreateInfo create_info = {
-			    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-			    .flags = 0,
-			};
-			vkCreateFence(m_context->vk_device, &create_info, nullptr, &fence);
-		}
-
-		VkCommandBufferBeginInfo begin_info = {
-		    .sType            = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-		    .flags            = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-		    .pInheritanceInfo = nullptr,
-		};
-
-		vkBeginCommandBuffer(cmd_buffer, &begin_info);
-
 		// Build bottom level acceleration structure
 		{
 			blas.reserve(meshes.size());
@@ -1001,10 +1024,6 @@ void Scene::load_scene(const std::string &filename, const SceneConfig &config)
 				    .transformOffset = 0,
 				};
 
-				VkAccelerationStructureBuildSizesInfoKHR build_sizes_info = {
-				    .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
-				};
-
 				VkAccelerationStructureBuildGeometryInfoKHR build_geometry_info = {
 				    .sType                    = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
 				    .type                     = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
@@ -1019,6 +1038,10 @@ void Scene::load_scene(const std::string &filename, const SceneConfig &config)
                     },
 				};
 
+				VkAccelerationStructureBuildSizesInfoKHR build_sizes_info = {
+				    .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
+				};
+
 				vkGetAccelerationStructureBuildSizesKHR(
 				    m_context->vk_device,
 				    VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
@@ -1026,73 +1049,29 @@ void Scene::load_scene(const std::string &filename, const SceneConfig &config)
 				    &range_info.primitiveCount,
 				    &build_sizes_info);
 
-				AccelerationStructure acceleration_structure = {};
+				AccelerationStructure as = create_acceleration_structure(*m_context, VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR, build_sizes_info);
 
-				// Allocate buffer
-				{
-					VkBufferCreateInfo create_info = {
-					    .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-					    .size  = build_sizes_info.accelerationStructureSize,
-					    .usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
-					             VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR,
-					    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-					};
-					VmaAllocationCreateInfo allocation_create_info = {
-					    .usage = VMA_MEMORY_USAGE_GPU_ONLY};
-					VmaAllocationInfo allocation_info = {};
-					vmaCreateBuffer(m_context->vma_allocator, &create_info, &allocation_create_info, &acceleration_structure.buffer.vk_buffer, &acceleration_structure.buffer.vma_allocation, &allocation_info);
-				}
+				Buffer scratch_buffer = create_scratch_buffer(*m_context, build_sizes_info.buildScratchSize);
 
-				// Create handle
-				{
-					VkAccelerationStructureCreateInfoKHR create_info = {
-					    .sType  = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
-					    .buffer = acceleration_structure.buffer.vk_buffer,
-					    .size   = build_sizes_info.accelerationStructureSize,
-					    .type   = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
-					};
-					vkCreateAccelerationStructureKHR(m_context->vk_device, &create_info, nullptr, &acceleration_structure.vk_as);
-				}
+				build_geometry_info.scratchData.deviceAddress = scratch_buffer.device_address;
+				build_geometry_info.dstAccelerationStructure  = as.vk_as;
 
-				// Get device address
-				{
-					VkAccelerationStructureDeviceAddressInfoKHR address_info = {
-					    .sType                 = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
-					    .accelerationStructure = acceleration_structure.vk_as,
-					};
-					acceleration_structure.device_address = vkGetAccelerationStructureDeviceAddressKHR(m_context->vk_device, &address_info);
-				}
-
-				// Allocate scratch buffer
-				Buffer scratch_buffer;
-				{
-					VkBufferCreateInfo create_info = {
-					    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-					    .size        = build_sizes_info.buildScratchSize,
-					    .usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-					    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-					};
-					VmaAllocationCreateInfo allocation_create_info = {
-					    .usage = VMA_MEMORY_USAGE_GPU_ONLY};
-					VmaAllocationInfo allocation_info = {};
-					vmaCreateBuffer(m_context->vma_allocator, &create_info, &allocation_create_info, &scratch_buffer.vk_buffer, &scratch_buffer.vma_allocation, &allocation_info);
-					VkBufferDeviceAddressInfoKHR buffer_device_address_info = {
-					    .sType  = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-					    .buffer = scratch_buffer.vk_buffer,
-					};
-					scratch_buffer.device_address = vkGetBufferDeviceAddress(m_context->vk_device, &buffer_device_address_info);
-				}
-
-				build_geometry_info.scratchData.deviceAddress                  = scratch_buffer.device_address;
-				build_geometry_info.dstAccelerationStructure                   = acceleration_structure.vk_as;
 				VkAccelerationStructureBuildRangeInfoKHR *as_build_range_infos = const_cast<VkAccelerationStructureBuildRangeInfoKHR *>(&range_info);
+
+				VkCommandBuffer          cmd_buffer = m_context->create_command_buffer(true);
+				VkCommandBufferBeginInfo begin_info = {
+				    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+				    .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+				};
+				vkBeginCommandBuffer(cmd_buffer, &begin_info);
 				vkCmdBuildAccelerationStructuresKHR(
 				    cmd_buffer,
 				    1,
 				    &build_geometry_info,
 				    &as_build_range_infos);
-
-				blas.push_back(acceleration_structure);
+				vkEndCommandBuffer(cmd_buffer);
+				m_context->flush_command_buffer(cmd_buffer, true);
+				blas.push_back(as);
 				scratch_buffers.push_back(scratch_buffer);
 			}
 		}
@@ -1114,7 +1093,7 @@ void Scene::load_scene(const std::string &filename, const SceneConfig &config)
 				    .instanceCustomIndex                    = instance_id,
 				    .mask                                   = 0xFF,
 				    .instanceShaderBindingTableRecordOffset = 0,
-				    .flags                                  = 0,
+				    .flags                                  = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR,
 				    .accelerationStructureReference         = blas.at(instance.mesh).device_address,
 				};
 
@@ -1135,10 +1114,7 @@ void Scene::load_scene(const std::string &filename, const SceneConfig &config)
 				vk_instances.emplace_back(vk_instance);
 			}
 
-			AccelerationStructure acceleration_structure = {};
-			{
-				acceleration_structure.instance_buffer = upload_buffer(*m_context, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR, vk_instances.data(), vk_instances.size() * sizeof(VkAccelerationStructureInstanceKHR));
-			}
+			Buffer instance_buffer = create_buffer(*m_context, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT, vk_instances.data(), vk_instances.size() * sizeof(VkAccelerationStructureInstanceKHR));
 
 			VkAccelerationStructureGeometryKHR as_geometry = {
 			    .sType        = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
@@ -1147,14 +1123,15 @@ void Scene::load_scene(const std::string &filename, const SceneConfig &config)
 			            .instances = {
 			                .sType           = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR,
 			                .arrayOfPointers = VK_FALSE,
-			                .data            = acceleration_structure.instance_buffer.device_address,
+			                .data            = instance_buffer.device_address,
                     },
                 },
-			    .flags = VK_GEOMETRY_OPAQUE_BIT_KHR,
+			    .flags = 0,
 			};
 
-			VkAccelerationStructureBuildRangeInfoKHR range_info = {};
-			range_info.primitiveCount                           = static_cast<uint32_t>(instances.size());
+			VkAccelerationStructureBuildRangeInfoKHR range_info = {
+			    .primitiveCount = static_cast<uint32_t>(vk_instances.size()),
+			};
 
 			VkAccelerationStructureBuildSizesInfoKHR build_sizes_info = {
 			    .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
@@ -1181,103 +1158,37 @@ void Scene::load_scene(const std::string &filename, const SceneConfig &config)
 			    &range_info.primitiveCount,
 			    &build_sizes_info);
 
-			// Allocate buffer
-			{
-				VkBufferCreateInfo create_info = {
-				    .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-				    .size  = build_sizes_info.accelerationStructureSize,
-				    .usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
-				             VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR,
-				    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-				};
-				VmaAllocationCreateInfo allocation_create_info = {
-				    .usage = VMA_MEMORY_USAGE_GPU_ONLY};
-				VmaAllocationInfo allocation_info = {};
-				vmaCreateBuffer(m_context->vma_allocator, &create_info, &allocation_create_info, &acceleration_structure.buffer.vk_buffer, &acceleration_structure.buffer.vma_allocation, &allocation_info);
-			}
+			tlas = create_acceleration_structure(*m_context, VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR, build_sizes_info);
 
-			// Create handle
-			{
-				VkAccelerationStructureCreateInfoKHR create_info = {
-				    .sType  = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
-				    .buffer = acceleration_structure.buffer.vk_buffer,
-				    .size   = build_sizes_info.accelerationStructureSize,
-				    .type   = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
-				};
-				vkCreateAccelerationStructureKHR(m_context->vk_device, &create_info, nullptr, &acceleration_structure.vk_as);
-			}
-
-			// Get device address
-			{
-				VkAccelerationStructureDeviceAddressInfoKHR address_info = {
-				    .sType                 = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
-				    .accelerationStructure = acceleration_structure.vk_as,
-				};
-				acceleration_structure.device_address = vkGetAccelerationStructureDeviceAddressKHR(m_context->vk_device, &address_info);
-			}
-
-			// Allocate scratch buffer
-			Buffer scratch_buffer;
-			{
-				VkBufferCreateInfo create_info = {
-				    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-				    .size        = build_sizes_info.buildScratchSize,
-				    .usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-				    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-				};
-				VmaAllocationCreateInfo allocation_create_info = {
-				    .usage = VMA_MEMORY_USAGE_GPU_ONLY};
-				VmaAllocationInfo allocation_info = {};
-				vmaCreateBuffer(m_context->vma_allocator, &create_info, &allocation_create_info, &scratch_buffer.vk_buffer, &scratch_buffer.vma_allocation, &allocation_info);
-				VkBufferDeviceAddressInfoKHR buffer_device_address_info = {
-				    .sType  = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-				    .buffer = scratch_buffer.vk_buffer,
-				};
-				scratch_buffer.device_address = vkGetBufferDeviceAddress(m_context->vk_device, &buffer_device_address_info);
-			}
+			Buffer scratch_buffer = create_scratch_buffer(*m_context, build_sizes_info.buildScratchSize);
 
 			build_geometry_info.scratchData.deviceAddress = scratch_buffer.device_address;
-			build_geometry_info.dstAccelerationStructure  = acceleration_structure.vk_as;
+			build_geometry_info.dstAccelerationStructure  = tlas.vk_as;
 
 			VkAccelerationStructureBuildRangeInfoKHR *as_build_range_infos = const_cast<VkAccelerationStructureBuildRangeInfoKHR *>(&range_info);
+
+			VkCommandBuffer          cmd_buffer = m_context->create_command_buffer(true);
+			VkCommandBufferBeginInfo begin_info = {
+			    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+			    .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+			};
+			vkBeginCommandBuffer(cmd_buffer, &begin_info);
 			vkCmdBuildAccelerationStructuresKHR(
 			    cmd_buffer,
 			    1,
 			    &build_geometry_info,
 			    &as_build_range_infos);
+			vkEndCommandBuffer(cmd_buffer);
+			m_context->flush_command_buffer(cmd_buffer, true);
 
-			tlas = acceleration_structure;
 			m_context->set_object_name(
 			    VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR,
 			    (uint64_t) tlas.vk_as,
 			    "Scene TLAS");
+
+			scratch_buffers.push_back(instance_buffer);
 			scratch_buffers.push_back(scratch_buffer);
 		}
-
-		vkEndCommandBuffer(cmd_buffer);
-
-		// Submit command buffer
-		{
-			VkSubmitInfo submit_info = {
-			    .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-			    .waitSemaphoreCount   = 0,
-			    .pWaitSemaphores      = nullptr,
-			    .pWaitDstStageMask    = 0,
-			    .commandBufferCount   = 1,
-			    .pCommandBuffers      = &cmd_buffer,
-			    .signalSemaphoreCount = 0,
-			    .pSignalSemaphores    = nullptr,
-			};
-			vkQueueSubmit(m_context->compute_queue, 1, &submit_info, fence);
-		}
-
-		// Wait
-		vkWaitForFences(m_context->vk_device, 1, &fence, VK_TRUE, UINT64_MAX);
-		vkResetFences(m_context->vk_device, 1, &fence);
-
-		// Release resource
-		vkDestroyFence(m_context->vk_device, fence, nullptr);
-		vkFreeCommandBuffers(m_context->vk_device, m_context->compute_cmd_pool, 1, &cmd_buffer);
 
 		for (auto &scratch_buffer : scratch_buffers)
 		{
@@ -1309,8 +1220,6 @@ void Scene::load_scene(const std::string &filename, const SceneConfig &config)
 			mapped_data = nullptr;
 		}
 	}
-
-	update_area_light();
 }
 
 void Scene::load_envmap(const std::string &filename)
@@ -1356,17 +1265,17 @@ void Scene::destroy_scene()
 		index_buffer.device_address = 0;
 	}
 
-	for (auto &acceleration_structure : blas)
+	for (auto &tlas : blas)
 	{
-		if (acceleration_structure.vk_as)
+		if (tlas.vk_as)
 		{
-			vkDestroyAccelerationStructureKHR(m_context->vk_device, acceleration_structure.vk_as, nullptr);
-			vmaDestroyBuffer(m_context->vma_allocator, acceleration_structure.buffer.vk_buffer, acceleration_structure.buffer.vma_allocation);
+			vkDestroyAccelerationStructureKHR(m_context->vk_device, tlas.vk_as, nullptr);
+			vmaDestroyBuffer(m_context->vma_allocator, tlas.buffer.vk_buffer, tlas.buffer.vma_allocation);
 
-			acceleration_structure.vk_as                 = VK_NULL_HANDLE;
-			acceleration_structure.buffer.vk_buffer      = VK_NULL_HANDLE;
-			acceleration_structure.buffer.vma_allocation = VK_NULL_HANDLE;
-			acceleration_structure.buffer.device_address = 0;
+			tlas.vk_as                 = VK_NULL_HANDLE;
+			tlas.buffer.vk_buffer      = VK_NULL_HANDLE;
+			tlas.buffer.vma_allocation = VK_NULL_HANDLE;
+			tlas.buffer.device_address = 0;
 		}
 	}
 	blas.clear();
@@ -1375,15 +1284,11 @@ void Scene::destroy_scene()
 	{
 		vkDestroyAccelerationStructureKHR(m_context->vk_device, tlas.vk_as, nullptr);
 		vmaDestroyBuffer(m_context->vma_allocator, tlas.buffer.vk_buffer, tlas.buffer.vma_allocation);
-		vmaDestroyBuffer(m_context->vma_allocator, tlas.instance_buffer.vk_buffer, tlas.instance_buffer.vma_allocation);
 
-		tlas.vk_as                          = VK_NULL_HANDLE;
-		tlas.buffer.vk_buffer               = VK_NULL_HANDLE;
-		tlas.buffer.vma_allocation          = VK_NULL_HANDLE;
-		tlas.buffer.device_address          = 0;
-		tlas.instance_buffer.vk_buffer      = VK_NULL_HANDLE;
-		tlas.instance_buffer.vma_allocation = VK_NULL_HANDLE;
-		tlas.instance_buffer.device_address = 0;
+		tlas.vk_as                 = VK_NULL_HANDLE;
+		tlas.buffer.vk_buffer      = VK_NULL_HANDLE;
+		tlas.buffer.vma_allocation = VK_NULL_HANDLE;
+		tlas.buffer.device_address = 0;
 	}
 
 	if (indirect_draw_buffer.vk_buffer && indirect_draw_buffer.vma_allocation)
@@ -1418,73 +1323,11 @@ void Scene::destroy_scene()
 		scene_buffer.device_address = 0;
 	}
 
-	if (point_light_buffer.vk_buffer && point_light_buffer.vma_allocation)
+	if (emitter_buffer.vk_buffer && emitter_buffer.vma_allocation)
 	{
-		vmaDestroyBuffer(m_context->vma_allocator, point_light_buffer.vk_buffer, point_light_buffer.vma_allocation);
-		point_light_buffer.vk_buffer      = VK_NULL_HANDLE;
-		point_light_buffer.vma_allocation = VK_NULL_HANDLE;
-		point_light_buffer.device_address = 0;
-	}
-
-	if (area_light_buffer.vk_buffer && area_light_buffer.vma_allocation)
-	{
-		vmaDestroyBuffer(m_context->vma_allocator, area_light_buffer.vk_buffer, area_light_buffer.vma_allocation);
-		area_light_buffer.vk_buffer      = VK_NULL_HANDLE;
-		area_light_buffer.vma_allocation = VK_NULL_HANDLE;
-		area_light_buffer.device_address = 0;
-	}
-}
-
-void Scene::update_area_light()
-{
-	if (area_light_buffer.vk_buffer == VK_NULL_HANDLE)
-	{
-		VkBufferCreateInfo buffer_create_info = {
-		    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		    .size        = sizeof(AreaLight),
-		    .usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-		    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-		};
-		VmaAllocationCreateInfo allocation_create_info = {
-		    .usage = VMA_MEMORY_USAGE_CPU_TO_GPU,
-		};
-		VmaAllocationInfo allocation_info = {};
-		vmaCreateBuffer(m_context->vma_allocator, &buffer_create_info, &allocation_create_info, &area_light_buffer.vk_buffer, &area_light_buffer.vma_allocation, &allocation_info);
-	}
-
-	if (area_lights.size() > scene_info.area_light_count)
-	{
-		vkDeviceWaitIdle(m_context->vk_device);
-		vmaDestroyBuffer(m_context->vma_allocator, area_light_buffer.vk_buffer, area_light_buffer.vma_allocation);
-		VkBufferCreateInfo buffer_create_info = {
-		    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		    .size        = area_lights.size() * sizeof(AreaLight),
-		    .usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-		    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-		};
-		VmaAllocationCreateInfo allocation_create_info = {
-		    .usage = VMA_MEMORY_USAGE_CPU_TO_GPU,
-		};
-		VmaAllocationInfo allocation_info = {};
-		vmaCreateBuffer(m_context->vma_allocator, &buffer_create_info, &allocation_create_info, &area_light_buffer.vk_buffer, &area_light_buffer.vma_allocation, &allocation_info);
-	}
-
-	{
-		decltype(scene_info) *mapped_data = nullptr;
-		vmaMapMemory(m_context->vma_allocator, scene_buffer.vma_allocation, reinterpret_cast<void **>(&mapped_data));
-		mapped_data->area_light_count = static_cast<uint32_t>(area_lights.size());
-		vmaUnmapMemory(m_context->vma_allocator, scene_buffer.vma_allocation);
-		vmaFlushAllocation(m_context->vma_allocator, scene_buffer.vma_allocation, 0, sizeof(scene_info));
-		mapped_data = nullptr;
-	}
-
-	if (!area_lights.empty())
-	{
-		void *mapped_data = nullptr;
-		vmaMapMemory(m_context->vma_allocator, area_light_buffer.vma_allocation, reinterpret_cast<void **>(&mapped_data));
-		std::memcpy(mapped_data, area_lights.data(), area_lights.size() * sizeof(AreaLight));
-		vmaUnmapMemory(m_context->vma_allocator, area_light_buffer.vma_allocation);
-		vmaFlushAllocation(m_context->vma_allocator, area_light_buffer.vma_allocation, 0, area_lights.size() * sizeof(AreaLight));
-		mapped_data = nullptr;
+		vmaDestroyBuffer(m_context->vma_allocator, emitter_buffer.vk_buffer, emitter_buffer.vma_allocation);
+		emitter_buffer.vk_buffer      = VK_NULL_HANDLE;
+		emitter_buffer.vma_allocation = VK_NULL_HANDLE;
+		emitter_buffer.device_address = 0;
 	}
 }

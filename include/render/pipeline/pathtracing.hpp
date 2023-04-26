@@ -18,7 +18,7 @@ class PathTracing
 
 	void draw(VkCommandBuffer cmd_buffer);
 
-	void draw_ui();
+	bool draw_ui();
 
   public:
 	Texture     path_tracing_image[2];
@@ -29,7 +29,10 @@ class PathTracing
 
 	struct
 	{
-		uint32_t max_depth = 5;
+		int32_t max_depth      = 5;
+		float   emitter_factor = 100.f;
+		float    bias           = 0.01f;
+		uint32_t debug          = 0;
 	} m_push_constant;
 
 	VkPipelineLayout      m_pipeline_layout       = VK_NULL_HANDLE;

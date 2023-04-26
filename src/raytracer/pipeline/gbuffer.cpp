@@ -182,7 +182,7 @@ GBufferPass::GBufferPass(const Context &context) :
 		    .sType             = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
 		    .depthTestEnable   = VK_TRUE,
 		    .depthWriteEnable  = VK_TRUE,
-		    .depthCompareOp    = VK_COMPARE_OP_LESS,
+		    .depthCompareOp    = VK_COMPARE_OP_GREATER_OR_EQUAL,
 		    .stencilTestEnable = VK_FALSE,
 
 		    .front = {
@@ -522,7 +522,7 @@ GBufferPass::GBufferPass(const Context &context) :
 			    .storeOp     = VK_ATTACHMENT_STORE_OP_STORE,
 			    .clearValue  = {
 			         .depthStencil = {
-			             .depth = 1.f,
+			             .depth = 0.f,
                     },
                 },
 			};
@@ -1301,7 +1301,7 @@ void GBufferPass::draw(VkCommandBuffer cmd_buffer, const Scene &scene)
 				vkCmdPipelineBarrier(
 				    cmd_buffer,
 				    VK_PIPELINE_STAGE_TRANSFER_BIT,
-				    VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				    0, 0, nullptr, 0, nullptr, 4, image_barriers);
 			}
 		}

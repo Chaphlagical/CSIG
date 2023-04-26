@@ -14,7 +14,7 @@ struct ApplicationConfig
 {
 	ContextConfig context_config;
 	SceneConfig   scene_config = {.light_config = SceneConfig::LightLoadingConfig::AsPointLight};
-	std::string   scene_file   = "assets/scenes/GI/GI.gltf";
+	std::string   scene_file   = "assets/scenes/Deferred/Deferred.gltf";
 };
 
 class Application
@@ -30,7 +30,7 @@ class Application
 	void begin_render();
 	void end_render();
 	void update_ui();
-	void update();
+	void update(VkCommandBuffer cmd_buffer);
 	void render(VkCommandBuffer cmd_buffer);
 	void present(VkCommandBuffer cmd_buffer, VkImage image);
 
@@ -58,6 +58,9 @@ class Application
 
 		glm::mat4 view = glm::mat4(1.f);
 		glm::mat4 proj = glm::mat4(1.f);
+
+		glm::mat4 view_proj      = glm::mat4(1.f);
+		glm::mat4 prev_view_proj = glm::mat4(1.f);
 	} m_camera;
 
 	Scene     m_scene;
