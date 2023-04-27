@@ -2,6 +2,9 @@
 
 #include "context.hpp"
 
+#define CAMERA_NEAR_PLANE 0.01f
+#define CAMERA_FAR_PLANE 1000.f
+
 enum class RayTracedScale
 {
 	Full_Res,
@@ -27,7 +30,7 @@ struct BlueNoise
 	Texture scrambling_ranking_images[9];
 	Texture sobol_image;
 
-	VkImageView scrambling_ranking_image_views[9] = {VK_NULL_HANDLE};
+	VkImageView scrambling_ranking_image_views[9];
 	VkImageView sobol_image_view                  = VK_NULL_HANDLE;
 
 	BlueNoise(const Context &context);

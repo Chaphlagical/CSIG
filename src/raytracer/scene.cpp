@@ -794,49 +794,6 @@ void Scene::load_scene(const std::string &filename, const SceneConfig &config)
 					}
 				}
 
-				// Generate tangent space
-				for (uint32_t i = 0; i < mesh.indices_count; i += 3)
-				{
-					uint32_t i0 = mesh.vertices_offset + indices[mesh.indices_offset + i + 0];
-					uint32_t i1 = mesh.vertices_offset + indices[mesh.indices_offset + i + 1];
-					uint32_t i2 = mesh.vertices_offset + indices[mesh.indices_offset + i + 2];
-
-					glm::vec3 v0(vertices[i0].position);
-					glm::vec3 v1(vertices[i1].position);
-					glm::vec3 v2(vertices[i2].position);
-
-					glm::vec2 uv0 = glm::vec2(vertices[i0].position.w, vertices[i0].normal.w);
-					glm::vec2 uv1 = glm::vec2(vertices[i1].position.w, vertices[i1].normal.w);
-					glm::vec2 uv2 = glm::vec2(vertices[i2].position.w, vertices[i2].normal.w);
-
-					glm::vec3 e1 = v1 - v0;
-					glm::vec3 e2 = v2 - v0;
-
-					glm::vec2 duv1 = uv1 - uv0;
-					glm::vec2 duv2 = uv2 - uv0;
-
-					float f = 1.0f / (duv1.x * duv2.y - duv2.x * duv1.y);
-
-					glm::vec3 tangent = glm::vec3(1.f);
-
-					tangent.x = f * (duv2.y * e1.x - duv1.y * e2.x);
-					tangent.y = f * (duv2.y * e1.y - duv1.y * e2.y);
-					tangent.z = f * (duv2.y * e1.z - duv1.y * e2.z);
-
-					tangent = glm::normalize(tangent);
-
-					vertices[i0].tangent += glm::vec4(tangent, 0.f);
-					vertices[i1].tangent += glm::vec4(tangent, 0.f);
-					vertices[i2].tangent += glm::vec4(tangent, 0.f);
-
-					mesh.area += glm::length(glm::cross(e1, e2)) * 0.5f;
-				}
-
-				for (uint32_t i = 0; i < mesh.vertices_count; i++)
-				{
-					vertices[mesh.vertices_offset + i].tangent = glm::normalize(vertices[mesh.vertices_offset + i].tangent);
-				}
-
 				meshes.push_back(mesh);
 				mesh_map[&raw_mesh].push_back(static_cast<uint32_t>(meshes.size() - 1));
 			}

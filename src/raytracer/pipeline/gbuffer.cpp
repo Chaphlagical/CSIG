@@ -244,12 +244,6 @@ GBufferPass::GBufferPass(const Context &context) :
 		        .format   = VK_FORMAT_R32G32B32A32_SFLOAT,
 		        .offset   = offsetof(Vertex, normal),
 		    },
-		    {
-		        .location = 2,
-		        .binding  = 0,
-		        .format   = VK_FORMAT_R32G32B32A32_SFLOAT,
-		        .offset   = offsetof(Vertex, tangent),
-		    },
 		};
 
 		VkVertexInputBindingDescription binding_description = {
@@ -262,7 +256,7 @@ GBufferPass::GBufferPass(const Context &context) :
 		    .sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
 		    .vertexBindingDescriptionCount   = 1,
 		    .pVertexBindingDescriptions      = &binding_description,
-		    .vertexAttributeDescriptionCount = 3,
+		    .vertexAttributeDescriptionCount = 2,
 		    .pVertexAttributeDescriptions    = attribute_descriptions,
 		};
 
@@ -510,7 +504,7 @@ GBufferPass::GBufferPass(const Context &context) :
 			    .storeOp     = VK_ATTACHMENT_STORE_OP_STORE,
 			    .clearValue  = {
 			         .color = {
-			             .float32 = {0, 0, 0, 0},
+			             .float32 = {0, 0, 0, -1.f},
                     },
                 },
 			};

@@ -86,7 +86,8 @@ struct Context
 	~Context();
 
 	VkCommandBuffer create_command_buffer(bool compute = false) const;
-	void            flush_command_buffer(VkCommandBuffer cmd_buffer, bool compute = false) const;
+
+	void flush_command_buffer(VkCommandBuffer cmd_buffer, bool compute = false) const;
 
 	void set_object_name(VkObjectType type, uint64_t handle, const char *name) const;
 	void begin_marker(VkCommandBuffer cmd_buffer, const char *name) const;

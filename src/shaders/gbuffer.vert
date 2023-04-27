@@ -7,15 +7,13 @@
 
 layout(location = 0) in vec4 inPosition;
 layout(location = 1) in vec4 inNormal;
-layout(location = 2) in vec4 inTangent;
 
 layout(location = 0) out vec3 outFragPos;
 layout(location = 1) out vec2 outTexcoord;
 layout(location = 2) out vec3 outNormal;
-layout(location = 3) out vec3 outTangent;
-layout(location = 4) out vec4 outClipPos;
-layout(location = 5) out vec4 outPrevClipPos;
-layout(location = 6) out uint outInstanceID;
+layout(location = 3) out vec4 outClipPos;
+layout(location = 4) out vec4 outPrevClipPos;
+layout(location = 5) out uint outInstanceID;
 
 layout(binding = 0) uniform UBO
 {
@@ -47,8 +45,7 @@ void main()
 
 	mat3 normal_mat = transpose(inverse(mat3(instance.transform)));
 
-	outNormal = normal_mat * inNormal.xyz;
-	outTangent = normal_mat * inTangent.xyz;
+	outNormal = normalize(normal_mat * inNormal.xyz);
 
 	outInstanceID = gl_InstanceIndex;
 }

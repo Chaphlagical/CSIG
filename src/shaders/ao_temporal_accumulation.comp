@@ -149,9 +149,6 @@ void main()
 	{
 		ao = unpack_ao_hit_value(coord);
 		float history_ao = 0.0;
-if(push_constants.debug != 0)
-		{
-
 		bool success = reprojection(coord,
 									depth,
 									push_constants.gbuffer_mip,
@@ -180,8 +177,6 @@ if(push_constants.debug != 0)
 
 		const float alpha = success ? max(push_constants.alpha, 1.0 / history_length) : 1.0;
 		ao = mix(history_ao, ao, alpha);
-
-		}
 	}
 
 	imageStore(ao_image, coord, vec4(ao));

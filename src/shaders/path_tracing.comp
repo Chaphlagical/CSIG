@@ -466,10 +466,8 @@ ShadeState GetShadeState(Ray ray, PtPayload payload)
   	vec3 wgeom_normal = normalize(vec3(geom_normal * payload.world_to_object));
 	vec3 ffnormal = dot(world_normal, ray.direction) <= 0.0 ? world_normal : -world_normal;
 
-	vec3 tangent = v0.tangent.xyz * bary.x + v1.tangent.xyz * bary.y + v2.tangent.xyz * bary.z;
-	vec3 world_tangent  = normalize(vec3(tangent * payload.world_to_object));
-	world_tangent = normalize(world_tangent - dot(world_tangent, world_normal) * world_normal);
-	vec3 world_bitangent = normalize(cross(world_normal, world_tangent));
+	vec3 world_tangent, world_bitangent;
+	coordinate_system(ffnormal, world_tangent, world_bitangent);
 
 	const vec2 uv0 = vec2(v0.position.w, v0.normal.w);
 	const vec2 uv1 = vec2(v1.position.w, v1.normal.w);
@@ -525,10 +523,10 @@ ShadeState GetShadeState(Ray ray, PtPayload payload)
 
 ShadeState GetPrimaryState(vec2 frag_coord)
 {
-	const vec4 gbufferA_data = texelFetch(gbufferA, ivec2(frag_coord / 2), 1);
-	const vec4 gbufferB_data = texelFetch(gbufferB, ivec2(frag_coord / 2), 1);
-	const vec4 gbufferC_data = texelFetch(gbufferC, ivec2(frag_coord / 2), 1);
-	const float depth = texelFetch(depth_buffer, ivec2(frag_coord / 2), 1).r;
+	const vec4 gbufferA_data = texelFetch(gbufferA, ivec2(frag_coord), 0);
+	const vec4 gbufferB_data = texelFetch(gbufferB, ivec2(frag_coord), 0);
+	const vec4 gbufferC_data = texelFetch(gbufferC, ivec2(frag_coord), 0);
+	const float depth = texelFetch(depth_buffer, ivec2(frag_coord), 0).r;
 	const ivec2 image_size = textureSize(depth_buffer, 0);
 
 	uint instance_id = uint(gbufferC_data.b);

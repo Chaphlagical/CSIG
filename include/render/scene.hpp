@@ -33,7 +33,6 @@ struct Vertex
 {
 	glm::vec4 position = glm::vec4(0.f);        // xyz - position, w - texcoord u
 	glm::vec4 normal   = glm::vec4(0.f);        // xyz - normal, w - texcoord v
-	glm::vec4 tangent  = glm::vec4(0.f);
 };
 
 struct Instance

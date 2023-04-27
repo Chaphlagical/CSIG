@@ -48,7 +48,6 @@ struct Vertex
 {
 	vec4 position;
 	vec4 normal;
-	vec4 tangent;
 };
 
 struct Emitter
@@ -128,6 +127,13 @@ vec3 offset_ray(vec3 p, vec3 n)
   return vec3(abs(p.x) < origin ? p.x + floatScale * n.x : p_i.x,  //
               abs(p.y) < origin ? p.y + floatScale * n.y : p_i.y,  //
               abs(p.z) < origin ? p.z + floatScale * n.z : p_i.z);
+}
+
+float gaussian_weight(float offset, float deviation)
+{
+    float weight = 1.0 / sqrt(2.0 * PI * deviation * deviation);
+    weight *= exp(-(offset * offset) / (2.0 * deviation * deviation));
+    return weight;
 }
 
 #endif        // !COMMON_GLSL

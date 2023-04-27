@@ -19,7 +19,7 @@ inline glm::vec3 smooth_step(const glm::vec3 &v1, const glm::vec3 &v2, float t)
 	return v;
 }
 
-inline float halton_sequence(int base, int index)
+inline float halton_sequence(int32_t base, int32_t index)
 {
 	float result = 0;
 	float f      = 1;
@@ -27,7 +27,7 @@ inline float halton_sequence(int base, int index)
 	{
 		f /= base;
 		result += f * (index % base);
-		index = floor(index / base);
+		index = (int32_t) floor((float) index / (float) base);
 	}
 
 	return result;
@@ -253,11 +253,11 @@ void Application::update_ui()
 		ImGui::Text("FPS: %.f", ImGui::GetIO().Framerate);
 		ImGui::Text("Frames: %.d", m_num_frames);
 		ImGui::Combo("Mode", reinterpret_cast<int32_t *>(&m_render_mode), render_modes, 2);
-		bool ui_update=false;
+		bool ui_update = false;
 		switch (m_render_mode)
 		{
 			case RenderMode::Hybrid:
-				ui_update|=m_renderer.raytraced_ao.draw_ui();
+				ui_update |= m_renderer.raytraced_ao.draw_ui();
 				break;
 			case RenderMode::PathTracing:
 				ui_update |= m_renderer.path_tracing.draw_ui();
@@ -346,7 +346,7 @@ void Application::update(VkCommandBuffer cmd_buffer)
 		              0, 1, 0, 0,
 		              0, 0, -1, 0,
 		              0, 0, 1, 1) *
-		    glm::perspective(glm::radians(60.f), static_cast<float>(m_context.extent.width) / static_cast<float>(m_context.extent.height), 0.0001f, 1000.f);
+		    glm::perspective(glm::radians(60.f), static_cast<float>(m_context.extent.width) / static_cast<float>(m_context.extent.height), CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE);
 		m_renderer.path_tracing.reset_frames();
 	}
 	else
@@ -549,7 +549,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.raytraced_ao.ao_image[m_context.ping_pong].vk_image,
+			        .image               = m_renderer.raytraced_ao.upsampled_ao_image.vk_image,
 			        .subresourceRange    = VkImageSubresourceRange{
 			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 			               .baseMipLevel   = 0,
@@ -583,7 +583,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			    0, 0, nullptr, 0, nullptr, 2, image_barriers);
 		}
 
-		present(cmd_buffer, m_renderer.raytraced_ao.ao_image[m_context.ping_pong].vk_image);
+		present(cmd_buffer, m_renderer.raytraced_ao.upsampled_ao_image.vk_image);
 
 		{
 			VkImageMemoryBarrier image_barriers[] = {
@@ -595,7 +595,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.raytraced_ao.ao_image[m_context.ping_pong].vk_image,
+			        .image               = m_renderer.raytraced_ao.upsampled_ao_image.vk_image,
 			        .subresourceRange    = VkImageSubresourceRange{
 			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 			               .baseMipLevel   = 0,

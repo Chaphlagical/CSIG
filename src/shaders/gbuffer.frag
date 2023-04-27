@@ -8,10 +8,9 @@
 layout(location = 0) in vec3 inFragPos;
 layout(location = 1) in vec2 inTexcoord;
 layout(location = 2) in vec3 inNormal;
-layout(location = 3) in vec3 inTangent;
-layout(location = 4) in vec4 inClipPos;
-layout(location = 5) in vec4 inPrevClipPos;
-layout(location = 6) in flat uint inInstanceID;
+layout(location = 3) in vec4 inClipPos;
+layout(location = 4) in vec4 inPrevClipPos;
+layout(location = 5) in flat uint inInstanceID;
 
 layout(location = 0) out vec4 GBufferA; // RGB: Albedo, A: Metallic
 layout(location = 1) out vec4 GBufferB; // RG: Normal, BA: Motion Vector
@@ -78,14 +77,15 @@ vec2 fetch_roughness_metallic(in Material material, in vec2 uv)
 
 vec3 fetch_normal(in Material material, in vec2 uv)
 {
-	
 	if (material.normal_texture == ~0)
 	{
 		return normalize(inNormal);
 	}
 	else
 	{
-		mat3 TBN = mat3(normalize(inTangent), normalize(cross(inNormal, inTangent)), normalize(inNormal));
+		vec3 bitangent, tangent;
+		coordinate_system(inNormal, tangent, bitangent);
+		mat3 TBN = mat3(tangent, bitangent, inNormal);
 		vec3 normal = normalize(texture(textures[material.normal_texture], uv).rgb * 2.0-1.0);
 		return normalize(TBN * normal);
 	}
