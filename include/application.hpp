@@ -13,8 +13,9 @@
 struct ApplicationConfig
 {
 	ContextConfig context_config;
-	SceneConfig   scene_config = {.light_config = SceneConfig::LightLoadingConfig::AsPointLight};
-	std::string   scene_file   = "assets/scenes/Deferred/Deferred.gltf";
+
+	std::string scene_file = "assets/scenes/Deferred/Deferred.gltf";
+	std::string hdr_file   = "assets/textures/hdr/newport_loft.hdr";
 };
 
 class Application

@@ -66,7 +66,7 @@ class RayTracedAO
 		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
 		VkPipeline            pipeline              = VK_NULL_HANDLE;
 		VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
-		VkDescriptorSet       descriptor_sets[2]    = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+		VkDescriptorSet       descriptor_sets[2];
 	} m_raytraced;
 
 	struct
@@ -83,7 +83,7 @@ class RayTracedAO
 			VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
 			VkPipeline            pipeline              = VK_NULL_HANDLE;
 			VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
-			VkDescriptorSet       descriptor_sets[2]    = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+			VkDescriptorSet       descriptor_sets[2];
 		} temporal_accumulation;
 
 		struct

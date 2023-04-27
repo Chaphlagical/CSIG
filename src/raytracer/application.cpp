@@ -46,7 +46,7 @@ Application::Application(const ApplicationConfig &config) :
         .path_tracing{m_context},
         .gbuffer_pass{m_context},
         .raytraced_ao{m_context}},
-    m_scene(config.scene_file, m_context, config.scene_config),
+    m_scene(config.scene_file, config.hdr_file, m_context),
     m_blue_noise(m_context)
 {
 	glfwSetWindowUserPointer(m_context.window, this);

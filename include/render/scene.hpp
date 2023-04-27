@@ -9,15 +9,6 @@
 
 struct Context;
 
-struct SceneConfig
-{
-	enum class LightLoadingConfig
-	{
-		AsPointLight,
-		AsEmissive,
-	} light_config = LightLoadingConfig::AsEmissive;
-};
-
 struct GlobalBuffer
 {
 	glm::mat4 view_inv;
@@ -74,6 +65,15 @@ struct Material
 	int32_t metallic_roughness_texture   = -1;
 };
 
+struct Envmap
+{
+	Texture texture;
+	Texture irradiance_sh;
+	Texture prefilter_map;
+
+	VkImageView view;
+};
+
 struct Scene
 {
 	AccelerationStructure tlas;
@@ -92,7 +92,7 @@ struct Scene
 	std::vector<Texture>     textures;
 	std::vector<VkImageView> texture_views;
 
-	Texture envmap;
+	Envmap envmap;
 
 	VkSampler linear_sampler  = VK_NULL_HANDLE;
 	VkSampler nearest_sampler = VK_NULL_HANDLE;
@@ -106,11 +106,11 @@ struct Scene
 		uint32_t emitter_count  = 0;
 	} scene_info;
 
-	Scene(const std::string &filename, const Context &context, const SceneConfig &config = SceneConfig{});
+	Scene(const std::string &scene_filename, const std::string &hdr_filename, const Context &context);
 
 	~Scene();
 
-	void load_scene(const std::string &filename, const SceneConfig &config);
+	void load_scene(const std::string &filename);
 
 	void load_envmap(const std::string &filename);
 

@@ -6,7 +6,6 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
 
-#define VK_USE_PLATFORM_WIN32_KHR
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -363,6 +362,7 @@ Context::Context(const ContextConfig &config)
 		    VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
 		    VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME,
 		    VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+		    VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME,
 		};
 
 		// Init vulkan physical device
@@ -495,11 +495,14 @@ Context::Context(const ContextConfig &config)
 		LOG_WARN("Device feature {} is not supported", #feature);             \
 	}
 
+			ENABLE_DEVICE_FEATURE(physical_device_features.features, physical_device_features_enable.features, multiViewport);
 			ENABLE_DEVICE_FEATURE(physical_device_vulkan12_features, physical_device_vulkan12_features_enable, descriptorIndexing);
 			ENABLE_DEVICE_FEATURE(physical_device_vulkan12_features, physical_device_vulkan12_features_enable, bufferDeviceAddress);
 			ENABLE_DEVICE_FEATURE(physical_device_vulkan12_features, physical_device_vulkan12_features_enable, runtimeDescriptorArray);
 			ENABLE_DEVICE_FEATURE(physical_device_vulkan12_features, physical_device_vulkan12_features_enable, descriptorBindingSampledImageUpdateAfterBind);
 			ENABLE_DEVICE_FEATURE(physical_device_vulkan12_features, physical_device_vulkan12_features_enable, descriptorBindingPartiallyBound);
+			ENABLE_DEVICE_FEATURE(physical_device_vulkan12_features, physical_device_vulkan12_features_enable, shaderOutputViewportIndex);
+			ENABLE_DEVICE_FEATURE(physical_device_vulkan12_features, physical_device_vulkan12_features_enable, shaderOutputLayer);
 			ENABLE_DEVICE_FEATURE(physical_device_vulkan13_features, physical_device_vulkan13_features_enable, dynamicRendering);
 			ENABLE_DEVICE_FEATURE(physical_device_vulkan13_features, physical_device_vulkan13_features_enable, maintenance4);
 
