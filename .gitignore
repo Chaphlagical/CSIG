@@ -34,6 +34,7 @@
 .vscode/**
 .xmake/**
 build/**
-assets/**
+assets/scenes/**
+assets/hdr/**
 vsxmake**
 imgui.ini

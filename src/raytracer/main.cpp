@@ -7,7 +7,8 @@
 int main(int argc, char **argv)
 {
 	ApplicationConfig config;
-	Application       application(config);
+
+	Application application(config);
 
 	application.run();
 

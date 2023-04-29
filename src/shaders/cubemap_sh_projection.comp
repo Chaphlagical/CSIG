@@ -23,7 +23,7 @@ void main()
 {
     for (uint i = 0; i < 9; i++)
     {
-        sh_coeffs[gl_LocalInvocationID.x][gl_LocalInvocationID.y].weights[i] = vec3(0.0, 0.0, 0.0);
+        sh_coeffs[gl_LocalInvocationID.x][gl_LocalInvocationID.y].weights[i] = vec3(0.0);
     }
 
     barrier();
