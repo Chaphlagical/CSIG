@@ -136,4 +136,72 @@ float gaussian_weight(float offset, float deviation)
     return weight;
 }
 
+float area_integration(float x, float y)
+{
+    return atan(sqrt(x * x + y * y + 1), x * y);
+}
+
+float calculate_solid_angle(uint x, uint y, uint width, uint height)
+{
+    float u = 2.0 * (float(x) + 0.5) / float(width) - 1.0;
+    float v = 2.0 * (float(y) + 0.5) / float(height) - 1.0;
+
+    float x0 = u - 1.0 / float(width);
+    float x1 = u + 1.0 / float(width);
+    float y0 = v - 1.0 / float(height);
+    float y1 = v + 1.0 / float(height);
+
+    return area_integration(x0, y0) - area_integration(x0, y1) - area_integration(x1, y0) + area_integration(x1, y1);
+}
+
+vec3 calculate_cubemap_direction(uint face_idx, uint face_x, uint face_y, uint width, uint height)
+{
+    float u = 2.0 * (float(face_x) + 0.5) / float(width) - 1.0;
+    float v = 2.0 * (float(face_y) + 0.5) / float(height) - 1.0;
+    float x, y, z;
+
+    // POSITIVE_X 0
+    // NEGATIVE_X 1
+    // POSITIVE_Y 2
+    // NEGATIVE_Y 3
+    // POSITIVE_Z 4
+    // NEGATIVE_Z 5
+    
+    switch (face_idx)
+    {
+        case 0:
+            x = 1;
+            y = -v;
+            z = -u;
+            break;
+        case 1:
+            x = -1;
+            y = -v;
+            z = u;
+            break;
+        case 2:
+            x = u;
+            y = 1;
+            z = v;
+            break;
+        case 3:
+            x = u;
+            y = -1;
+            z = -v;
+            break;
+        case 4:
+            x = u;
+            y = -v;
+            z = 1;
+            break;
+        case 5:
+            x = -u;
+            y = -v;
+            z = -1;
+            break;
+    }
+
+    return normalize(vec3(x, y, z));
+}
+
 #endif        // !COMMON_GLSL

@@ -5,6 +5,7 @@
 #include "render/pipeline/gbuffer.hpp"
 #include "render/pipeline/pathtracing.hpp"
 #include "render/pipeline/raytraced_ao.hpp"
+#include "render/pipeline/tonemap.hpp"
 #include "render/pipeline/ui/ui.hpp"
 #include "render/scene.hpp"
 
@@ -15,7 +16,7 @@ struct ApplicationConfig
 	ContextConfig context_config;
 
 	std::string scene_file = "assets/scenes/Deferred/Deferred.gltf";
-	std::string hdr_file   = "assets/textures/hdr/newport_loft.hdr";
+	std::string hdr_file   = "assets/textures/hdr/BasketballCourt_3k.hdr";
 };
 
 class Application
@@ -46,6 +47,7 @@ class Application
 		PathTracing path_tracing;
 		GBufferPass gbuffer_pass;
 		RayTracedAO raytraced_ao;
+		Tonemap     tonemap;
 	} m_renderer;
 
 	struct

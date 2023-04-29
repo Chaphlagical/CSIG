@@ -45,7 +45,9 @@ Application::Application(const ApplicationConfig &config) :
         .ui{m_context},
         .path_tracing{m_context},
         .gbuffer_pass{m_context},
-        .raytraced_ao{m_context}},
+        .raytraced_ao{m_context},
+        .tonemap{m_context},
+    },
     m_scene(config.scene_file, config.hdr_file, m_context),
     m_blue_noise(m_context)
 {
@@ -97,6 +99,7 @@ Application::Application(const ApplicationConfig &config) :
 		m_renderer.gbuffer_pass.init(cmd_buffer);
 		m_renderer.raytraced_ao.init(cmd_buffer);
 		m_renderer.path_tracing.init(cmd_buffer);
+		m_renderer.tonemap.init(cmd_buffer);
 
 		std::vector<VkImageMemoryBarrier> image_barriers;
 		for (auto &image : m_context.swapchain_images)
@@ -252,7 +255,10 @@ void Application::update_ui()
 		ImGui::Text("CSIG 2023 RayTracer");
 		ImGui::Text("FPS: %.f", ImGui::GetIO().Framerate);
 		ImGui::Text("Frames: %.d", m_num_frames);
-		ImGui::Combo("Mode", reinterpret_cast<int32_t *>(&m_render_mode), render_modes, 2);
+		if (ImGui::Combo("Mode", reinterpret_cast<int32_t*>(&m_render_mode), render_modes, 2))
+		{
+			m_renderer.tonemap.set_pathtracing(m_render_mode == RenderMode::PathTracing);
+		}
 		bool ui_update = false;
 		switch (m_render_mode)
 		{
@@ -269,6 +275,7 @@ void Application::update_ui()
 		{
 			m_renderer.path_tracing.reset_frames();
 		}
+		m_renderer.tonemap.draw_ui();
 		ImGui::End();
 	}
 	m_renderer.ui.end_frame();
@@ -365,6 +372,7 @@ void Application::update(VkCommandBuffer cmd_buffer)
 		m_renderer.gbuffer_pass.update(m_scene);
 		m_renderer.path_tracing.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
 		m_renderer.raytraced_ao.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
+		m_renderer.tonemap.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, m_renderer.raytraced_ao.upsampled_ao_image_view);
 	}
 
 	// Copy to device
@@ -448,12 +456,12 @@ void Application::render(VkCommandBuffer cmd_buffer)
 	{
 		{
 			VkImageMemoryBarrier image_barriers[] = {
-			    {
+			    /*{
 			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 			        .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
-			        .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+			        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
 			        .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
-			        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			        .image               = m_renderer.path_tracing.path_tracing_image[m_context.ping_pong].vk_image,
@@ -464,7 +472,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			               .baseArrayLayer = 0,
 			               .layerCount     = 1,
                     },
-			    },
+			    },*/
 			    {
 			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 			        .srcAccessMask       = VK_ACCESS_MEMORY_READ_BIT,
@@ -487,10 +495,39 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			    cmd_buffer,
 			    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 			    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-			    0, 0, nullptr, 0, nullptr, 2, image_barriers);
+			    0, 0, nullptr, 0, nullptr, 1, image_barriers);
 		}
 
-		present(cmd_buffer, m_renderer.path_tracing.path_tracing_image[m_context.ping_pong].vk_image);
+		m_renderer.tonemap.draw(cmd_buffer);
+
+		{
+			VkImageMemoryBarrier image_barriers[] = {
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+			        .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = m_renderer.tonemap.tonemapped_image.vk_image,
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = 1,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
+			};
+			vkCmdPipelineBarrier(
+			    cmd_buffer,
+			    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    0, 0, nullptr, 0, nullptr, 1, image_barriers);
+		}
+
+		present(cmd_buffer, m_renderer.tonemap.tonemapped_image.vk_image);
 
 		{
 			VkImageMemoryBarrier image_barriers[] = {
@@ -502,7 +539,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
 			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.path_tracing.path_tracing_image[m_context.ping_pong].vk_image,
+			        .image               = m_renderer.tonemap.tonemapped_image.vk_image,
 			        .subresourceRange    = VkImageSubresourceRange{
 			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 			               .baseMipLevel   = 0,

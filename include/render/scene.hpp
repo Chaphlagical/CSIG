@@ -71,7 +71,9 @@ struct Envmap
 	Texture irradiance_sh;
 	Texture prefilter_map;
 
-	VkImageView view;
+	VkImageView texture_view       = VK_NULL_HANDLE;
+	VkImageView irradiance_sh_view = VK_NULL_HANDLE;
+	VkImageView prefilter_map_view = VK_NULL_HANDLE;
 };
 
 struct Scene

@@ -31,9 +31,8 @@ class PathTracing
 
 	struct
 	{
-		int32_t max_depth     = 5;
-		float   emitter_scale = 100.f;
-		float   bias          = 0.01f;
+		int32_t  max_depth     = 5;
+		float    bias          = 0.01f;
 		uint32_t frame_count   = 0;
 	} m_push_constant;
 

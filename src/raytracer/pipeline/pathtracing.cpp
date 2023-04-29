@@ -86,6 +86,7 @@ PathTracing::PathTracing(const Context &context) :
 		    0,
 		    0,
 		    VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
+		    0,
 		};
 		VkDescriptorSetLayoutBinding bindings[] = {
 		    // Global buffer
@@ -207,17 +208,24 @@ PathTracing::PathTracing(const Context &context) :
 		        .descriptorCount = 1024,
 		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
 		    },
+		    // Skybox
+		    {
+		        .binding         = 17,
+		        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .descriptorCount = 1,
+		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
+		    },
 		};
 		VkDescriptorSetLayoutBindingFlagsCreateInfo descriptor_set_layout_binding_flag_create_info = {
 		    .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
-		    .bindingCount  = 17,
+		    .bindingCount  = 18,
 		    .pBindingFlags = descriptor_binding_flags,
 		};
 		VkDescriptorSetLayoutCreateInfo create_info = {
 		    .sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 		    .pNext        = &descriptor_set_layout_binding_flag_create_info,
 		    .flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
-		    .bindingCount = 17,
+		    .bindingCount = 18,
 		    .pBindings    = bindings,
 		};
 		vkCreateDescriptorSetLayout(m_context->vk_device, &create_info, nullptr, &m_descriptor_set_layout);
@@ -293,12 +301,12 @@ void PathTracing::init(VkCommandBuffer cmd_buffer)
 	    {
 	        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 	        .srcAccessMask       = 0,
-	        .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+	        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
 	        .oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
-	        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+	        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 	        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 	        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-	        .image               = path_tracing_image[1].vk_image,
+	        .image               = path_tracing_image[0].vk_image,
 	        .subresourceRange    = VkImageSubresourceRange{
 	               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 	               .baseMipLevel   = 0,
@@ -312,10 +320,10 @@ void PathTracing::init(VkCommandBuffer cmd_buffer)
 	        .srcAccessMask       = 0,
 	        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
 	        .oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
-	        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+	        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 	        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 	        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-	        .image               = path_tracing_image[0].vk_image,
+	        .image               = path_tracing_image[1].vk_image,
 	        .subresourceRange    = VkImageSubresourceRange{
 	               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 	               .baseMipLevel   = 0,
@@ -463,6 +471,12 @@ void PathTracing::update(const Scene &scene, const BlueNoise &blue_noise, const 
 		    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 		});
 	}
+
+	VkDescriptorImageInfo skybox_info = {
+	    .sampler     = scene.linear_sampler,
+	    .imageView   = scene.envmap.texture_view,
+	    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	};
 
 	VkWriteDescriptorSetAccelerationStructureKHR as_write = {
 	    .sType                      = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR,
@@ -662,8 +676,19 @@ void PathTracing::update(const Scene &scene, const BlueNoise &blue_noise, const 
 			        .pBufferInfo      = nullptr,
 			        .pTexelBufferView = nullptr,
 			    },
+			    {
+			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			        .dstSet           = m_descriptor_sets[i],
+			        .dstBinding       = 17,
+			        .dstArrayElement  = 0,
+			        .descriptorCount  = 1,
+			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			        .pImageInfo       = &skybox_info,
+			        .pBufferInfo      = nullptr,
+			        .pTexelBufferView = nullptr,
+			    },
 			};
-			vkUpdateDescriptorSets(m_context->vk_device, 17, writes, 0, nullptr);
+			vkUpdateDescriptorSets(m_context->vk_device, 18, writes, 0, nullptr);
 		}
 	}
 }
@@ -676,12 +701,12 @@ void PathTracing::draw(VkCommandBuffer cmd_buffer)
 			    {
 			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 			        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-			        .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
-			        .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+			        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
 			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = path_tracing_image[m_context->ping_pong].vk_image,
+			        .image               = path_tracing_image[!m_context->ping_pong].vk_image,
 			        .subresourceRange    = VkImageSubresourceRange{
 			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 			               .baseMipLevel   = 0,
@@ -692,13 +717,13 @@ void PathTracing::draw(VkCommandBuffer cmd_buffer)
 			    },
 			    {
 			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			        .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
-			        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-			        .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+			        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+			        .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
 			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = path_tracing_image[!m_context->ping_pong].vk_image,
+			        .image               = path_tracing_image[m_context->ping_pong].vk_image,
 			        .subresourceRange    = VkImageSubresourceRange{
 			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 			               .baseMipLevel   = 0,
@@ -723,6 +748,50 @@ void PathTracing::draw(VkCommandBuffer cmd_buffer)
 			vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_context->extent.width) / float(RAY_TRACE_NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_context->extent.height) / float(RAY_TRACE_NUM_THREADS_Y))), 1);
 		}
 		m_context->end_marker(cmd_buffer);
+
+		{
+			VkImageMemoryBarrier image_barriers[] = {
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+			        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = path_tracing_image[!m_context->ping_pong].vk_image,
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = 1,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+			        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = path_tracing_image[m_context->ping_pong].vk_image,
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = 1,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
+			};
+			vkCmdPipelineBarrier(
+			    cmd_buffer,
+			    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    0, 0, nullptr, 0, nullptr, 2, image_barriers);
+		}
 	}
 	m_push_constant.frame_count++;
 }
@@ -732,8 +801,8 @@ bool PathTracing::draw_ui()
 	bool update = false;
 	if (ImGui::TreeNode("Path Tracing"))
 	{
+		ImGui::Text("Iteration: %d", m_push_constant.frame_count);
 		update |= ImGui::SliderInt("Max Depth", reinterpret_cast<int32_t *>(&m_push_constant.max_depth), 1, 100);
-		update |= ImGui::DragFloat("Emitter Scale", &m_push_constant.emitter_scale, 1.f, 1.f, 1000.f);
 		update |= ImGui::DragFloat("Bias", &m_push_constant.bias, 0.0000000001f, -1.f, 1.f, "%.10f");
 	}
 	return update;
