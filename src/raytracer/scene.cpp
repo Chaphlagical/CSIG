@@ -659,6 +659,7 @@ Scene::Scene(const std::string &scene_filename, const std::string &hdr_filename,
 Scene::~Scene()
 {
 	destroy_scene();
+	destroy_envmap();
 
 	vkDestroySampler(m_context->vk_device, linear_sampler, nullptr);
 	vkDestroySampler(m_context->vk_device, nearest_sampler, nullptr);
@@ -667,6 +668,7 @@ Scene::~Scene()
 
 void Scene::load_scene(const std::string &filename)
 {
+	vkDeviceWaitIdle(m_context->vk_device);
 	destroy_scene();
 
 	cgltf_options options  = {};
@@ -692,6 +694,8 @@ void Scene::load_scene(const std::string &filename)
 	std::vector<Material> materials;
 	std::vector<Mesh>     meshes;
 	std::vector<Instance> instances;
+	std::vector<uint32_t> indices;
+	std::vector<Vertex>   vertices;
 
 	// Load material
 	{
@@ -753,9 +757,6 @@ void Scene::load_scene(const std::string &filename)
 
 	// Load geometry
 	{
-		std::vector<uint32_t> indices;
-		std::vector<Vertex>   vertices;
-
 		for (uint32_t mesh_id = 0; mesh_id < raw_data->meshes_count; mesh_id++)
 		{
 			auto &raw_mesh      = raw_data->meshes[mesh_id];
@@ -884,6 +885,23 @@ void Scene::load_scene(const std::string &filename)
 			}
 		}
 		scene_info.instance_count = static_cast<uint32_t>(instances.size());
+
+		// Compute scene extent
+		{
+			scene_info.max_extent = -glm::vec3(std::numeric_limits<float>::infinity());
+			scene_info.min_extent = glm::vec3(std::numeric_limits<float>::infinity());
+			for (auto& instance : instances)
+			{
+				const auto &mesh = meshes[instance.mesh];
+				for (uint32_t vertex_id = 0; vertex_id < mesh.vertices_count; vertex_id++)
+				{
+					glm::vec3 v = vertices[vertex_id + mesh.vertices_offset].position;
+					v           = instance.transform * glm::vec4(v, 1.f);
+					scene_info.max_extent = glm::max(scene_info.max_extent, v);
+					scene_info.min_extent = glm::min(scene_info.min_extent, v);
+				}
+			}
+		}
 
 		// Build emitter buffer
 		{
@@ -1210,6 +1228,7 @@ void Scene::load_scene(const std::string &filename)
 void Scene::load_envmap(const std::string &filename)
 {
 	vkDeviceWaitIdle(m_context->vk_device);
+	destroy_envmap();
 
 	int32_t width = 0, height = 0, channel = 0, req_channel = 4;
 
@@ -1656,6 +1675,8 @@ void Scene::load_envmap(const std::string &filename)
 		    .basePipelineIndex   = -1,
 		};
 		vkCreateGraphicsPipelines(m_context->vk_device, m_context->vk_pipeline_cache, 1, &create_info, nullptr, &equirectangular_to_cubemap.pipeline);
+		vkDestroyShaderModule(m_context->vk_device, equirectangular_to_cubemap.vert_shader, nullptr);
+		vkDestroyShaderModule(m_context->vk_device, equirectangular_to_cubemap.frag_shader, nullptr);
 	}
 
 	// Create cubemap sh projection pass
@@ -1912,119 +1933,147 @@ void Scene::load_envmap(const std::string &filename)
 		VkPipeline            pipeline        = VK_NULL_HANDLE;
 	} prefilter_map;
 
-	//{
-	//	VkShaderModule shader = VK_NULL_HANDLE;
-	//	{
-	//		VkShaderModuleCreateInfo create_info = {
-	//		    .sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-	//		    .codeSize = sizeof(g_cubemap_prefilter_comp_spv_data),
-	//		    .pCode    = reinterpret_cast<uint32_t *>(g_cubemap_prefilter_comp_spv_data),
-	//		};
-	//		vkCreateShaderModule(m_context->vk_device, &create_info, nullptr, &shader);
-	//	}
+	std::vector<VkImageView> prefiltered_views(PREFILTER_MIP_LEVELS);
+	std::fill(prefiltered_views.begin(), prefiltered_views.end(), VK_NULL_HANDLE);
+	for (uint32_t i = 0; i < PREFILTER_MIP_LEVELS; i++)
+	{
+		VkImageViewCreateInfo view_create_info = {
+		    .sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		    .image            = envmap.prefilter_map.vk_image,
+		    .viewType         = VK_IMAGE_VIEW_TYPE_CUBE,
+		    .format           = VK_FORMAT_R32G32B32A32_SFLOAT,
+		    .components       = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
+		    .subresourceRange = {
+		        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		        .baseMipLevel   = i,
+		        .levelCount     = 1,
+		        .baseArrayLayer = 0,
+		        .layerCount     = 6,
+		    },
+		};
+		vkCreateImageView(m_context->vk_device, &view_create_info, nullptr, &prefiltered_views[i]);
+	}
 
-	//	VkDescriptorSetLayoutBinding bindings[] = {
-	//	    // Irradiance SH
-	//	    {
-	//	        .binding         = 0,
-	//	        .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-	//	        .descriptorCount = 1,
-	//	        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-	//	    },
-	//	    // SH intermediate
-	//	    {
-	//	        .binding         = 1,
-	//	        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-	//	        .descriptorCount = 1,
-	//	        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-	//	    },
-	//	};
-	//	VkDescriptorSetLayoutCreateInfo create_info = {
-	//	    .sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-	//	    .bindingCount = 2,
-	//	    .pBindings    = bindings,
-	//	};
-	//	vkCreateDescriptorSetLayout(m_context->vk_device, &create_info, nullptr, &prefilter_map.descriptor_set_layout);
+	{
+		VkShaderModule shader = VK_NULL_HANDLE;
+		{
+			VkShaderModuleCreateInfo create_info = {
+			    .sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+			    .codeSize = sizeof(g_cubemap_prefilter_comp_spv_data),
+			    .pCode    = reinterpret_cast<uint32_t *>(g_cubemap_prefilter_comp_spv_data),
+			};
+			vkCreateShaderModule(m_context->vk_device, &create_info, nullptr, &shader);
+		}
 
-	//	{
-	//		std::fill(prefilter_map.descriptor_sets, prefilter_map.descriptor_sets + PREFILTER_MAP_SIZE, VK_NULL_HANDLE);
-	//		VkDescriptorSetAllocateInfo allocate_info = {
-	//		    .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-	//		    .pNext              = nullptr,
-	//		    .descriptorPool     = m_context->vk_descriptor_pool,
-	//		    .descriptorSetCount = PREFILTER_MIP_LEVELS,
-	//		    .pSetLayouts        = &prefilter_map.descriptor_set_layout,
-	//		};
-	//		vkAllocateDescriptorSets(m_context->vk_device, &allocate_info, prefilter_map.descriptor_sets);
-	//	}
+		VkDescriptorSetLayoutBinding bindings[] = {
+		    // Skybox
+		    {
+		        .binding         = 0,
+		        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .descriptorCount = 1,
+		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
+		    },
+		    // Prefiltered Image
+		    {
+		        .binding         = 1,
+		        .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+		        .descriptorCount = 1,
+		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
+		    },
+		};
+		VkDescriptorSetLayoutCreateInfo create_info = {
+		    .sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		    .bindingCount = 2,
+		    .pBindings    = bindings,
+		};
+		vkCreateDescriptorSetLayout(m_context->vk_device, &create_info, nullptr, &prefilter_map.descriptor_set_layout);
 
-	//	for (uint32_t i = 0; i < PREFILTER_MIP_LEVELS;i++)
-	//	{
-	//		VkDescriptorImageInfo sh_intermediate_info{
-	//		    .sampler     = nearest_sampler,
-	//		    .imageView   = sh_intermediate_view,
-	//		    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-	//		};
-	//		VkDescriptorImageInfo irradiance_sh_info{
-	//		    .sampler     = linear_sampler,
-	//		    .imageView   = envmap.irradiance_sh_view,
-	//		    .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
-	//		};
-	//		VkWriteDescriptorSet writes[] = {
-	//		    {
-	//		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-	//		        .dstSet           = prefilter_map.descriptor_sets[i],
-	//		        .dstBinding       = 0,
-	//		        .dstArrayElement  = 0,
-	//		        .descriptorCount  = 1,
-	//		        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-	//		        .pImageInfo       = &irradiance_sh_info,
-	//		        .pBufferInfo      = nullptr,
-	//		        .pTexelBufferView = nullptr,
-	//		    },
-	//		    {
-	//		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-	//		        .dstSet           = prefilter_map.descriptor_sets[i],
-	//		        .dstBinding       = 1,
-	//		        .dstArrayElement  = 0,
-	//		        .descriptorCount  = 1,
-	//		        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-	//		        .pImageInfo       = &sh_intermediate_info,
-	//		        .pBufferInfo      = nullptr,
-	//		        .pTexelBufferView = nullptr,
-	//		    }};
-	//		vkUpdateDescriptorSets(m_context->vk_device, 2, writes, 0, nullptr);
-	//	}
+		{
+			std::fill(prefilter_map.descriptor_sets, prefilter_map.descriptor_sets + PREFILTER_MIP_LEVELS, VK_NULL_HANDLE);
+			std::vector<VkDescriptorSetLayout> layouts(PREFILTER_MIP_LEVELS);
+			std::fill(layouts.begin(), layouts.end(), prefilter_map.descriptor_set_layout);
+			VkDescriptorSetAllocateInfo allocate_info = {
+			    .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+			    .pNext              = nullptr,
+			    .descriptorPool     = m_context->vk_descriptor_pool,
+			    .descriptorSetCount = PREFILTER_MIP_LEVELS,
+			    .pSetLayouts        = layouts.data(),
+			};
+			vkAllocateDescriptorSets(m_context->vk_device, &allocate_info, prefilter_map.descriptor_sets);
+		}
 
-	//	{
-	//		VkPipelineLayoutCreateInfo create_info = {
-	//		    .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-	//		    .setLayoutCount         = 1,
-	//		    .pSetLayouts            = &prefilter_map.descriptor_set_layout,
-	//		    .pushConstantRangeCount = 0,
-	//		    .pPushConstantRanges    = nullptr,
-	//		};
-	//		vkCreatePipelineLayout(m_context->vk_device, &create_info, nullptr, &prefilter_map.pipeline_layout);
-	//	}
+		for (uint32_t i = 0; i < PREFILTER_MIP_LEVELS; i++)
+		{
+			VkDescriptorImageInfo skybox_info{
+			    .sampler     = linear_sampler,
+			    .imageView   = envmap.texture_view,
+			    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			};
+			VkDescriptorImageInfo prefiltered_image_info{
+			    .sampler     = VK_NULL_HANDLE,
+			    .imageView   = prefiltered_views[i],
+			    .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+			};
+			VkWriteDescriptorSet writes[] = {
+			    {
+			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			        .dstSet           = prefilter_map.descriptor_sets[i],
+			        .dstBinding       = 0,
+			        .dstArrayElement  = 0,
+			        .descriptorCount  = 1,
+			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			        .pImageInfo       = &skybox_info,
+			        .pBufferInfo      = nullptr,
+			        .pTexelBufferView = nullptr,
+			    },
+			    {
+			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			        .dstSet           = prefilter_map.descriptor_sets[i],
+			        .dstBinding       = 1,
+			        .dstArrayElement  = 0,
+			        .descriptorCount  = 1,
+			        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+			        .pImageInfo       = &prefiltered_image_info,
+			        .pBufferInfo      = nullptr,
+			        .pTexelBufferView = nullptr,
+			    }};
+			vkUpdateDescriptorSets(m_context->vk_device, 2, writes, 0, nullptr);
+		}
 
-	//	{
-	//		VkComputePipelineCreateInfo create_info = {
-	//		    .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-	//		    .stage = {
-	//		        .sType               = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-	//		        .stage               = VK_SHADER_STAGE_COMPUTE_BIT,
-	//		        .module              = shader,
-	//		        .pName               = "main",
-	//		        .pSpecializationInfo = nullptr,
-	//		    },
-	//		    .layout             = prefilter_map.pipeline_layout,
-	//		    .basePipelineHandle = VK_NULL_HANDLE,
-	//		    .basePipelineIndex  = -1,
-	//		};
-	//		vkCreateComputePipelines(m_context->vk_device, m_context->vk_pipeline_cache, 1, &create_info, nullptr, &prefilter_map.pipeline);
-	//		vkDestroyShaderModule(m_context->vk_device, shader, nullptr);
-	//	}
-	//}
+		{
+			VkPushConstantRange range = {
+			    .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+			    .offset     = 0,
+			    .size       = sizeof(int32_t),
+			};
+			VkPipelineLayoutCreateInfo create_info = {
+			    .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+			    .setLayoutCount         = 1,
+			    .pSetLayouts            = &prefilter_map.descriptor_set_layout,
+			    .pushConstantRangeCount = 1,
+			    .pPushConstantRanges    = &range,
+			};
+			vkCreatePipelineLayout(m_context->vk_device, &create_info, nullptr, &prefilter_map.pipeline_layout);
+		}
+
+		{
+			VkComputePipelineCreateInfo create_info = {
+			    .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+			    .stage = {
+			        .sType               = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+			        .stage               = VK_SHADER_STAGE_COMPUTE_BIT,
+			        .module              = shader,
+			        .pName               = "main",
+			        .pSpecializationInfo = nullptr,
+			    },
+			    .layout             = prefilter_map.pipeline_layout,
+			    .basePipelineHandle = VK_NULL_HANDLE,
+			    .basePipelineIndex  = -1,
+			};
+			vkCreateComputePipelines(m_context->vk_device, m_context->vk_pipeline_cache, 1, &create_info, nullptr, &prefilter_map.pipeline);
+			vkDestroyShaderModule(m_context->vk_device, shader, nullptr);
+		}
+	}
 
 	// Allocate command buffer
 	VkCommandBuffer cmd_buffer = VK_NULL_HANDLE;
@@ -2351,12 +2400,29 @@ void Scene::load_envmap(const std::string &filename)
 		                   .layerCount     = 6,
                     },
 		        },
+		        {
+		            .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		            .srcAccessMask       = 0,
+		            .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+		            .oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
+		            .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+		            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		            .image               = envmap.prefilter_map.vk_image,
+		            .subresourceRange    = VkImageSubresourceRange{
+		                   .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		                   .baseMipLevel   = 0,
+		                   .levelCount     = PREFILTER_MIP_LEVELS,
+		                   .baseArrayLayer = 0,
+		                   .layerCount     = 6,
+                    },
+		        },
 		    };
 		vkCmdPipelineBarrier(
 		    cmd_buffer,
 		    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 		    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-		    0, 0, nullptr, 0, nullptr, 2, image_barriers);
+		    0, 0, nullptr, 0, nullptr, 3, image_barriers);
 	}
 
 	// Cubemap sh projection
@@ -2419,14 +2485,16 @@ void Scene::load_envmap(const std::string &filename)
 	}
 
 	// Cubemap prefilter
-	/*{
+	{
 		vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, prefilter_map.pipeline);
-		for (uint32_t i = 0; i < PREFILTER_MIP_LEVELS; i++)
+		for (int32_t i = 0; i < PREFILTER_MIP_LEVELS; i++)
 		{
+			uint32_t mip_size = PREFILTER_MAP_SIZE * std::pow(0.5, i);
+			vkCmdPushConstants(cmd_buffer, prefilter_map.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(int32_t), &i);
 			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, prefilter_map.pipeline_layout, 0, 1, &prefilter_map.descriptor_sets[i], 0, nullptr);
-			vkCmdDispatch(cmd_buffer, PREFILTER_MAP_SIZE << i / 8, PREFILTER_MAP_SIZE << i / 8, 6);
+			vkCmdDispatch(cmd_buffer, mip_size / 8, mip_size / 8, 6);
 		}
-	}*/
+	}
 
 	{
 		VkImageMemoryBarrier image_barriers[] =
@@ -2448,12 +2516,29 @@ void Scene::load_envmap(const std::string &filename)
 		                   .layerCount     = 1,
                     },
 		        },
+		        {
+		            .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		            .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+		            .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+		            .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+		            .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		            .image               = envmap.prefilter_map.vk_image,
+		            .subresourceRange    = VkImageSubresourceRange{
+		                   .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		                   .baseMipLevel   = 0,
+		                   .levelCount     = PREFILTER_MIP_LEVELS,
+		                   .baseArrayLayer = 0,
+		                   .layerCount     = 6,
+                    },
+		        },
 		    };
 		vkCmdPipelineBarrier(
 		    cmd_buffer,
 		    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 		    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-		    0, 0, nullptr, 0, nullptr, 1, image_barriers);
+		    0, 0, nullptr, 0, nullptr, 2, image_barriers);
 	}
 
 	vkEndCommandBuffer(cmd_buffer);
@@ -2481,26 +2566,32 @@ void Scene::load_envmap(const std::string &filename)
 	vkDestroyFence(m_context->vk_device, fence, nullptr);
 	vkFreeCommandBuffers(m_context->vk_device, m_context->graphics_cmd_pool, 1, &cmd_buffer);
 	vmaDestroyBuffer(m_context->vma_allocator, staging_buffer.vk_buffer, staging_buffer.vma_allocation);
-	vkDestroyShaderModule(m_context->vk_device, equirectangular_to_cubemap.vert_shader, nullptr);
-	vkDestroyShaderModule(m_context->vk_device, equirectangular_to_cubemap.frag_shader, nullptr);
 	vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 1, &equirectangular_to_cubemap.descriptor_set);
 	vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 1, &cubemap_sh_projection.descriptor_set);
 	vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 1, &cubemap_sh_add.descriptor_set);
 	vkDestroyDescriptorSetLayout(m_context->vk_device, equirectangular_to_cubemap.descriptor_set_layout, nullptr);
 	vkDestroyDescriptorSetLayout(m_context->vk_device, cubemap_sh_projection.descriptor_set_layout, nullptr);
 	vkDestroyDescriptorSetLayout(m_context->vk_device, cubemap_sh_add.descriptor_set_layout, nullptr);
+	vkDestroyDescriptorSetLayout(m_context->vk_device, prefilter_map.descriptor_set_layout, nullptr);
 	vkDestroyPipelineLayout(m_context->vk_device, equirectangular_to_cubemap.pipeline_layout, nullptr);
 	vkDestroyPipelineLayout(m_context->vk_device, cubemap_sh_projection.pipeline_layout, nullptr);
 	vkDestroyPipelineLayout(m_context->vk_device, cubemap_sh_add.pipeline_layout, nullptr);
+	vkDestroyPipelineLayout(m_context->vk_device, prefilter_map.pipeline_layout, nullptr);
 	vkDestroyPipeline(m_context->vk_device, equirectangular_to_cubemap.pipeline, nullptr);
 	vkDestroyPipeline(m_context->vk_device, cubemap_sh_projection.pipeline, nullptr);
 	vkDestroyPipeline(m_context->vk_device, cubemap_sh_add.pipeline, nullptr);
+	vkDestroyPipeline(m_context->vk_device, prefilter_map.pipeline, nullptr);
 	vkDestroyImageView(m_context->vk_device, cubemap_view_2d, nullptr);
 	vkDestroyImageView(m_context->vk_device, texture_view, nullptr);
 	vkDestroyImageView(m_context->vk_device, sh_intermediate_view, nullptr);
 	vkDestroyImageView(m_context->vk_device, prefilter_map_view, nullptr);
 	vmaDestroyImage(m_context->vma_allocator, texture.vk_image, texture.vma_allocation);
 	vmaDestroyImage(m_context->vma_allocator, sh_intermediate.vk_image, sh_intermediate.vma_allocation);
+	for (uint32_t i = 0; i < PREFILTER_MIP_LEVELS; i++)
+	{
+		vkDestroyImageView(m_context->vk_device, prefiltered_views[i], nullptr);
+		vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 1, &prefilter_map.descriptor_sets[i]);
+	}
 }
 
 void Scene::destroy_scene()
@@ -2607,7 +2698,10 @@ void Scene::destroy_scene()
 		emitter_buffer.vma_allocation = VK_NULL_HANDLE;
 		emitter_buffer.device_address = 0;
 	}
+}
 
+void Scene::destroy_envmap()
+{
 	if (envmap.texture.vk_image && envmap.texture.vma_allocation)
 	{
 		vmaDestroyImage(m_context->vma_allocator, envmap.texture.vk_image, envmap.texture.vma_allocation);

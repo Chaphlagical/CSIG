@@ -101,11 +101,13 @@ struct Scene
 
 	struct
 	{
-		uint32_t vertices_count = 0;
-		uint32_t indices_count  = 0;
-		uint32_t instance_count = 0;
-		uint32_t material_count = 0;
-		uint32_t emitter_count  = 0;
+		uint32_t  vertices_count = 0;
+		uint32_t  indices_count  = 0;
+		uint32_t  instance_count = 0;
+		uint32_t  material_count = 0;
+		glm::vec3 min_extent     = glm::vec3(0.f);
+		uint32_t  emitter_count  = 0;
+		glm::vec3 max_extent     = glm::vec3(0.f);
 	} scene_info;
 
 	Scene(const std::string &scene_filename, const std::string &hdr_filename, const Context &context);
@@ -118,6 +120,8 @@ struct Scene
 
   private:
 	void destroy_scene();
+
+	void destroy_envmap();
 
   private:
 	const Context *m_context = nullptr;

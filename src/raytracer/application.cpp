@@ -46,6 +46,7 @@ Application::Application(const ApplicationConfig &config) :
         .path_tracing{m_context},
         .gbuffer_pass{m_context},
         .raytraced_ao{m_context},
+        .raytraced_gi{m_context},
         .tonemap{m_context},
     },
     m_scene(config.scene_file, config.hdr_file, m_context),
@@ -98,6 +99,7 @@ Application::Application(const ApplicationConfig &config) :
 		vkBeginCommandBuffer(cmd_buffer, &begin_info);
 		m_renderer.gbuffer_pass.init(cmd_buffer);
 		m_renderer.raytraced_ao.init(cmd_buffer);
+		m_renderer.raytraced_gi.init(cmd_buffer);
 		m_renderer.path_tracing.init(cmd_buffer);
 		m_renderer.tonemap.init(cmd_buffer);
 
@@ -372,6 +374,7 @@ void Application::update(VkCommandBuffer cmd_buffer)
 		m_renderer.gbuffer_pass.update(m_scene);
 		m_renderer.path_tracing.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
 		m_renderer.raytraced_ao.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
+		m_renderer.raytraced_gi.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
 		m_renderer.tonemap.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, m_renderer.raytraced_ao.upsampled_ao_image_view);
 	}
 
@@ -456,23 +459,6 @@ void Application::render(VkCommandBuffer cmd_buffer)
 	{
 		{
 			VkImageMemoryBarrier image_barriers[] = {
-			    /*{
-			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			        .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
-			        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-			        .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
-			        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.path_tracing.path_tracing_image[m_context.ping_pong].vk_image,
-			        .subresourceRange    = VkImageSubresourceRange{
-			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-			               .baseMipLevel   = 0,
-			               .levelCount     = 1,
-			               .baseArrayLayer = 0,
-			               .layerCount     = 1,
-                    },
-			    },*/
 			    {
 			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 			        .srcAccessMask       = VK_ACCESS_MEMORY_READ_BIT,

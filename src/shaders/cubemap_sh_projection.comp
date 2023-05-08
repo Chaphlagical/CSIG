@@ -28,8 +28,8 @@ void main()
 
     barrier();
 
-    uint width = CUBEMAP_SIZE / uint(pow(2, CUBEMAP_MIP_LEVEL));
-    uint height = CUBEMAP_SIZE / uint(pow(2, CUBEMAP_MIP_LEVEL));
+    uint width = uint(CUBEMAP_SIZE * pow(0.5, CUBEMAP_MIP_LEVEL));
+    uint height = uint(CUBEMAP_SIZE * pow(0.5, CUBEMAP_MIP_LEVEL));
 
     vec3 dir = calculate_cubemap_direction(gl_GlobalInvocationID.z, gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, width, height);
     float solid_angle = calculate_solid_angle(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, width, height);
