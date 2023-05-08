@@ -54,6 +54,11 @@ float schlick_fresnel(float u)
 	return m2 * m2 * m;        // pow(m,5)
 }
 
+vec3 schlick_fresnel_roughness(float cos_theta, vec3 F0, float roughness)
+{
+	return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(max(1.0 - cos_theta, 0.0), 5.0);
+}
+
 float SmithG_GGX(float NdotV, float alphaG)
 {
 	float a = alphaG * alphaG;

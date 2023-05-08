@@ -57,16 +57,29 @@ struct RayTracedGI
 	glm::vec3 m_scene_min_extent = glm::vec3(0.f);
 	glm::vec3 m_scene_max_extent = glm::vec3(0.f);
 
-	struct
+	bool m_init = false;
+
+	uint32_t m_frame_count = 0;
+
+	struct UBO
 	{
-		// glm::ivec3 probe_count         = glm::ivec3(0);
-		// float      max_distance        = 0.f;
-		// glm::vec3  grid_start          = glm::vec3(0.f);
-		// float      normal_bias         = 0.f;
-		// glm::vec3  grid_step           = glm::vec3(0.f);
-		// uint32_t   rays_per_probe      = 256;
-		// uint32_t   irradiance_oct_size = 8;
-	} m_ubo;
+		glm::vec3  grid_start;
+		float      max_distance;
+		glm::vec3  grid_step;
+		float      depth_sharpness;
+		glm::ivec3 probe_count;
+		float      hysteresis;
+		float      normal_bias;
+		float      energy_preservation;
+		uint32_t   rays_per_probe;
+		uint32_t   visibility_test;
+		uint32_t   irradiance_probe_side_length;
+		uint32_t   irradiance_texture_width;
+		uint32_t   irradiance_texture_height;
+		uint32_t   depth_probe_side_length;
+		uint32_t   depth_texture_width;
+		uint32_t   depth_texture_height;
+	};
 
 	struct
 	{
@@ -77,10 +90,18 @@ struct RayTracedGI
 			uint32_t rays_per_probe            = 256;
 		} params;
 
+		struct
+		{
+			glm::mat4 random_orientation;
+			uint32_t  num_frames;
+			uint32_t  infinite_bounces;
+			float     gi_intensity;
+		} push_constants;
+
 		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
 		VkPipeline            pipeline              = VK_NULL_HANDLE;
 		VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
-		VkDescriptorSet       descriptor_set        = VK_NULL_HANDLE;
+		VkDescriptorSet       descriptor_sets[2];
 	} m_raytraced;
 
 	struct
@@ -92,6 +113,10 @@ struct RayTracedGI
 			float      recursive_energy_preservation = 0.85f;
 			uint32_t   irradiance_oct_size           = 8;
 			uint32_t   depth_oct_size                = 16;
+			uint32_t   irradiance_width              = 0;
+			uint32_t   irradiance_height             = 0;
+			uint32_t   depth_width                   = 0;
+			uint32_t   depth_height                  = 0;
 			glm::vec3  grid_start                    = glm::vec3(0.f);
 			glm::uvec3 probe_count                   = glm::uvec3(0);
 			float      hysteresis                    = 0.98f;
@@ -99,6 +124,29 @@ struct RayTracedGI
 			float      max_distance                  = 4.f;
 			float      normal_bias                   = 0.25f;
 		} params;
+
+		struct
+		{
+			struct
+			{
+				uint32_t frame_count;
+			}push_constants;
+
+			VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
+			VkPipeline            irradiance_pipeline   = VK_NULL_HANDLE;
+			VkPipeline            depth_pipeline        = VK_NULL_HANDLE;
+			VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
+			VkDescriptorSet       descriptor_sets[2];
+		} update_probe;
+
+		struct
+		{
+			VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
+			VkPipeline            irradiance_pipeline   = VK_NULL_HANDLE;
+			VkPipeline            depth_pipeline        = VK_NULL_HANDLE;
+			VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
+			VkDescriptorSet       descriptor_sets[2];
+		} update_border;
 	} m_probe_update;
 
 	struct

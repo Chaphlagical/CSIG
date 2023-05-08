@@ -6,7 +6,6 @@
 #include "common.glsl"
 #include "random.glsl"
 #include "sample.glsl"
-#include "raytrace.glsl"
 
 #define NUM_THREADS_X 8
 #define NUM_THREADS_Y 4
@@ -54,6 +53,30 @@ vec3 sample_cosine_lobe(vec3 n, vec2 rnd)
 	return local_to_world(n, t);
 }
 
+bool any_hit(vec3 org, vec3 dir, float max_dist)
+{
+	rayQueryEXT ray_query;
+	rayQueryInitializeEXT(
+		ray_query, 
+		tlas, 
+		gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT | gl_RayFlagsCullBackFacingTrianglesEXT, 
+		0xFF,
+		org,
+		0.0,
+		dir,
+		max_dist);
+
+	while(rayQueryProceedEXT(ray_query))
+	{
+		if(rayQueryGetIntersectionTypeEXT(ray_query, false) == gl_RayQueryCandidateIntersectionTriangleEXT)
+		{
+			rayQueryConfirmIntersectionEXT(ray_query);
+		}
+	}
+
+	return (rayQueryGetIntersectionTypeEXT(ray_query, true) != gl_RayQueryCommittedIntersectionNoneEXT);
+}
+
 shared uint shared_ao;
 
 void main() 
@@ -81,7 +104,7 @@ void main()
 		vec2 rnd = random_sample(pos);
 		vec3 dir = sample_cosine_lobe(normal, rnd);
 		vec3 org = world_pos + push_constants.bias * normal;
-		result = uint(query_visibility(tlas, org, dir, push_constants.ray_length,  gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT));
+		result = uint(!any_hit(org, dir, push_constants.ray_length));
 	}
 	
 	atomicOr(shared_ao, result << gl_LocalInvocationIndex);

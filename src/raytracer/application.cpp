@@ -447,6 +447,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 	{
 		case RenderMode::Hybrid:
 			m_renderer.raytraced_ao.draw(cmd_buffer);
+			m_renderer.raytraced_gi.draw(cmd_buffer);
 			break;
 		case RenderMode::PathTracing:
 			m_renderer.path_tracing.draw(cmd_buffer);
