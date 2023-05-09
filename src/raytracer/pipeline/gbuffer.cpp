@@ -184,7 +184,6 @@ GBufferPass::GBufferPass(const Context &context) :
 		    .depthWriteEnable  = VK_TRUE,
 		    .depthCompareOp    = VK_COMPARE_OP_GREATER_OR_EQUAL,
 		    .stencilTestEnable = VK_FALSE,
-
 		    .front = {
 		        .failOp    = VK_STENCIL_OP_KEEP,
 		        .passOp    = VK_STENCIL_OP_KEEP,
@@ -298,11 +297,9 @@ GBufferPass::GBufferPass(const Context &context) :
 		    .basePipelineIndex   = -1,
 		};
 		vkCreateGraphicsPipelines(m_context->vk_device, m_context->vk_pipeline_cache, 1, &create_info, nullptr, &m_pipeline);
+		vkDestroyShaderModule(m_context->vk_device, vert_shader, nullptr);
+		vkDestroyShaderModule(m_context->vk_device, frag_shader, nullptr);
 	}
-
-	// Destroy shader module
-	vkDestroyShaderModule(m_context->vk_device, vert_shader, nullptr);
-	vkDestroyShaderModule(m_context->vk_device, frag_shader, nullptr);
 
 	// Create GBufferA
 	{

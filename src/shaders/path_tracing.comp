@@ -594,7 +594,7 @@ vec3 path_trace(vec2 frag_coord)
 			break;
 		}
 
-		radiance += sstate.mat.emissive_factor * throughput;
+		// radiance += sstate.mat.emissive_factor * throughput;
 
 		LightSample ls = sample_light(ray, sstate);
 		if(ls.visible)

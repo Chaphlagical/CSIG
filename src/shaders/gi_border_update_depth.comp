@@ -5,5 +5,4 @@
 #extension GL_EXT_nonuniform_qualifier : enable
 
 #define UPDATE_DEPTH
-
-#include "gi_probe_update.glsl"
+#include "gi_border_update.glsl"

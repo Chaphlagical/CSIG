@@ -568,14 +568,31 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			    {
 			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 			        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-			        .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+			        .dstAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
 			        .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.raytraced_ao.upsampled_ao_image.vk_image,
+			        .image               = m_renderer.raytraced_gi.sample_probe_grid_image.vk_image,
 			        .subresourceRange    = VkImageSubresourceRange{
 			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = 1,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+			        .dstAccessMask       = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = m_renderer.gbuffer_pass.depth_buffer[m_context.ping_pong].vk_image,
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
 			               .baseMipLevel   = 0,
 			               .levelCount     = 1,
 			               .baseArrayLayer = 0,
@@ -603,11 +620,57 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			vkCmdPipelineBarrier(
 			    cmd_buffer,
 			    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-			    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+			    0, 0, nullptr, 0, nullptr, 3, image_barriers);
+		}
+
+		m_renderer.raytraced_gi.visualize_probe(cmd_buffer, m_renderer.raytraced_gi.sample_probe_grid_view, m_renderer.gbuffer_pass.depth_buffer_view[m_context.ping_pong]);
+
+		{
+			VkImageMemoryBarrier image_barriers[] = {
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+			        .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = m_renderer.raytraced_gi.sample_probe_grid_image.vk_image,
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = 1,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+			        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = m_renderer.gbuffer_pass.depth_buffer[m_context.ping_pong].vk_image,
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = 1,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
+			};
+			vkCmdPipelineBarrier(
+			    cmd_buffer,
+			    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+			    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
 			    0, 0, nullptr, 0, nullptr, 2, image_barriers);
 		}
 
-		present(cmd_buffer, m_renderer.raytraced_ao.upsampled_ao_image.vk_image);
+		present(cmd_buffer, m_renderer.raytraced_gi.sample_probe_grid_image.vk_image);
 
 		{
 			VkImageMemoryBarrier image_barriers[] = {
@@ -619,7 +682,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.raytraced_ao.upsampled_ao_image.vk_image,
+			        .image               = m_renderer.raytraced_gi.sample_probe_grid_image.vk_image,
 			        .subresourceRange    = VkImageSubresourceRange{
 			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 			               .baseMipLevel   = 0,

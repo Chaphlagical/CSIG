@@ -488,7 +488,8 @@ LightSample sample_light(Ray ray, ShadeState sstate)
 				float bsdf_pdf;
 				vec3 f = eval_bsdf(sstate, -ray.direction, sstate.ffnormal, ls.dir, bsdf_pdf);
 				float mis_weight = max(0.0, power_heuristic(ls.pdf, bsdf_pdf));
-				ls.radiance = mis_weight * f * abs(dot(ls.dir, sstate.ffnormal)) * emitter.intensity / ls.pdf;
+				// ls.radiance = mis_weight * f * abs(dot(ls.dir, sstate.ffnormal)) * emitter.intensity / max(ls.pdf, 0.01);
+				ls.radiance = vec3(0);
 			}
 		}
 	}

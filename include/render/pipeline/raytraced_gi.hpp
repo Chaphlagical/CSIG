@@ -5,6 +5,8 @@
 #include "render/pipeline/gbuffer.hpp"
 #include "render/scene.hpp"
 
+#include <random>
+
 struct RayTracedGI
 {
   public:
@@ -17,6 +19,8 @@ struct RayTracedGI
 	void update(const Scene &scene, const BlueNoise &blue_noise, const GBufferPass &gbuffer_pass);
 
 	void draw(VkCommandBuffer cmd_buffer);
+
+	void visualize_probe(VkCommandBuffer cmd_buffer, VkImageView color_image, VkImageView depth_image = VK_NULL_HANDLE);
 
 	bool draw_ui();
 
@@ -60,6 +64,9 @@ struct RayTracedGI
 	bool m_init = false;
 
 	uint32_t m_frame_count = 0;
+
+	std::mt19937                          m_random_generator;
+	std::uniform_real_distribution<float> m_random_distrib;
 
 	struct UBO
 	{
@@ -130,7 +137,7 @@ struct RayTracedGI
 			struct
 			{
 				uint32_t frame_count;
-			}push_constants;
+			} push_constants;
 
 			VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
 			VkPipeline            irradiance_pipeline   = VK_NULL_HANDLE;
@@ -155,5 +162,36 @@ struct RayTracedGI
 		{
 			float gi_intensity = 1.f;
 		} params;
+
+		struct
+		{
+			int32_t gbuffer_mip  = 0;
+			float   gi_intensity = 1.f;
+		} push_constants;
+
+		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
+		VkPipeline            pipeline              = VK_NULL_HANDLE;
+		VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
+		VkDescriptorSet       descriptor_sets[2];
 	} m_probe_sample;
+
+	struct
+	{
+		struct
+		{
+			int32_t gbuffer_mip  = 0;
+			float   gi_intensity = 1.f;
+		} push_constants;
+
+		Buffer vertex_buffer;
+		Buffer index_buffer;
+
+		uint32_t vertex_count = 0;
+		uint32_t index_count  = 0;
+
+		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
+		VkPipeline            pipeline              = VK_NULL_HANDLE;
+		VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
+		VkDescriptorSet       descriptor_sets[2];
+	} m_probe_visualize;
 };
