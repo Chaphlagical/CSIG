@@ -179,6 +179,7 @@ void main()
     {
         result = mix(result, prev_result, ddgi_buffer.hysteresis);
     }
+    
 #ifdef UPDATE_DEPTH
     imageStore(output_depth, current_coord, vec4(result, 1.0));
 #else

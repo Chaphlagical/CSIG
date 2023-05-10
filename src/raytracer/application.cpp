@@ -375,7 +375,7 @@ void Application::update(VkCommandBuffer cmd_buffer)
 		m_renderer.path_tracing.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
 		m_renderer.raytraced_ao.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
 		m_renderer.raytraced_gi.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
-		m_renderer.tonemap.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, m_renderer.raytraced_ao.upsampled_ao_image_view);
+		m_renderer.tonemap.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, m_renderer.raytraced_gi.sample_probe_grid_view);
 	}
 
 	// Copy to device
@@ -631,9 +631,9 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			    {
 			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 			        .srcAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-			        .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+			        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
 			        .oldLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			        .image               = m_renderer.raytraced_gi.sample_probe_grid_image.vk_image,
@@ -670,19 +670,48 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			    0, 0, nullptr, 0, nullptr, 2, image_barriers);
 		}
 
-		present(cmd_buffer, m_renderer.raytraced_gi.sample_probe_grid_image.vk_image);
+		m_renderer.tonemap.draw(cmd_buffer);
+
+		{
+			VkImageMemoryBarrier image_barriers[] = {
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+			        .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = m_renderer.tonemap.tonemapped_image.vk_image,
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = 1,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
+			};
+			vkCmdPipelineBarrier(
+			    cmd_buffer,
+			    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    0, 0, nullptr, 0, nullptr, 1, image_barriers);
+		}
+
+		present(cmd_buffer, m_renderer.tonemap.tonemapped_image.vk_image);
 
 		{
 			VkImageMemoryBarrier image_barriers[] = {
 			    {
 			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 			        .srcAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
-			        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+			        .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
 			        .oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
 			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.raytraced_gi.sample_probe_grid_image.vk_image,
+			        .image               = m_renderer.tonemap.tonemapped_image.vk_image,
 			        .subresourceRange    = VkImageSubresourceRange{
 			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 			               .baseMipLevel   = 0,
