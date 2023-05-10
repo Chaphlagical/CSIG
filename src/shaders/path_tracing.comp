@@ -412,12 +412,9 @@ LightSample sample_light(Ray ray, ShadeState sstate)
 		const Vertex v1 = vertices[instance.vertices_offset + ind1];
 		const Vertex v2 = vertices[instance.vertices_offset + ind2];
 
-		const vec3 p0 = (instance.transform * vec4(v0.position.xyz, 1.0)).xyz;
-		const vec3 p1 = (instance.transform * vec4(v1.position.xyz, 1.0)).xyz;
-		const vec3 p2 = (instance.transform * vec4(v2.position.xyz, 1.0)).xyz;
-
 		vec2 bary = rand2(prd.seed);
-		vec3 sample_pos = (1.0 - bary.x - bary.y) * p0 + bary.x * p1 + bary.y * p2;
+		vec3 position = v0.position.xyz * (1.0 - bary.x - bary.y) + v1.position.xyz * bary.x + v2.position.xyz * bary.y;
+		vec3 sample_pos = (instance.transform * vec4(position, 1.0)).xyz;
 
 		ls.dir = normalize(sample_pos - sstate.position);
 		float dist = length(sample_pos - sstate.position);
@@ -427,16 +424,16 @@ LightSample sample_light(Ray ray, ShadeState sstate)
 		shadow_ray.direction = ls.dir;
 		float max_dist = length(shadow_ray.origin - sample_pos);
 
-		if(!any_hit(shadow_ray, (1 - ShadowEpsilon) * max_dist))
+		if(!any_hit(shadow_ray, max_dist))
 		{
 			ls.visible = true;
-			ls.pdf = dist * dist / (instance.area * abs(dot(ls.dir, sstate.ffnormal)));
+			ls.pdf = dist * dist / abs(dot(ls.dir, sstate.ffnormal));
 			if(dot(ls.dir, sstate.ffnormal) > 0)
 			{
 				float bsdf_pdf;
 				vec3 f = eval_bsdf(sstate, -ray.direction, sstate.ffnormal, ls.dir, bsdf_pdf);
 				float mis_weight = max(0.0, power_heuristic(ls.pdf, bsdf_pdf));
-				ls.radiance = mis_weight * f * abs(dot(ls.dir, sstate.ffnormal)) * emitter.intensity / ls.pdf;
+				ls.radiance = mis_weight * f * abs(dot(ls.dir, sstate.ffnormal)) * emitter.intensity;
 			}
 		}
 	}
@@ -594,7 +591,7 @@ vec3 path_trace(vec2 frag_coord)
 			break;
 		}
 
-		// radiance += sstate.mat.emissive_factor * throughput;
+		radiance += sstate.mat.emissive_factor * throughput;
 
 		LightSample ls = sample_light(ray, sstate);
 		if(ls.visible)

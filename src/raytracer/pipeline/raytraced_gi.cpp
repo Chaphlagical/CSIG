@@ -1595,7 +1595,7 @@ void RayTracedGI::update(const Scene &scene, const BlueNoise &blue_noise, const 
 		        .dstBinding       = 13,
 		        .dstArrayElement  = 0,
 		        .descriptorCount  = 1,
-		        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+		        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 		        .pImageInfo       = &probe_grid_irradiance_infos[1][i],
 		        .pBufferInfo      = nullptr,
 		        .pTexelBufferView = nullptr,
@@ -1606,13 +1606,13 @@ void RayTracedGI::update(const Scene &scene, const BlueNoise &blue_noise, const 
 		        .dstBinding       = 14,
 		        .dstArrayElement  = 0,
 		        .descriptorCount  = 1,
-		        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+		        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 		        .pImageInfo       = &probe_grid_depth_infos[1][i],
 		        .pBufferInfo      = nullptr,
 		        .pTexelBufferView = nullptr,
 		    },
 		};
-		vkUpdateDescriptorSets(m_context->vk_device, 13, writes, 0, nullptr);
+		vkUpdateDescriptorSets(m_context->vk_device, 15, writes, 0, nullptr);
 	}
 
 	// Update probe update pass
