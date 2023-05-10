@@ -2,6 +2,8 @@
 
 #include <glm/gtc/quaternion.hpp>
 
+#include <imgui.h>
+
 static const uint32_t NUM_THREADS_X = 8;
 static const uint32_t NUM_THREADS_Y = 8;
 
@@ -1093,72 +1095,6 @@ void RayTracedGI::init(VkCommandBuffer cmd_buffer)
 		return;
 	}
 
-	{
-		{
-			VkImageMemoryBarrier image_barriers[] = {
-			    {
-			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			        .srcAccessMask       = 0,
-			        .dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
-			        .oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
-			        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = probe_grid_data_image.vk_image,
-			        .subresourceRange    = VkImageSubresourceRange{
-			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-			               .baseMipLevel   = 0,
-			               .levelCount     = 1,
-			               .baseArrayLayer = 0,
-			               .layerCount     = 1,
-                    },
-			    },
-			};
-			vkCmdPipelineBarrier(
-			    cmd_buffer,
-			    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-			    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-			    0, 0, nullptr, 0, nullptr, 1, image_barriers);
-		}
-		VkClearColorValue clear_color = {
-		    .float32 = {0.f, 0.f, 0.f, 0.f},
-		};
-		VkImageSubresourceRange range = {
-		    .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-		    .baseMipLevel   = 0,
-		    .levelCount     = 1,
-		    .baseArrayLayer = 0,
-		    .layerCount     = 1,
-		};
-		vkCmdClearColorImage(cmd_buffer, probe_grid_data_image.vk_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear_color, 1, &range);
-		{
-			VkImageMemoryBarrier image_barriers[] = {
-			    {
-			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			        .srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
-			        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-			        .oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = probe_grid_data_image.vk_image,
-			        .subresourceRange    = VkImageSubresourceRange{
-			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-			               .baseMipLevel   = 0,
-			               .levelCount     = 1,
-			               .baseArrayLayer = 0,
-			               .layerCount     = 1,
-                    },
-			    },
-			};
-			vkCmdPipelineBarrier(
-			    cmd_buffer,
-			    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-			    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-			    0, 0, nullptr, 0, nullptr, 1, image_barriers);
-		}
-	}
-
 	VkBufferMemoryBarrier buffer_barriers[] = {
 	    {
 	        .sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
@@ -1442,19 +1378,6 @@ void RayTracedGI::update(const Scene &scene, const BlueNoise &blue_noise, const 
 	    },
 	};
 
-	VkDescriptorImageInfo probe_grid_data_infos[] = {
-	    {
-	        .sampler     = VK_NULL_HANDLE,
-	        .imageView   = probe_grid_data_view,
-	        .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
-	    },
-	    {
-	        .sampler     = scene.linear_sampler,
-	        .imageView   = probe_grid_data_view,
-	        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-	    },
-	};
-
 	VkDescriptorImageInfo direction_depth_infos[] = {
 	    {
 	        .sampler     = VK_NULL_HANDLE,
@@ -1698,19 +1621,8 @@ void RayTracedGI::update(const Scene &scene, const BlueNoise &blue_noise, const 
 		        .pBufferInfo      = nullptr,
 		        .pTexelBufferView = nullptr,
 		    },
-		    {
-		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-		        .dstSet           = m_raytraced.descriptor_sets[i],
-		        .dstBinding       = 15,
-		        .dstArrayElement  = 0,
-		        .descriptorCount  = 1,
-		        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-		        .pImageInfo       = &probe_grid_data_infos[1],
-		        .pBufferInfo      = nullptr,
-		        .pTexelBufferView = nullptr,
-		    },
 		};
-		vkUpdateDescriptorSets(m_context->vk_device, 16, writes, 0, nullptr);
+		vkUpdateDescriptorSets(m_context->vk_device, 15, writes, 0, nullptr);
 	}
 
 	// Update probe update pass
@@ -1973,7 +1885,7 @@ void RayTracedGI::draw(VkCommandBuffer cmd_buffer)
 		m_context->begin_marker(cmd_buffer, "Uniform Buffer Update");
 		{
 			UBO ubo = {
-			    .grid_start                   = m_probe_update.params.grid_start,
+			    .grid_start                   = m_probe_update.params.grid_start + m_probe_update.params.grid_offset,
 			    .max_distance                 = m_probe_update.params.max_distance,
 			    .grid_step                    = glm::vec3(m_probe_update.params.probe_distance),
 			    .depth_sharpness              = m_probe_update.params.depth_sharpness,
@@ -2021,7 +1933,7 @@ void RayTracedGI::draw(VkCommandBuffer cmd_buffer)
 
 			m_raytraced.push_constants.random_orientation = glm::mat4_cast(glm::angleAxis(m_random_distrib(m_random_generator) * (glm::pi<float>() * 2.0f), glm::normalize(glm::vec3(m_random_distrib(m_random_generator), m_random_distrib(m_random_generator), m_random_distrib(m_random_generator)))));
 			m_raytraced.push_constants.num_frames         = m_frame_count;
-			m_raytraced.push_constants.infinite_bounces   = m_raytraced.params.infinite_bounces && m_frame_count == 0 ? 1u : 0u;
+			m_raytraced.push_constants.infinite_bounces   = m_raytraced.params.infinite_bounces && m_frame_count == 0 ? 0u : 1u;
 			m_raytraced.push_constants.gi_intensity       = m_raytraced.params.infinite_bounce_intensity;
 
 			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_raytraced.pipeline_layout, 0, 1, &m_raytraced.descriptor_sets[m_context->ping_pong], 0, nullptr);
@@ -2398,6 +2310,17 @@ void RayTracedGI::visualize_probe(VkCommandBuffer cmd_buffer, VkImageView color_
 
 bool RayTracedGI::draw_ui()
 {
+	if (ImGui::TreeNode("Ray Trace GI"))
+	{
+		ImGui::Text("Probe Grid Size: [%i, %i, %i]", 
+			m_probe_update.params.probe_count.x, 
+			m_probe_update.params.probe_count.y, 
+			m_probe_update.params.probe_count.z);
+		ImGui::Checkbox("Visibility Test", &m_probe_update.params.visibility_test);
+		ImGui::Checkbox("Infinite Bounce", reinterpret_cast<bool *>(&m_raytraced.params.infinite_bounces));
+		ImGui::TreePop();
+	}
+
 	return false;
 }
 
@@ -2485,47 +2408,6 @@ void RayTracedGI::create_resource()
 		vkCreateImageView(m_context->vk_device, &view_create_info, nullptr, &direction_depth_view);
 		m_context->set_object_name(VK_OBJECT_TYPE_IMAGE, (uint64_t) direction_depth_image.vk_image, "DDGI Direction Depth Image");
 		m_context->set_object_name(VK_OBJECT_TYPE_IMAGE_VIEW, (uint64_t) direction_depth_view, "DDGI Direction Depth View");
-	}
-
-	// Probe grid data image
-	{
-		uint32_t grid_data_width  = m_probe_update.params.probe_count.x * m_probe_update.params.probe_count.y * m_probe_update.params.probe_count.z;
-		uint32_t grid_data_height = 1;
-
-		VkImageCreateInfo image_create_info = {
-		    .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-		    .imageType     = VK_IMAGE_TYPE_2D,
-		    .format        = VK_FORMAT_R16G16B16A16_SFLOAT,
-		    .extent        = VkExtent3D{grid_data_width, grid_data_height, 1},
-		    .mipLevels     = 1,
-		    .arrayLayers   = 1,
-		    .samples       = VK_SAMPLE_COUNT_1_BIT,
-		    .tiling        = VK_IMAGE_TILING_OPTIMAL,
-		    .usage         = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-		    .sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
-		    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-		};
-		VmaAllocationCreateInfo allocation_create_info = {
-		    .usage = VMA_MEMORY_USAGE_GPU_ONLY,
-		};
-		vmaCreateImage(m_context->vma_allocator, &image_create_info, &allocation_create_info, &probe_grid_data_image.vk_image, &probe_grid_data_image.vma_allocation, nullptr);
-		VkImageViewCreateInfo view_create_info = {
-		    .sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-		    .image            = probe_grid_data_image.vk_image,
-		    .viewType         = VK_IMAGE_VIEW_TYPE_2D,
-		    .format           = VK_FORMAT_R16G16B16A16_SFLOAT,
-		    .components       = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
-		    .subresourceRange = {
-		        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-		        .baseMipLevel   = 0,
-		        .levelCount     = 1,
-		        .baseArrayLayer = 0,
-		        .layerCount     = 1,
-		    },
-		};
-		vkCreateImageView(m_context->vk_device, &view_create_info, nullptr, &probe_grid_data_view);
-		m_context->set_object_name(VK_OBJECT_TYPE_IMAGE, (uint64_t) probe_grid_data_image.vk_image, "DDGI Probe Grid Data Image");
-		m_context->set_object_name(VK_OBJECT_TYPE_IMAGE_VIEW, (uint64_t) probe_grid_data_view, "DDGI Probe Grid Data View");
 	}
 
 	// Probe grid irradiance image
@@ -2691,17 +2573,6 @@ void RayTracedGI::destroy_resource()
 		direction_depth_view                 = VK_NULL_HANDLE;
 		direction_depth_image.vk_image       = VK_NULL_HANDLE;
 		direction_depth_image.vma_allocation = VK_NULL_HANDLE;
-	}
-
-	if (probe_grid_data_image.vk_image &&
-	    probe_grid_data_image.vma_allocation &&
-	    probe_grid_data_view)
-	{
-		vkDestroyImageView(m_context->vk_device, probe_grid_data_view, nullptr);
-		vmaDestroyImage(m_context->vma_allocator, probe_grid_data_image.vk_image, probe_grid_data_image.vma_allocation);
-		probe_grid_data_view                 = VK_NULL_HANDLE;
-		probe_grid_data_image.vk_image       = VK_NULL_HANDLE;
-		probe_grid_data_image.vma_allocation = VK_NULL_HANDLE;
 	}
 
 	for (uint32_t i = 0; i < 2; i++)

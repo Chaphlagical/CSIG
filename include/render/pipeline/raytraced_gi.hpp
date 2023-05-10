@@ -125,6 +125,7 @@ struct RayTracedGI
 			uint32_t   depth_width                   = 0;
 			uint32_t   depth_height                  = 0;
 			glm::vec3  grid_start                    = glm::vec3(0.f);
+			glm::vec3  grid_offset                   = glm::vec3(0.f);
 			glm::uvec3 probe_count                   = glm::uvec3(0);
 			float      hysteresis                    = 0.98f;
 			float      depth_sharpness               = 50.f;

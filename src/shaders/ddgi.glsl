@@ -38,16 +38,6 @@ int grid_coord_to_probe_index(ivec3 probe_coord, DDGIUniform ddgi)
     return int(probe_coord.x + probe_coord.y * ddgi.probe_count.x + probe_coord.z * ddgi.probe_count.x * ddgi.probe_count.y);
 }
 
-vec3 grid_coord_to_offset(ivec3 c, DDGIUniform ddgi, sampler2D probe_data)
-{
-    return texelFetch(probe_data, ivec2(grid_coord_to_probe_index(c, ddgi), 0), 0).xyz;
-}
-
-int grid_coord_to_state(ivec3 c, DDGIUniform ddgi, sampler2D probe_data)
-{
-    return int(texelFetch(probe_data, ivec2(grid_coord_to_probe_index(c, ddgi), 0), 0).w);
-}
-
 ivec3 probe_index_to_grid_coord(int index, DDGIUniform ddgi)
 {
     ivec3 pos;

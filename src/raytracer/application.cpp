@@ -266,6 +266,7 @@ void Application::update_ui()
 		{
 			case RenderMode::Hybrid:
 				ui_update |= m_renderer.raytraced_ao.draw_ui();
+				ui_update |= m_renderer.raytraced_gi.draw_ui();
 				break;
 			case RenderMode::PathTracing:
 				ui_update |= m_renderer.path_tracing.draw_ui();
