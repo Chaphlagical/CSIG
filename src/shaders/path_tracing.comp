@@ -48,7 +48,11 @@ layout(std430, binding = 13) buffer EmitterBuffer {
 	Emitter emitters[];
 };
 
-layout(binding = 14) uniform SceneBuffer
+layout(std430, binding = 14) buffer EmitterAliasTableBuffer {
+	AliasTable emitter_alias_table[];
+};
+
+layout(binding = 15) uniform SceneBuffer
 {
 	uint vertices_count;
 	uint indices_count;
@@ -59,12 +63,12 @@ layout(binding = 14) uniform SceneBuffer
 	vec3 max_extent;
 } scene_buffer;
 
-layout(std430, binding = 15) buffer InstanceBuffer {
+layout(std430, binding = 16) buffer InstanceBuffer {
 	Instance instances[];
 };
 
-layout(binding = 16) uniform sampler2D textures[];
-layout(binding = 17) uniform samplerCube skybox;
+layout(binding = 17) uniform sampler2D textures[];
+layout(binding = 18) uniform samplerCube skybox;
 
 layout(push_constant) uniform PushConstants
 {
@@ -111,6 +115,21 @@ float power_heuristic(float a, float b)
 {
   float t = a * a;
   return t / (b * b + t);
+}
+
+void sample_emitter_alias_table(vec2 rnd, out int index, out float pdf) {
+	int selected_column = min(int(float(scene_buffer.emitter_count) * rnd.x), int(scene_buffer.emitter_count - 1));
+	AliasTable col = emitter_alias_table[selected_column];
+	if (col.prob > rnd.y) 
+	{
+		index = selected_column;
+		pdf = col.ori_prob;
+	} 
+	else 
+	{
+		index = col.alias;
+		pdf = col.ori_prob;
+	}
 }
 
 bool hit_test(in rayQueryEXT ray_query, in Ray r)
@@ -394,7 +413,9 @@ LightSample sample_light(Ray ray, ShadeState sstate)
 	}
 
 	// Sample a emitter
-	uint emitter_id = uint(float(scene_buffer.emitter_count) * rand(prd.seed));
+	uint emitter_id;
+	float emitter_pdf;
+	sample_emitter_alias_table(rand2(prd.seed), emitter_id, emitter_pdf);
 
 	if(emitter_id < scene_buffer.emitter_count)
 	{
@@ -427,13 +448,13 @@ LightSample sample_light(Ray ray, ShadeState sstate)
 		if(!any_hit(shadow_ray, max_dist))
 		{
 			ls.visible = true;
-			ls.pdf = dist * dist / abs(dot(ls.dir, sstate.ffnormal));
+			ls.pdf = emitter_pdf;
 			if(dot(ls.dir, sstate.ffnormal) > 0)
 			{
 				float bsdf_pdf;
 				vec3 f = eval_bsdf(sstate, -ray.direction, sstate.ffnormal, ls.dir, bsdf_pdf);
 				float mis_weight = max(0.0, power_heuristic(ls.pdf, bsdf_pdf));
-				ls.radiance = mis_weight * f * abs(dot(ls.dir, sstate.ffnormal)) * emitter.intensity;
+				ls.radiance = mis_weight * f * abs(dot(ls.dir, sstate.ffnormal)) * emitter.intensity / (dist * dist);
 			}
 		}
 	}

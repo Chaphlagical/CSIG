@@ -76,6 +76,14 @@ struct Envmap
 	VkImageView prefilter_map_view = VK_NULL_HANDLE;
 };
 
+struct AliasTable
+{
+	float prob;         // The i's column's event i's prob
+	int   alias;        // The i's column's another event's idx
+	float ori_prob;
+	float alias_ori_prob;
+};
+
 struct Scene
 {
 	AccelerationStructure tlas;
@@ -84,6 +92,7 @@ struct Scene
 
 	Buffer instance_buffer;
 	Buffer emitter_buffer;
+	Buffer emitter_alias_table_buffer;
 	Buffer material_buffer;
 	Buffer vertex_buffer;
 	Buffer index_buffer;

@@ -79,7 +79,7 @@ bool any_hit(vec3 org, vec3 dir, float max_dist)
 
 shared uint shared_ao;
 
-void main() 
+void main()
 {
 	if(gl_LocalInvocationIndex == 0)
 	{

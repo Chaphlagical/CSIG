@@ -33,6 +33,10 @@ struct RayTracedGI
 	Texture     direction_depth_image;
 	VkImageView direction_depth_view = VK_NULL_HANDLE;
 
+	// probe grid data image
+	Texture     probe_grid_data_image;
+	VkImageView probe_grid_data_view = VK_NULL_HANDLE;
+
 	// probe grid irradiance image
 	Texture     probe_grid_irradiance_image[2];
 	VkImageView probe_grid_irradiance_view[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
@@ -92,9 +96,9 @@ struct RayTracedGI
 	{
 		struct
 		{
-			bool     infinite_bounces          = true;
-			float    infinite_bounce_intensity = 1.7f;
-			uint32_t rays_per_probe            = 256;
+			bool    infinite_bounces          = true;
+			float   infinite_bounce_intensity = 0.3f;
+			int32_t rays_per_probe            = 256;
 		} params;
 
 		struct
@@ -116,7 +120,7 @@ struct RayTracedGI
 		struct
 		{
 			bool       visibility_test               = true;
-			float      probe_distance                = 0.9f;
+			float      probe_distance                = 1.1f;
 			float      recursive_energy_preservation = 0.85f;
 			uint32_t   irradiance_oct_size           = 8;
 			uint32_t   depth_oct_size                = 16;
@@ -155,6 +159,14 @@ struct RayTracedGI
 			VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
 			VkDescriptorSet       descriptor_sets[2];
 		} update_border;
+
+		struct
+		{
+			VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
+			VkPipeline            pipeline              = VK_NULL_HANDLE;
+			VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
+			VkDescriptorSet       descriptor_sets[2];
+		} classification;
 	} m_probe_update;
 
 	struct

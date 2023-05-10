@@ -1,0 +1,99 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_ray_query : enable
+
+#include "common.glsl"
+#include "restir_common.glsl"
+
+layout(binding = 0) uniform UBO
+{
+	mat4 view_inv;
+	mat4 projection_inv;
+	mat4 view_projection_inv;
+	mat4 view_projection;
+	mat4 prev_view_projection;
+	vec4 cam_pos;
+	vec4 jitter;
+} ubo;
+
+layout(binding = 1) uniform sampler2D gbufferA;
+layout(binding = 2) uniform sampler2D gbufferB;
+layout(binding = 3) uniform sampler2D gbufferC;
+layout(binding = 4) uniform sampler2D depth_buffer;
+layout(binding = 5) uniform sampler2D sobol_sequence;
+layout(binding = 6) uniform sampler2D scrambling_ranking_tile;
+layout(binding = 7) uniform accelerationStructureEXT tlas;
+
+layout(std430, binding = 10) buffer VertexBuffer {
+	Vertex vertices[];
+};
+
+layout(std430, binding = 11) buffer IndexBuffer {
+	uint indices[];
+};
+
+layout(std430, binding = 12) buffer MaterialBuffer {
+	Material materials[];
+};
+
+layout(std430, binding = 13) buffer EmitterBuffer {
+	Emitter emitters[];
+};
+
+layout(binding = 14) uniform SceneBuffer
+{
+	uint vertices_count;
+	uint indices_count;
+	uint instance_count;
+	uint material_count;
+	vec3 min_extent;
+	uint emitter_count;
+	vec3 max_extent;
+} scene_buffer;
+
+layout(std430, binding = 15) buffer InstanceBuffer {
+	Instance instances[];
+};
+
+layout(binding = 16) uniform sampler2D textures[];
+layout(binding = 17) uniform samplerCube skybox;
+
+layout(binding = 18) uniform RestirUBO
+{
+	int initial_sample_count;
+} restir_buffer;
+
+void main()
+{
+    const ivec2 size = textureSize(gbufferA, 0);
+	const ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+
+	uint seed = tea(size.x * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x, int(ubo.cam_pos.w));
+
+    const vec4 gbufferA_data = texelFetch(gbufferA, coord, 0);
+	const vec4 gbufferB_data = texelFetch(gbufferB, coord, 0);
+	const vec4 gbufferC_data = texelFetch(gbufferC, coord, 0);
+	const float depth = texelFetch(depth_buffer, coord, 0).r;
+	const ivec2 image_size = textureSize(depth_buffer, 0);
+
+    uint instance_id = uint(gbufferC_data.b);
+	Instance instance = instances[instance_id];
+	Material material = materials[instance.material];
+
+	vec3 position = world_position_from_depth(coord / vec2(image_size), depth, ubo.view_projection_inv);
+	vec3 normal = octohedral_to_direction(gbufferB_data.rg);
+
+	material.base_color.rgb = gbufferA_data.rgb; 
+	material.roughness_factor = max(0.001, gbufferC_data.r);
+	material.metallic_factor = gbufferA_data.a;
+
+    if(depth != 0)
+    {
+        for (int i = 0; i < restir_buffer.initial_sample_count; ++i)
+        {
+
+        }
+    }
+
+}

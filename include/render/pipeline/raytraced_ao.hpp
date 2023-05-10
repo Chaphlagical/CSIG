@@ -50,8 +50,6 @@ class RayTracedAO
   private:
 	const Context *m_context = nullptr;
 
-	struct Impl *m_impl = nullptr;
-
 	uint32_t m_width       = 0;
 	uint32_t m_height      = 0;
 	uint32_t m_gbuffer_mip = 0;

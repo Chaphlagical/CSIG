@@ -1,0 +1,32 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_ray_query : enable
+#extension GL_EXT_nonuniform_qualifier : enable
+
+#include "common.glsl"
+#include "random.glsl"
+#include "sample.glsl"
+
+layout(binding = 0) uniform UBO
+{
+	mat4 view_inv;
+	mat4 projection_inv;
+	mat4 view_projection_inv;
+	mat4 view_projection;
+	mat4 prev_view_projection;
+	vec4 cam_pos;
+	vec4 jitter;
+} ubo;
+
+layout(binding = 1, rgba16) uniform image2D raytraced_image;
+layout(binding = 2) uniform sampler2D gbufferB;
+layout(binding = 3) uniform sampler2D depth_buffer;
+layout(binding = 4) uniform sampler2D sobol_sequence;
+layout(binding = 5) uniform sampler2D scrambling_ranking_tile;
+layout(binding = 6) uniform accelerationStructureEXT tlas;
+
+void main()
+{
+    
+}

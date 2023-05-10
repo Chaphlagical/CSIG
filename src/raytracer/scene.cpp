@@ -10,6 +10,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <queue>
 
 #define CUBEMAP_SIZE 1024
 #define IRRADIANCE_CUBEMAP_SIZE 128
@@ -449,7 +450,7 @@ inline Buffer create_buffer(const Context &context, VkBufferUsageFlags usage, vo
 		VkBufferCreateInfo buffer_create_info = {
 		    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
 		    .size        = size,
-		    .usage       = usage,
+		    .usage       = usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 		    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
 		};
 		VmaAllocationCreateInfo allocation_create_info = {
@@ -890,13 +891,13 @@ void Scene::load_scene(const std::string &filename)
 		{
 			scene_info.max_extent = -glm::vec3(std::numeric_limits<float>::infinity());
 			scene_info.min_extent = glm::vec3(std::numeric_limits<float>::infinity());
-			for (auto& instance : instances)
+			for (auto &instance : instances)
 			{
 				const auto &mesh = meshes[instance.mesh];
 				for (uint32_t vertex_id = 0; vertex_id < mesh.vertices_count; vertex_id++)
 				{
-					glm::vec3 v = vertices[vertex_id + mesh.vertices_offset].position;
-					v           = instance.transform * glm::vec4(v, 1.f);
+					glm::vec3 v           = vertices[vertex_id + mesh.vertices_offset].position;
+					v                     = instance.transform * glm::vec4(v, 1.f);
 					scene_info.max_extent = glm::max(scene_info.max_extent, v);
 					scene_info.min_extent = glm::min(scene_info.min_extent, v);
 				}
@@ -905,27 +906,78 @@ void Scene::load_scene(const std::string &filename)
 
 		// Build emitter buffer
 		{
-			VkBufferCreateInfo buffer_create_info = {
-			    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-			    .size        = std::max(emitters.size(), 1ull) * sizeof(Emitter),
-			    .usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-			    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-			};
-			VmaAllocationCreateInfo allocation_create_info = {
-			    .usage = VMA_MEMORY_USAGE_CPU_TO_GPU,
-			};
-			VmaAllocationInfo allocation_info = {};
-			vmaCreateBuffer(m_context->vma_allocator, &buffer_create_info, &allocation_create_info, &emitter_buffer.vk_buffer, &emitter_buffer.vma_allocation, &allocation_info);
-			if (!emitters.empty())
-			{
-				uint8_t *mapped_data = nullptr;
-				vmaMapMemory(m_context->vma_allocator, emitter_buffer.vma_allocation, reinterpret_cast<void **>(&mapped_data));
-				std::memcpy(mapped_data, emitters.data(), emitters.size() * sizeof(Emitter));
-				vmaUnmapMemory(m_context->vma_allocator, emitter_buffer.vma_allocation);
-				vmaFlushAllocation(m_context->vma_allocator, emitter_buffer.vma_allocation, 0, emitters.size() * sizeof(Emitter));
-				mapped_data = nullptr;
-			}
+			emitter_buffer = create_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, emitters.data(), emitters.size() * sizeof(Emitter));
 			scene_info.emitter_count = static_cast<uint32_t>(emitters.size());
+		}
+
+		// Build emitter alias table buffer
+		{
+			float                   total_weight = 0.f;
+			std::vector<AliasTable> alias_table(emitters.size());
+			std::vector<float>      emitter_probs(emitters.size());
+			for (uint32_t i = 0; i < emitters.size(); i++)
+			{
+				emitter_probs[i] = glm::dot(emitters[i].intensity, glm::vec3(0.212671f, 0.715160f, 0.072169f));
+				total_weight += emitter_probs[i];
+			}
+			std::queue<uint32_t> greater_queue;
+			std::queue<uint32_t> smaller_queue;
+			for (uint32_t i = 0; i < emitters.size(); i++)
+			{
+				alias_table[i].ori_prob = emitter_probs[i] / total_weight;
+				emitter_probs[i] *= static_cast<float>(emitter_probs.size()) / total_weight;
+				if (emitter_probs[i] >= 1.f)
+				{
+					greater_queue.push(i);
+				}
+				else
+				{
+					smaller_queue.push(i);
+				}
+			}
+			while (!greater_queue.empty() && !smaller_queue.empty())
+			{
+				uint32_t g = greater_queue.front();
+				uint32_t s = smaller_queue.front();
+
+				greater_queue.pop();
+				smaller_queue.pop();
+
+				alias_table[s].prob = emitter_probs[s];
+				alias_table[s].alias = g;
+
+				emitter_probs[g] = (emitter_probs[s] + emitter_probs[g]) - 1.f;
+
+				if (emitter_probs[g] < 1.f)
+				{
+					smaller_queue.push(g);
+				}
+				else
+				{
+					greater_queue.push(g);
+				}
+			}
+			while (!greater_queue.empty())
+			{
+				uint32_t g = greater_queue.front();
+				greater_queue.pop();
+				alias_table[g].prob = 1.f;
+				alias_table[g].alias = g;
+			}
+			while (!greater_queue.empty())
+			{
+				uint32_t s = smaller_queue.front();
+				smaller_queue.pop();
+				alias_table[s].prob  = 1.f;
+				alias_table[s].alias = s;
+			}
+
+			for (auto& table : alias_table)
+			{
+				table.alias_ori_prob = alias_table[table.alias].ori_prob;
+			}
+
+			emitter_alias_table_buffer = create_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, alias_table.data(), alias_table.size() * sizeof(AliasTable));
 		}
 
 		// Build draw indirect command buffer
@@ -2697,6 +2749,14 @@ void Scene::destroy_scene()
 		emitter_buffer.vk_buffer      = VK_NULL_HANDLE;
 		emitter_buffer.vma_allocation = VK_NULL_HANDLE;
 		emitter_buffer.device_address = 0;
+	}
+
+	if (emitter_alias_table_buffer.vk_buffer && emitter_alias_table_buffer.vma_allocation)
+	{
+		vmaDestroyBuffer(m_context->vma_allocator, emitter_alias_table_buffer.vk_buffer, emitter_alias_table_buffer.vma_allocation);
+		emitter_alias_table_buffer.vk_buffer = VK_NULL_HANDLE;
+		emitter_alias_table_buffer.vma_allocation = VK_NULL_HANDLE;
+		emitter_alias_table_buffer.device_address = 0;
 	}
 }
 

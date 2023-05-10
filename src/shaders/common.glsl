@@ -57,6 +57,14 @@ struct Emitter
 	uint instance_id;
 };
 
+struct AliasTable
+{
+	float prob;         // The i's column's event i's prob
+	int   alias;        // The i's column's another event's idx
+	float ori_prob;
+	float alias_ori_prob;
+};
+
 struct ShadeState
 {
 	vec3 normal;

@@ -1,5 +1,7 @@
 #define CACHE_SIZE 64
 
+#include "ddgi.glsl"
+
 #ifdef UPDATE_DEPTH
     #define NUM_THREADS_X 16
     #define NUM_THREADS_Y 16
@@ -45,6 +47,8 @@ layout(binding = 6) uniform DDGIBuffer
     uint depth_texture_height;
 } ddgi_buffer;
 
+layout(binding = 7) uniform sampler2DArray probe_data;
+
 layout(push_constant) uniform PushConstants
 {
     uint frame_count;
@@ -78,7 +82,7 @@ vec2 normalized_oct_coord(ivec2 frag_coord)
 {
     int probe_with_border_side = int(PROBE_SIDE_LENGTH + 2);
     vec2 oct_frag_coord = ivec2((frag_coord.x - 2) % probe_with_border_side, (frag_coord.y - 2) % probe_with_border_side);
-    return (vec2(oct_frag_coord) + vec2(0.5f)) * (2.0f / float(PROBE_SIDE_LENGTH)) - vec2(1.0f, 1.0f);
+    return (vec2(oct_frag_coord) + vec2(0.5)) * (2.0 / float(PROBE_SIDE_LENGTH)) - vec2(1.0, 1.0);
 }
 
 vec3 oct_decode(vec2 o)
@@ -143,6 +147,11 @@ void main()
 {
     const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy) + (ivec2(gl_WorkGroupID.xy) * ivec2(2)) + ivec2(2);
     const uint relative_probe_id = probe_id(current_coord);
+
+    if(probe_state(relative_probe_id, ddgi_buffer, probe_data) == PROBE_STATE_INACTIVE)
+	{
+		return;
+	}
     
     vec3 result = vec3(0.0);
     float total_weight = 0.0;

@@ -3,6 +3,9 @@
 
 #include "common.glsl"
 
+#define PROBE_STATE_ACTIVE 0  
+#define PROBE_STATE_INACTIVE 1
+
 struct DDGIUniform
 {
     vec3 grid_start;
@@ -49,6 +52,23 @@ ivec3 probe_index_to_grid_coord(int index, DDGIUniform ddgi)
     return pos;
 }
 
+vec3 probe_offset(ivec3 c, sampler2DArray probe_data)
+{
+    return texelFetch(probe_data, c, 0).xyz;
+}
+
+uint probe_state(int index, DDGIUniform ddgi, sampler2DArray probe_data)
+{
+    ivec3 grid_coord = probe_index_to_grid_coord(index, ddgi);
+    return uint(texelFetch(probe_data, grid_coord, 0).w);
+}
+
+vec3 probe_location(int index, DDGIUniform ddgi, sampler2DArray probe_data)
+{
+	ivec3 grid_coord = probe_index_to_grid_coord(index, ddgi);
+	return grid_coord_to_position(grid_coord, ddgi) + probe_offset(grid_coord, probe_data);
+}
+
 float sign_not_zero(in float k)
 {
     return (k >= 0.0) ? 1.0 : -1.0;
@@ -89,7 +109,7 @@ vec2 texture_coord_from_direction(vec3 dir, int probe_index, uint width, uint he
     return vec2(normalized_probe_top_left_position + oct_coord_normalized_to_texture_dimensions);
 }
 
-vec3 sample_irradiance(vec3 P, vec3 N, vec3 V, DDGIUniform ddgi, sampler2D probe_depth, sampler2D probe_irradiance)
+vec3 sample_irradiance(vec3 P, vec3 N, vec3 V, DDGIUniform ddgi, sampler2D probe_depth, sampler2D probe_irradiance, sampler2DArray probe_data)
 {
     ivec3 base_grid_coord = base_grid_coord(P, ddgi);
     vec3 base_probe_pos = grid_coord_to_position(base_grid_coord, ddgi);
@@ -104,6 +124,10 @@ vec3 sample_irradiance(vec3 P, vec3 N, vec3 V, DDGIUniform ddgi, sampler2D probe
         ivec3 offset = ivec3(i, i >> 1, i >> 2) & ivec3(1);
         ivec3 probe_grid_coord = clamp(base_grid_coord + offset, ivec3(0), ddgi.probe_count - ivec3(1));
         int p = grid_coord_to_probe_index(probe_grid_coord, ddgi);
+        if(probe_state(p, ddgi, probe_data) == PROBE_STATE_INACTIVE)
+        {
+            continue;
+        }
         vec3 probe_pos = grid_coord_to_position(probe_grid_coord, ddgi);
         vec3 probe_to_point = P - probe_pos + (N + 3.0 * V) * ddgi.normal_bias;
         vec3 dir = normalize(-probe_to_point);

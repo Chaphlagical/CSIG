@@ -85,6 +85,7 @@ PathTracing::PathTracing(const Context &context) :
 		    0,
 		    0,
 		    0,
+			0,
 		    VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
 		    0,
 		};
@@ -187,30 +188,37 @@ PathTracing::PathTracing(const Context &context) :
 		        .descriptorCount = 1,
 		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
 		    },
-		    // Scene Buffer
+		    // Emitter Alias Table Buffer
 		    {
 		        .binding         = 14,
+		        .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+		        .descriptorCount = 1,
+		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
+		    },
+		    // Scene Buffer
+		    {
+		        .binding         = 15,
 		        .descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 		        .descriptorCount = 1,
 		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
 		    },
 		    // Instance Buffer
 		    {
-		        .binding         = 15,
+		        .binding         = 16,
 		        .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 		        .descriptorCount = 1,
 		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
 		    },
 		    // Bindless textures
 		    {
-		        .binding         = 16,
+		        .binding         = 17,
 		        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 		        .descriptorCount = 1024,
 		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
 		    },
 		    // Skybox
 		    {
-		        .binding         = 17,
+		        .binding         = 18,
 		        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 		        .descriptorCount = 1,
 		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
@@ -218,14 +226,14 @@ PathTracing::PathTracing(const Context &context) :
 		};
 		VkDescriptorSetLayoutBindingFlagsCreateInfo descriptor_set_layout_binding_flag_create_info = {
 		    .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
-		    .bindingCount  = 18,
+		    .bindingCount  = 19,
 		    .pBindingFlags = descriptor_binding_flags,
 		};
 		VkDescriptorSetLayoutCreateInfo create_info = {
 		    .sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 		    .pNext        = &descriptor_set_layout_binding_flag_create_info,
 		    .flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
-		    .bindingCount = 18,
+		    .bindingCount = 19,
 		    .pBindings    = bindings,
 		};
 		vkCreateDescriptorSetLayout(m_context->vk_device, &create_info, nullptr, &m_descriptor_set_layout);
@@ -368,6 +376,12 @@ void PathTracing::update(const Scene &scene, const BlueNoise &blue_noise, const 
 
 	VkDescriptorBufferInfo emitter_buffer_info = {
 	    .buffer = scene.emitter_buffer.vk_buffer,
+	    .offset = 0,
+	    .range  = VK_WHOLE_SIZE,
+	};
+
+	VkDescriptorBufferInfo emitter_alias_table_buffer_info = {
+	    .buffer = scene.emitter_alias_table_buffer.vk_buffer,
 	    .offset = 0,
 	    .range  = VK_WHOLE_SIZE,
 	};
@@ -649,6 +663,17 @@ void PathTracing::update(const Scene &scene, const BlueNoise &blue_noise, const 
 			        .dstBinding       = 14,
 			        .dstArrayElement  = 0,
 			        .descriptorCount  = 1,
+			        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+			        .pImageInfo       = nullptr,
+			        .pBufferInfo      = &emitter_alias_table_buffer_info,
+			        .pTexelBufferView = nullptr,
+			    },
+			    {
+			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			        .dstSet           = m_descriptor_sets[i],
+			        .dstBinding       = 15,
+			        .dstArrayElement  = 0,
+			        .descriptorCount  = 1,
 			        .descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 			        .pImageInfo       = nullptr,
 			        .pBufferInfo      = &scene_buffer_info,
@@ -657,7 +682,7 @@ void PathTracing::update(const Scene &scene, const BlueNoise &blue_noise, const 
 			    {
 			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 			        .dstSet           = m_descriptor_sets[i],
-			        .dstBinding       = 15,
+			        .dstBinding       = 16,
 			        .dstArrayElement  = 0,
 			        .descriptorCount  = 1,
 			        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -668,7 +693,7 @@ void PathTracing::update(const Scene &scene, const BlueNoise &blue_noise, const 
 			    {
 			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 			        .dstSet           = m_descriptor_sets[i],
-			        .dstBinding       = 16,
+			        .dstBinding       = 17,
 			        .dstArrayElement  = 0,
 			        .descriptorCount  = static_cast<uint32_t>(texture_infos.size()),
 			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -679,7 +704,7 @@ void PathTracing::update(const Scene &scene, const BlueNoise &blue_noise, const 
 			    {
 			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 			        .dstSet           = m_descriptor_sets[i],
-			        .dstBinding       = 17,
+			        .dstBinding       = 18,
 			        .dstArrayElement  = 0,
 			        .descriptorCount  = 1,
 			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -688,7 +713,7 @@ void PathTracing::update(const Scene &scene, const BlueNoise &blue_noise, const 
 			        .pTexelBufferView = nullptr,
 			    },
 			};
-			vkUpdateDescriptorSets(m_context->vk_device, 18, writes, 0, nullptr);
+			vkUpdateDescriptorSets(m_context->vk_device, 19, writes, 0, nullptr);
 		}
 	}
 }
