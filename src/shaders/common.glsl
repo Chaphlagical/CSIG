@@ -12,71 +12,7 @@ const float ShadowEpsilon = 0.0001;
 const float Epsilon = 1e-7;
 const float Infinity = 1e32;
 
-struct Instance
-{
-	mat4 transform;
-	mat4 transform_inv;
-	uint vertices_offset;
-	uint vertices_count;
-	uint indices_offset;
-	uint indices_count;
-	uint mesh;
-	uint material;
-	float area;
-	float padding;
-};
-
-struct Material
-{
-	uint  alpha_mode; // 0 - opaque, 1 - mask, 2 - blend
-	uint  double_sided;
-	float cutoff;
-	float metallic_factor;
-	float roughness_factor;
-	float transmission_factor;
-	float clearcoat_factor;
-	float clearcoat_roughness_factor;
-	vec4  base_color;
-	vec3  emissive_factor;
-	int  base_color_texture;
-	int  normal_texture;
-	int  metallic_roughness_texture;
-	vec2  padding;
-};
-
-struct Vertex
-{
-	vec4 position;
-	vec4 normal;
-};
-
-struct Emitter
-{
-	mat4 transform;
-	vec3 intensity;
-	uint instance_id;
-};
-
-struct AliasTable
-{
-	float prob;         // The i's column's event i's prob
-	int   alias;        // The i's column's another event's idx
-	float ori_prob;
-	float alias_ori_prob;
-};
-
-struct ShadeState
-{
-	vec3 normal;
-	vec3 geom_normal;
-	vec3 ffnormal;
-	vec3 position;
-	vec3 tangent;
-	vec3 bitangent;
-	float eta;
-	bool primary;
-	Material mat;
-};
+#include "common_data.hpp"
 
 void coordinate_system(vec3 N, out vec3 Nt, out vec3 Nb)
 {

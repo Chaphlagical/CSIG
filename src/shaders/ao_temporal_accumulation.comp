@@ -1,7 +1,10 @@
 #version 460
 
 #extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
 
+#include "common.glsl"
 #define REPROJECTION_SINGLE_COLOR_CHANNEL
 #include "reproject.glsl"
 
@@ -12,16 +15,10 @@
 
 layout (local_size_x = NUM_THREAD_X, local_size_y = NUM_THREAD_Y, local_size_z = 1) in;
 
-layout(binding = 0) uniform UBO
+layout(binding = 0, scalar) uniform UBO
 {
-	mat4 view_inv;
-	mat4 projection_inv;
-	mat4 view_projection_inv;
-	mat4 view_projection;
-	mat4 prev_view_projection;
-	vec4 cam_pos;
-	vec4 jitter;
-} ubo;
+    GlobalData ubo;
+};
 
 layout(binding = 1) uniform sampler2D gbufferB;
 layout(binding = 2) uniform sampler2D gbufferC;

@@ -66,7 +66,6 @@ vec2 rand2(inout uint prev)
   return vec2(rand(prev), rand(prev));
 }
 
-
 float sample_blue_noise(ivec2 coord, int sample_index, int sample_dimension, sampler2D sobol_sequence_tex, sampler2D scrambling_ranking_tex)
 {
 	coord.x = coord.x % 128;

@@ -184,11 +184,11 @@ GBufferPass::GBufferPass(const Context &context) :
 		    .depthWriteEnable  = VK_TRUE,
 		    .depthCompareOp    = VK_COMPARE_OP_GREATER_OR_EQUAL,
 		    .stencilTestEnable = VK_FALSE,
-		    .front = {
-		        .failOp    = VK_STENCIL_OP_KEEP,
-		        .passOp    = VK_STENCIL_OP_KEEP,
-		        .compareOp = VK_COMPARE_OP_ALWAYS,
-		    },
+		    .front             = {
+		                    .failOp    = VK_STENCIL_OP_KEEP,
+		                    .passOp    = VK_STENCIL_OP_KEEP,
+		                    .compareOp = VK_COMPARE_OP_ALWAYS,
+            },
 		    .back = {
 		        .failOp    = VK_STENCIL_OP_KEEP,
 		        .passOp    = VK_STENCIL_OP_KEEP,
@@ -519,6 +519,91 @@ GBufferPass::GBufferPass(const Context &context) :
 			};
 		}
 	}
+
+	// Create descriptor set layout
+	{
+		VkDescriptorSetLayoutBinding bindings[] = {
+		    // GBuffer A
+		    {
+		        .binding         = 0,
+		        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .descriptorCount = 1,
+		        .stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,
+		    },
+		    // GBuffer B
+		    {
+		        .binding         = 1,
+		        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .descriptorCount = 1,
+		        .stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,
+		    },
+		    // GBuffer C
+		    {
+		        .binding         = 2,
+		        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .descriptorCount = 1,
+		        .stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,
+		    },
+		    // Depth buffer
+		    {
+		        .binding         = 3,
+		        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .descriptorCount = 1,
+		        .stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,
+		    },
+		    // Prev GBuffer A
+		    {
+		        .binding         = 4,
+		        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .descriptorCount = 1,
+		        .stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,
+		    },
+		    // Prev GBuffer B
+		    {
+		        .binding         = 5,
+		        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .descriptorCount = 1,
+		        .stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,
+		    },
+		    // Prev GBuffer C
+		    {
+		        .binding         = 6,
+		        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .descriptorCount = 1,
+		        .stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,
+		    },
+		    // Prev Depth buffer
+		    {
+		        .binding         = 7,
+		        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .descriptorCount = 1,
+		        .stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,
+		    },
+		};
+
+		VkDescriptorSetLayoutCreateInfo create_info = {
+		    .sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		    .bindingCount = 8,
+		    .pBindings    = bindings,
+		};
+		vkCreateDescriptorSetLayout(m_context->vk_device, &create_info, nullptr, &descriptor.layout);
+	}
+
+	// Allocate descriptor set
+	{
+		VkDescriptorSetLayout layouts[] = {
+		    descriptor.layout,
+		    descriptor.layout,
+		};
+		VkDescriptorSetAllocateInfo allocate_info = {
+		    .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+		    .pNext              = nullptr,
+		    .descriptorPool     = m_context->vk_descriptor_pool,
+		    .descriptorSetCount = 2,
+		    .pSetLayouts        = layouts,
+		};
+		vkAllocateDescriptorSets(m_context->vk_device, &allocate_info, descriptor.sets);
+	}
 }
 
 GBufferPass::~GBufferPass()
@@ -526,7 +611,9 @@ GBufferPass::~GBufferPass()
 	vkDestroyPipelineLayout(m_context->vk_device, m_pipeline_layout, nullptr);
 	vkDestroyPipeline(m_context->vk_device, m_pipeline, nullptr);
 	vkDestroyDescriptorSetLayout(m_context->vk_device, m_descriptor_set_layout, nullptr);
+	vkDestroyDescriptorSetLayout(m_context->vk_device, descriptor.layout, nullptr);
 	vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 1, &m_descriptor_set);
+	vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 2, descriptor.sets);
 	for (uint32_t i = 0; i < 2; i++)
 	{
 		vkDestroyImageView(m_context->vk_device, gbufferA_view[i], nullptr);
@@ -692,7 +779,7 @@ void GBufferPass::update(const Scene &scene)
 	VkDescriptorBufferInfo global_buffer_info = {
 	    .buffer = scene.global_buffer.vk_buffer,
 	    .offset = 0,
-	    .range  = sizeof(GlobalBuffer),
+	    .range  = sizeof(GlobalData),
 	};
 
 	VkDescriptorBufferInfo instance_buffer_info = {
@@ -707,6 +794,58 @@ void GBufferPass::update(const Scene &scene)
 	    .range  = sizeof(Material) * scene.scene_info.material_count,
 	};
 
+	VkDescriptorImageInfo gbufferA_info[] = {
+	    {
+	        .sampler     = scene.linear_sampler,
+	        .imageView   = gbufferA_view[0],
+	        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	    },
+	    {
+	        .sampler     = scene.linear_sampler,
+	        .imageView   = gbufferA_view[1],
+	        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	    },
+	};
+
+	VkDescriptorImageInfo gbufferB_info[] = {
+	    {
+	        .sampler     = scene.linear_sampler,
+	        .imageView   = gbufferB_view[0],
+	        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	    },
+	    {
+	        .sampler     = scene.linear_sampler,
+	        .imageView   = gbufferB_view[1],
+	        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	    },
+	};
+
+	VkDescriptorImageInfo gbufferC_info[] = {
+	    {
+	        .sampler     = scene.linear_sampler,
+	        .imageView   = gbufferC_view[0],
+	        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	    },
+	    {
+	        .sampler     = scene.linear_sampler,
+	        .imageView   = gbufferC_view[1],
+	        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	    },
+	};
+
+	VkDescriptorImageInfo depth_stencil_info[] = {
+	    {
+	        .sampler     = scene.linear_sampler,
+	        .imageView   = depth_buffer_view[0],
+	        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	    },
+	    {
+	        .sampler     = scene.linear_sampler,
+	        .imageView   = depth_buffer_view[1],
+	        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	    },
+	};
+
 	std::vector<VkDescriptorImageInfo> texture_infos;
 	texture_infos.reserve(scene.textures.size());
 	for (auto &view : scene.texture_views)
@@ -718,54 +857,150 @@ void GBufferPass::update(const Scene &scene)
 		});
 	}
 
-	VkWriteDescriptorSet writes[] = {
-	    {
-	        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-	        .dstSet           = m_descriptor_set,
-	        .dstBinding       = 0,
-	        .dstArrayElement  = 0,
-	        .descriptorCount  = 1,
-	        .descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-	        .pImageInfo       = nullptr,
-	        .pBufferInfo      = &global_buffer_info,
-	        .pTexelBufferView = nullptr,
-	    },
-	    {
-	        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-	        .dstSet           = m_descriptor_set,
-	        .dstBinding       = 1,
-	        .dstArrayElement  = 0,
-	        .descriptorCount  = static_cast<uint32_t>(texture_infos.size()),
-	        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-	        .pImageInfo       = texture_infos.data(),
-	        .pBufferInfo      = nullptr,
-	        .pTexelBufferView = nullptr,
-	    },
-	    {
-	        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-	        .dstSet           = m_descriptor_set,
-	        .dstBinding       = 2,
-	        .dstArrayElement  = 0,
-	        .descriptorCount  = 1,
-	        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-	        .pImageInfo       = nullptr,
-	        .pBufferInfo      = &instance_buffer_info,
-	        .pTexelBufferView = nullptr,
-	    },
-	    {
-	        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-	        .dstSet           = m_descriptor_set,
-	        .dstBinding       = 3,
-	        .dstArrayElement  = 0,
-	        .descriptorCount  = 1,
-	        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-	        .pImageInfo       = nullptr,
-	        .pBufferInfo      = &material_buffer_info,
-	        .pTexelBufferView = nullptr,
-	    },
-	};
+	{
+		VkWriteDescriptorSet writes[] = {
+		    {
+		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		        .dstSet           = m_descriptor_set,
+		        .dstBinding       = 0,
+		        .dstArrayElement  = 0,
+		        .descriptorCount  = 1,
+		        .descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+		        .pImageInfo       = nullptr,
+		        .pBufferInfo      = &global_buffer_info,
+		        .pTexelBufferView = nullptr,
+		    },
+		    {
+		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		        .dstSet           = m_descriptor_set,
+		        .dstBinding       = 1,
+		        .dstArrayElement  = 0,
+		        .descriptorCount  = static_cast<uint32_t>(texture_infos.size()),
+		        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .pImageInfo       = texture_infos.data(),
+		        .pBufferInfo      = nullptr,
+		        .pTexelBufferView = nullptr,
+		    },
+		    {
+		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		        .dstSet           = m_descriptor_set,
+		        .dstBinding       = 2,
+		        .dstArrayElement  = 0,
+		        .descriptorCount  = 1,
+		        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+		        .pImageInfo       = nullptr,
+		        .pBufferInfo      = &instance_buffer_info,
+		        .pTexelBufferView = nullptr,
+		    },
+		    {
+		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		        .dstSet           = m_descriptor_set,
+		        .dstBinding       = 3,
+		        .dstArrayElement  = 0,
+		        .descriptorCount  = 1,
+		        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+		        .pImageInfo       = nullptr,
+		        .pBufferInfo      = &material_buffer_info,
+		        .pTexelBufferView = nullptr,
+		    },
+		};
+		vkUpdateDescriptorSets(m_context->vk_device, 4, writes, 0, nullptr);
+	}
 
-	vkUpdateDescriptorSets(m_context->vk_device, 4, writes, 0, nullptr);
+	for (uint32_t i = 0; i < 2; i++)
+	{
+		VkWriteDescriptorSet writes[] = {
+		    {
+		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		        .dstSet           = descriptor.sets[i],
+		        .dstBinding       = 0,
+		        .dstArrayElement  = 0,
+		        .descriptorCount  = 1,
+		        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .pImageInfo       = &gbufferA_info[i],
+		        .pBufferInfo      = nullptr,
+		        .pTexelBufferView = nullptr,
+		    },
+		    {
+		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		        .dstSet           = descriptor.sets[i],
+		        .dstBinding       = 1,
+		        .dstArrayElement  = 0,
+		        .descriptorCount  = 1,
+		        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .pImageInfo       = &gbufferB_info[i],
+		        .pBufferInfo      = nullptr,
+		        .pTexelBufferView = nullptr,
+		    },
+		    {
+		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		        .dstSet           = descriptor.sets[i],
+		        .dstBinding       = 2,
+		        .dstArrayElement  = 0,
+		        .descriptorCount  = 1,
+		        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .pImageInfo       = &gbufferC_info[i],
+		        .pBufferInfo      = nullptr,
+		        .pTexelBufferView = nullptr,
+		    },
+		    {
+		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		        .dstSet           = descriptor.sets[i],
+		        .dstBinding       = 3,
+		        .dstArrayElement  = 0,
+		        .descriptorCount  = 1,
+		        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .pImageInfo       = &depth_stencil_info[i],
+		        .pBufferInfo      = nullptr,
+		        .pTexelBufferView = nullptr,
+		    },
+		    {
+		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		        .dstSet           = descriptor.sets[i],
+		        .dstBinding       = 4,
+		        .dstArrayElement  = 0,
+		        .descriptorCount  = 1,
+		        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .pImageInfo       = &gbufferA_info[!i],
+		        .pBufferInfo      = nullptr,
+		        .pTexelBufferView = nullptr,
+		    },
+		    {
+		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		        .dstSet           = descriptor.sets[i],
+		        .dstBinding       = 5,
+		        .dstArrayElement  = 0,
+		        .descriptorCount  = 1,
+		        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .pImageInfo       = &gbufferB_info[!i],
+		        .pBufferInfo      = nullptr,
+		        .pTexelBufferView = nullptr,
+		    },
+		    {
+		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		        .dstSet           = descriptor.sets[i],
+		        .dstBinding       = 6,
+		        .dstArrayElement  = 0,
+		        .descriptorCount  = 1,
+		        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .pImageInfo       = &gbufferC_info[!i],
+		        .pBufferInfo      = nullptr,
+		        .pTexelBufferView = nullptr,
+		    },
+		    {
+		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		        .dstSet           = descriptor.sets[i],
+		        .dstBinding       = 7,
+		        .dstArrayElement  = 0,
+		        .descriptorCount  = 1,
+		        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .pImageInfo       = &depth_stencil_info[!i],
+		        .pBufferInfo      = nullptr,
+		        .pTexelBufferView = nullptr,
+		    },
+		};
+		vkUpdateDescriptorSets(m_context->vk_device, 8, writes, 0, nullptr);
+	}
 }
 
 void GBufferPass::draw(VkCommandBuffer cmd_buffer, const Scene &scene)

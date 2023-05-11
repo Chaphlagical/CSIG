@@ -1,7 +1,8 @@
 #version 450
 
-#extension GL_KHR_vulkan_glsl : enable
 #extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
 
 #include "common.glsl"
 
@@ -15,16 +16,10 @@ layout(location = 3) out vec4 outClipPos;
 layout(location = 4) out vec4 outPrevClipPos;
 layout(location = 5) out uint outInstanceID;
 
-layout(binding = 0) uniform UBO
+layout(binding = 0, scalar) uniform UBO
 {
-	mat4 view_inv;
-	mat4 projection_inv;
-	mat4 view_projection_inv;
-	mat4 view_projection;
-	mat4 prev_view_projection;
-	vec4 cam_pos;
-	vec4 jitter;
-} ubo;
+    GlobalData ubo;
+};
 
 layout(std430, binding = 2) buffer InstanceBuffer {
 	Instance instances[];
@@ -43,9 +38,7 @@ void main()
 	outPrevClipPos = ubo.prev_view_projection * prev_world_pos;
 	outTexcoord = vec2(inPosition.w, inNormal.w);
 
-	mat3 normal_mat = transpose(inverse(mat3(instance.transform)));
-
-	outNormal = normalize(normal_mat * inNormal.xyz);
+	outNormal = normalize(transpose(mat3(instance.transform_inv)) * inNormal.xyz);
 
 	outInstanceID = gl_InstanceIndex;
 }

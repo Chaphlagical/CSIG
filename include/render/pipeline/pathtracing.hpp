@@ -8,7 +8,7 @@
 class PathTracing
 {
   public:
-	PathTracing(const Context &context);
+	PathTracing(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass);
 
 	~PathTracing();
 
@@ -16,7 +16,7 @@ class PathTracing
 
 	void update(const Scene &scene, const BlueNoise &blue_noise, const GBufferPass &gbuffer_pass);
 
-	void draw(VkCommandBuffer cmd_buffer);
+	void draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBufferPass &gbuffer_pass);
 
 	bool draw_ui();
 

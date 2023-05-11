@@ -3,6 +3,7 @@
 #extension GL_KHR_vulkan_glsl : enable
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
 
 #include "ddgi.glsl"
 
@@ -13,16 +14,10 @@ layout(location = 0) out vec3 outFragPos;
 layout(location = 1) out vec3 outNormal;
 layout(location = 2) out flat int outInstanceID;
 
-layout(binding = 0) uniform UBO
+layout(binding = 0, scalar) uniform UBO
 {
-	mat4 view_inv;
-	mat4 projection_inv;
-	mat4 view_projection_inv;
-	mat4 view_projection;
-	mat4 prev_view_projection;
-	vec4 cam_pos;
-	vec4 jitter;
-} ubo;
+    GlobalData ubo;
+};
 
 layout(binding = 1, scalar) uniform DDGIUBO
 {

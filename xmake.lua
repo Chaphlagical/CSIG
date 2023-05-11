@@ -55,6 +55,7 @@ target("raytracer")
     add_headerfiles(
         "include/**.hpp",
         "src/shaders/**.glsl",
+        "src/shaders/**.hpp",
         "src/shaders/**.comp",
         "src/shaders/**.vert",
         "src/shaders/**.frag")

@@ -41,6 +41,13 @@ class GBufferPass
 	uint32_t height    = 0;
 	uint32_t mip_level = 0;
 
+  public:
+	struct
+	{
+		VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+		VkDescriptorSet       sets[2];
+	} descriptor;
+
   private:
 	const Context *m_context = nullptr;
 

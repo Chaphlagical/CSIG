@@ -953,7 +953,7 @@ void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const 
 	VkDescriptorBufferInfo global_buffer_info = {
 	    .buffer = scene.global_buffer.vk_buffer,
 	    .offset = 0,
-	    .range  = sizeof(GlobalBuffer),
+	    .range  = sizeof(GlobalData),
 	};
 
 	VkDescriptorBufferInfo denoise_tile_buffer_info = {

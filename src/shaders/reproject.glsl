@@ -112,7 +112,7 @@ bool reprojection(
 // TODO
 #else
     const ivec2 prev_coord = ivec2(vec2(frag_coord) + current_motion.xy * image_size + vec2(0.5));
-    const vec2 prev_coord_floor = floor(frag_coord.xy) + current_motion.xy * image_size;
+    const vec2 prev_coord_floor = floor(vec2(frag_coord.xy)) + current_motion.xy * image_size;
     const vec2 prev_tex_coord = tex_coord + current_motion.xy;
 #endif
 

@@ -363,6 +363,8 @@ Context::Context(const ContextConfig &config)
 		    VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME,
 		    VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
 		    VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME,
+		    VK_KHR_SPIRV_1_4_EXTENSION_NAME,
+		    VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME,
 		};
 
 		// Init vulkan physical device
@@ -496,6 +498,7 @@ Context::Context(const ContextConfig &config)
 	}
 
 			ENABLE_DEVICE_FEATURE(physical_device_features.features, physical_device_features_enable.features, multiViewport);
+			ENABLE_DEVICE_FEATURE(physical_device_features.features, physical_device_features_enable.features, shaderInt64);
 			ENABLE_DEVICE_FEATURE(physical_device_vulkan12_features, physical_device_vulkan12_features_enable, descriptorIndexing);
 			ENABLE_DEVICE_FEATURE(physical_device_vulkan12_features, physical_device_vulkan12_features_enable, bufferDeviceAddress);
 			ENABLE_DEVICE_FEATURE(physical_device_vulkan12_features, physical_device_vulkan12_features_enable, runtimeDescriptorArray);

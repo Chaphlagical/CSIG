@@ -610,7 +610,70 @@ inline Buffer create_scratch_buffer(const Context &context, VkDeviceSize size)
 	return buffer;
 }
 
-Scene::Scene(const std::string &scene_filename, const std::string &hdr_filename, const Context &context) :
+inline std::vector<AliasTable> create_alias_table_buffer(const Context &context, std::vector<float> &probs, float total_weight)
+{
+	std::vector<AliasTable> alias_table(probs.size());
+	std::queue<uint32_t>    greater_queue;
+	std::queue<uint32_t>    smaller_queue;
+	for (uint32_t i = 0; i < probs.size(); i++)
+	{
+		alias_table[i].ori_prob = probs[i] / total_weight;
+		probs[i] *= static_cast<float>(probs.size()) / total_weight;
+		if (probs[i] >= 1.f)
+		{
+			greater_queue.push(i);
+		}
+		else
+		{
+			smaller_queue.push(i);
+		}
+	}
+	while (!greater_queue.empty() && !smaller_queue.empty())
+	{
+		uint32_t g = greater_queue.front();
+		uint32_t s = smaller_queue.front();
+
+		greater_queue.pop();
+		smaller_queue.pop();
+
+		alias_table[s].prob  = probs[s];
+		alias_table[s].alias = g;
+
+		probs[g] = (probs[s] + probs[g]) - 1.f;
+
+		if (probs[g] < 1.f)
+		{
+			smaller_queue.push(g);
+		}
+		else
+		{
+			greater_queue.push(g);
+		}
+	}
+	while (!greater_queue.empty())
+	{
+		uint32_t g = greater_queue.front();
+		greater_queue.pop();
+		alias_table[g].prob  = 1.f;
+		alias_table[g].alias = g;
+	}
+	while (!greater_queue.empty())
+	{
+		uint32_t s = smaller_queue.front();
+		smaller_queue.pop();
+		alias_table[s].prob  = 1.f;
+		alias_table[s].alias = s;
+	}
+
+	for (auto &table : alias_table)
+	{
+		table.alias_ori_prob = alias_table[table.alias].ori_prob;
+	}
+
+	return alias_table;
+}
+
+Scene::Scene(const Context &context) :
     m_context(&context)
 {
 	// Create sampler
@@ -643,7 +706,7 @@ Scene::Scene(const std::string &scene_filename, const std::string &hdr_filename,
 	{
 		VkBufferCreateInfo create_info = {
 		    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		    .size        = sizeof(GlobalBuffer),
+		    .size        = sizeof(GlobalData),
 		    .usage       = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 		    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
 		};
@@ -653,8 +716,78 @@ Scene::Scene(const std::string &scene_filename, const std::string &hdr_filename,
 		vmaCreateBuffer(m_context->vma_allocator, &create_info, &allocation_create_info, &global_buffer.vk_buffer, &global_buffer.vma_allocation, &allocation_info);
 	}
 
-	load_scene(scene_filename);
-	load_envmap(hdr_filename);
+	// Create descriptor set layout
+	{
+		VkDescriptorBindingFlags descriptor_binding_flags[] = {
+		    0,
+		    0,
+		    0,
+		    VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
+		    0,
+		};
+		VkDescriptorSetLayoutBinding bindings[] = {
+		    // Global buffer
+		    {
+		        .binding         = 0,
+		        .descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+		        .descriptorCount = 1,
+		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+		    },
+		    // Top Levell Acceleration Structure
+		    {
+		        .binding         = 1,
+		        .descriptorType  = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
+		        .descriptorCount = 1,
+		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+		    },
+		    // Scene Buffer
+		    {
+		        .binding         = 2,
+		        .descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+		        .descriptorCount = 1,
+		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+		    },
+		    // Bindless textures
+		    {
+		        .binding         = 3,
+		        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .descriptorCount = 1024,
+		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+		    },
+		    // Skybox
+		    {
+		        .binding         = 4,
+		        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .descriptorCount = 1,
+		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+		    },
+		};
+		VkDescriptorSetLayoutBindingFlagsCreateInfo descriptor_set_layout_binding_flag_create_info = {
+		    .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+		    .bindingCount  = 5,
+		    .pBindingFlags = descriptor_binding_flags,
+		};
+		VkDescriptorSetLayoutCreateInfo create_info = {
+		    .sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		    .pNext        = &descriptor_set_layout_binding_flag_create_info,
+		    .flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
+		    .bindingCount = 5,
+		    .pBindings    = bindings,
+		};
+		vkCreateDescriptorSetLayout(m_context->vk_device, &create_info, nullptr, &descriptor.layout);
+	}
+
+	// Allocate descriptor set
+	{
+		VkDescriptorSetAllocateInfo allocate_info = {
+		    .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+		    .pNext              = nullptr,
+		    .descriptorPool     = m_context->vk_descriptor_pool,
+		    .descriptorSetCount = 1,
+		    .pSetLayouts        = &descriptor.layout,
+		};
+		vkAllocateDescriptorSets(m_context->vk_device, &allocate_info, &descriptor.set);
+	}
 }
 
 Scene::~Scene()
@@ -665,6 +798,8 @@ Scene::~Scene()
 	vkDestroySampler(m_context->vk_device, linear_sampler, nullptr);
 	vkDestroySampler(m_context->vk_device, nearest_sampler, nullptr);
 	vmaDestroyBuffer(m_context->vma_allocator, global_buffer.vk_buffer, global_buffer.vma_allocation);
+	vkDestroyDescriptorSetLayout(m_context->vk_device, descriptor.layout, nullptr);
+	vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 1, &descriptor.set);
 }
 
 void Scene::load_scene(const std::string &filename)
@@ -733,26 +868,9 @@ void Scene::load_scene(const std::string &filename)
 
 		// Create material buffer
 		{
-			VkBufferCreateInfo buffer_create_info = {
-			    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-			    .size        = materials.size() * sizeof(Material),
-			    .usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-			    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-			};
-			VmaAllocationCreateInfo allocation_create_info = {
-			    .usage = VMA_MEMORY_USAGE_CPU_TO_GPU,
-			};
-			VmaAllocationInfo allocation_info = {};
-			vmaCreateBuffer(m_context->vma_allocator, &buffer_create_info, &allocation_create_info, &material_buffer.vk_buffer, &material_buffer.vma_allocation, &allocation_info);
-			{
-				uint8_t *mapped_data = nullptr;
-				vmaMapMemory(m_context->vma_allocator, material_buffer.vma_allocation, reinterpret_cast<void **>(&mapped_data));
-				std::memcpy(mapped_data, materials.data(), materials.size() * sizeof(Material));
-				vmaUnmapMemory(m_context->vma_allocator, material_buffer.vma_allocation);
-				vmaFlushAllocation(m_context->vma_allocator, material_buffer.vma_allocation, 0, materials.size() * sizeof(Material));
-				mapped_data = nullptr;
-			}
-			scene_info.material_count = static_cast<uint32_t>(materials.size());
+			material_buffer                 = create_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, materials.data(), materials.size() * sizeof(Material));
+			scene_info.material_count       = static_cast<uint32_t>(materials.size());
+			scene_info.material_buffer_addr = material_buffer.device_address;
 		}
 	}
 
@@ -831,9 +949,13 @@ void Scene::load_scene(const std::string &filename)
 
 		scene_info.vertices_count = static_cast<uint32_t>(vertices.size());
 		scene_info.indices_count  = static_cast<uint32_t>(indices.size());
+		scene_info.mesh_count  = static_cast<uint32_t>(meshes.size());
 
 		vertex_buffer = create_buffer(*m_context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, vertices.data(), vertices.size() * sizeof(Vertex));
 		index_buffer  = create_buffer(*m_context, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, indices.data(), indices.size() * sizeof(uint32_t));
+
+		scene_info.vertex_buffer_addr = vertex_buffer.device_address;
+		scene_info.index_buffer_addr  = index_buffer.device_address;
 
 		m_context->set_object_name(
 		    VK_OBJECT_TYPE_BUFFER,
@@ -844,6 +966,30 @@ void Scene::load_scene(const std::string &filename)
 		    VK_OBJECT_TYPE_BUFFER,
 		    (uint64_t) index_buffer.vk_buffer,
 		    "Index Buffer");
+	}
+
+	// Build mesh alias table buffer
+	{
+		std::vector<AliasTable> alias_table;
+		for (uint32_t i = 0; i < meshes.size(); i++)
+		{
+			float              total_weight = 0.f;
+			std::vector<float> mesh_probs(meshes[i].indices_count / 3);
+			for (uint32_t j = 0; j < meshes[i].indices_count / 3; j++)
+			{
+				glm::vec3 v0 = vertices[meshes[i].vertices_offset + indices[meshes[i].indices_offset + 3 * j + 0]].position;
+				glm::vec3 v1 = vertices[meshes[i].vertices_offset + indices[meshes[i].indices_offset + 3 * j + 1]].position;
+				glm::vec3 v2 = vertices[meshes[i].vertices_offset + indices[meshes[i].indices_offset + 3 * j + 2]].position;
+				mesh_probs[j] += glm::length(glm::cross(v1 - v0, v2 - v1)) * 0.5f;
+				total_weight += mesh_probs[j];
+			}
+			meshes[i].area = total_weight;
+
+			std::vector<AliasTable> mesh_alias_table = create_alias_table_buffer(*m_context, mesh_probs, total_weight);
+			alias_table.insert(alias_table.end(), std::make_move_iterator(mesh_alias_table.begin()), std::make_move_iterator(mesh_alias_table.end()));
+		}
+		mesh_alias_table_buffer                 = create_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, alias_table.data(), alias_table.size() * sizeof(AliasTable));
+		scene_info.mesh_alias_table_buffer_addr = mesh_alias_table_buffer.device_address;
 	}
 
 	// Load hierarchy
@@ -871,17 +1017,21 @@ void Scene::load_scene(const std::string &filename)
 					};
 					std::memcpy(glm::value_ptr(instance.transform), matrix, sizeof(instance.transform));
 					instance.transform_inv = glm::inverse(instance.transform);
-					instances.push_back(instance);
-
 					if (materials[mesh.material].emissive_factor != glm::vec3(0.f))
 					{
 						emitters.push_back(
 						    Emitter{
 						        .transform   = instance.transform,
 						        .intensity   = materials[mesh.material].emissive_factor,
-						        .instance_id = static_cast<uint32_t>(instances.size() - 1),
+						        .instance_id = static_cast<uint32_t>(instances.size()),
 						    });
+						instance.emitter = static_cast<uint32_t>(emitters.size() - 1);
 					}
+					else
+					{
+						instance.emitter = -1;
+					}
+					instances.push_back(instance);
 				}
 			}
 		}
@@ -906,78 +1056,24 @@ void Scene::load_scene(const std::string &filename)
 
 		// Build emitter buffer
 		{
-			emitter_buffer = create_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, emitters.data(), emitters.size() * sizeof(Emitter));
-			scene_info.emitter_count = static_cast<uint32_t>(emitters.size());
+			emitter_buffer                 = create_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, emitters.data(), emitters.size() * sizeof(Emitter));
+			scene_info.emitter_count       = static_cast<uint32_t>(emitters.size());
+			scene_info.emitter_buffer_addr = emitter_buffer.device_address;
 		}
 
 		// Build emitter alias table buffer
 		{
-			float                   total_weight = 0.f;
-			std::vector<AliasTable> alias_table(emitters.size());
-			std::vector<float>      emitter_probs(emitters.size());
+			float              total_weight = 0.f;
+			std::vector<float> emitter_probs(emitters.size());
 			for (uint32_t i = 0; i < emitters.size(); i++)
 			{
-				emitter_probs[i] = glm::dot(emitters[i].intensity, glm::vec3(0.212671f, 0.715160f, 0.072169f));
+				emitter_probs[i] = glm::dot(emitters[i].intensity, glm::vec3(0.212671f, 0.715160f, 0.072169f)) * instances[emitters[i].instance_id].area;
 				total_weight += emitter_probs[i];
 			}
-			std::queue<uint32_t> greater_queue;
-			std::queue<uint32_t> smaller_queue;
-			for (uint32_t i = 0; i < emitters.size(); i++)
-			{
-				alias_table[i].ori_prob = emitter_probs[i] / total_weight;
-				emitter_probs[i] *= static_cast<float>(emitter_probs.size()) / total_weight;
-				if (emitter_probs[i] >= 1.f)
-				{
-					greater_queue.push(i);
-				}
-				else
-				{
-					smaller_queue.push(i);
-				}
-			}
-			while (!greater_queue.empty() && !smaller_queue.empty())
-			{
-				uint32_t g = greater_queue.front();
-				uint32_t s = smaller_queue.front();
 
-				greater_queue.pop();
-				smaller_queue.pop();
-
-				alias_table[s].prob = emitter_probs[s];
-				alias_table[s].alias = g;
-
-				emitter_probs[g] = (emitter_probs[s] + emitter_probs[g]) - 1.f;
-
-				if (emitter_probs[g] < 1.f)
-				{
-					smaller_queue.push(g);
-				}
-				else
-				{
-					greater_queue.push(g);
-				}
-			}
-			while (!greater_queue.empty())
-			{
-				uint32_t g = greater_queue.front();
-				greater_queue.pop();
-				alias_table[g].prob = 1.f;
-				alias_table[g].alias = g;
-			}
-			while (!greater_queue.empty())
-			{
-				uint32_t s = smaller_queue.front();
-				smaller_queue.pop();
-				alias_table[s].prob  = 1.f;
-				alias_table[s].alias = s;
-			}
-
-			for (auto& table : alias_table)
-			{
-				table.alias_ori_prob = alias_table[table.alias].ori_prob;
-			}
-
-			emitter_alias_table_buffer = create_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, alias_table.data(), alias_table.size() * sizeof(AliasTable));
+			std::vector<AliasTable> alias_table        = create_alias_table_buffer(*m_context, emitter_probs, total_weight);
+			emitter_alias_table_buffer                 = create_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, alias_table.data(), alias_table.size() * sizeof(AliasTable));
+			scene_info.emitter_alias_table_buffer_addr = emitter_alias_table_buffer.device_address;
 		}
 
 		// Build draw indirect command buffer
@@ -1018,25 +1114,8 @@ void Scene::load_scene(const std::string &filename)
 
 		// Create instance buffer
 		{
-			VkBufferCreateInfo buffer_create_info = {
-			    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-			    .size        = instances.size() * sizeof(Instance),
-			    .usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-			    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-			};
-			VmaAllocationCreateInfo allocation_create_info = {
-			    .usage = VMA_MEMORY_USAGE_CPU_TO_GPU,
-			};
-			VmaAllocationInfo allocation_info = {};
-			vmaCreateBuffer(m_context->vma_allocator, &buffer_create_info, &allocation_create_info, &instance_buffer.vk_buffer, &instance_buffer.vma_allocation, &allocation_info);
-			{
-				uint8_t *mapped_data = nullptr;
-				vmaMapMemory(m_context->vma_allocator, instance_buffer.vma_allocation, reinterpret_cast<void **>(&mapped_data));
-				std::memcpy(mapped_data, instances.data(), instances.size() * sizeof(Instance));
-				vmaUnmapMemory(m_context->vma_allocator, instance_buffer.vma_allocation);
-				vmaFlushAllocation(m_context->vma_allocator, instance_buffer.vma_allocation, 0, instances.size() * sizeof(Instance));
-				mapped_data = nullptr;
-			}
+			instance_buffer                 = create_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, instances.data(), instances.size() * sizeof(Instance));
+			scene_info.instance_buffer_addr = instance_buffer.device_address;
 		}
 	}
 
@@ -2646,6 +2725,99 @@ void Scene::load_envmap(const std::string &filename)
 	}
 }
 
+void Scene::update_descriptor()
+{
+	VkDescriptorBufferInfo global_buffer_info = {
+	    .buffer = global_buffer.vk_buffer,
+	    .offset = 0,
+	    .range  = sizeof(GlobalData),
+	};
+	VkDescriptorBufferInfo scene_buffer_info = {
+	    .buffer = scene_buffer.vk_buffer,
+	    .offset = 0,
+	    .range  = sizeof(scene_info),
+	};
+	std::vector<VkDescriptorImageInfo> texture_infos;
+	texture_infos.reserve(textures.size());
+	for (auto &view : texture_views)
+	{
+		texture_infos.push_back(VkDescriptorImageInfo{
+		    .sampler     = linear_sampler,
+		    .imageView   = view,
+		    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		});
+	}
+	VkDescriptorImageInfo skybox_info = {
+	    .sampler     = linear_sampler,
+	    .imageView   = envmap.texture_view,
+	    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	};
+	VkWriteDescriptorSetAccelerationStructureKHR as_write = {
+	    .sType                      = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR,
+	    .accelerationStructureCount = 1,
+	    .pAccelerationStructures    = &tlas.vk_as,
+	};
+	VkWriteDescriptorSet writes[] = {
+	    {
+	        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+	        .dstSet           = descriptor.set,
+	        .dstBinding       = 0,
+	        .dstArrayElement  = 0,
+	        .descriptorCount  = 1,
+	        .descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+	        .pImageInfo       = nullptr,
+	        .pBufferInfo      = &global_buffer_info,
+	        .pTexelBufferView = nullptr,
+	    },
+	    {
+	        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+	        .pNext            = &as_write,
+	        .dstSet           = descriptor.set,
+	        .dstBinding       = 1,
+	        .dstArrayElement  = 0,
+	        .descriptorCount  = 1,
+	        .descriptorType   = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
+	        .pImageInfo       = nullptr,
+	        .pBufferInfo      = nullptr,
+	        .pTexelBufferView = nullptr,
+	    },
+	    {
+	        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+	        .dstSet           = descriptor.set,
+	        .dstBinding       = 2,
+	        .dstArrayElement  = 0,
+	        .descriptorCount  = 1,
+	        .descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+	        .pImageInfo       = nullptr,
+	        .pBufferInfo      = &scene_buffer_info,
+	        .pTexelBufferView = nullptr,
+	    },
+	    {
+	        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+	        .dstSet           = descriptor.set,
+	        .dstBinding       = 3,
+	        .dstArrayElement  = 0,
+	        .descriptorCount  = static_cast<uint32_t>(texture_infos.size()),
+	        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+	        .pImageInfo       = texture_infos.data(),
+	        .pBufferInfo      = nullptr,
+	        .pTexelBufferView = nullptr,
+	    },
+	    {
+	        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+	        .dstSet           = descriptor.set,
+	        .dstBinding       = 4,
+	        .dstArrayElement  = 0,
+	        .descriptorCount  = 1,
+	        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+	        .pImageInfo       = &skybox_info,
+	        .pBufferInfo      = nullptr,
+	        .pTexelBufferView = nullptr,
+	    },
+	};
+	vkUpdateDescriptorSets(m_context->vk_device, 5, writes, 0, nullptr);
+}
+
 void Scene::destroy_scene()
 {
 	for (auto &view : texture_views)
@@ -2754,9 +2926,17 @@ void Scene::destroy_scene()
 	if (emitter_alias_table_buffer.vk_buffer && emitter_alias_table_buffer.vma_allocation)
 	{
 		vmaDestroyBuffer(m_context->vma_allocator, emitter_alias_table_buffer.vk_buffer, emitter_alias_table_buffer.vma_allocation);
-		emitter_alias_table_buffer.vk_buffer = VK_NULL_HANDLE;
+		emitter_alias_table_buffer.vk_buffer      = VK_NULL_HANDLE;
 		emitter_alias_table_buffer.vma_allocation = VK_NULL_HANDLE;
 		emitter_alias_table_buffer.device_address = 0;
+	}
+
+	if (mesh_alias_table_buffer.vk_buffer && mesh_alias_table_buffer.vma_allocation)
+	{
+		vmaDestroyBuffer(m_context->vma_allocator, mesh_alias_table_buffer.vk_buffer, mesh_alias_table_buffer.vma_allocation);
+		mesh_alias_table_buffer.vk_buffer         = VK_NULL_HANDLE;
+		mesh_alias_table_buffer.vma_allocation    = VK_NULL_HANDLE;
+		mesh_alias_table_buffer.device_address    = 0;
 	}
 }
 

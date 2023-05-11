@@ -101,7 +101,7 @@ vec2 texture_coord_from_direction(vec3 dir, int probe_index, uint width, uint he
 
     int probes_per_row = (int(width) - 2) / int(probe_with_border_side);
 
-    vec2 probe_top_left_position = vec2(mod(probe_index, probes_per_row) * probe_with_border_side,
+    vec2 probe_top_left_position = vec2(mod(float(probe_index), float(probes_per_row)) * probe_with_border_side,
         (probe_index / probes_per_row) * probe_with_border_side) + vec2(2.0, 2.0);
 
     vec2 normalized_probe_top_left_position = vec2(probe_top_left_position) / vec2(float(width), float(height));

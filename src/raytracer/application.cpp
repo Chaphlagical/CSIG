@@ -41,17 +41,21 @@ bool is_key_pressed(GLFWwindow *window, uint32_t keycode)
 
 Application::Application(const ApplicationConfig &config) :
     m_context(config.context_config),
+    m_scene(m_context),
     m_renderer{
         .ui{m_context},
-        .path_tracing{m_context},
         .gbuffer_pass{m_context},
+        .path_tracing{m_context, m_scene, m_renderer.gbuffer_pass},
         .raytraced_ao{m_context},
-        .raytraced_gi{m_context},
+        //.raytraced_gi{m_context},
         .tonemap{m_context},
     },
-    m_scene(config.scene_file, config.hdr_file, m_context),
     m_blue_noise(m_context)
 {
+	m_scene.load_scene(config.scene_file);
+	m_scene.load_envmap(config.hdr_file);
+	m_scene.update_descriptor();
+
 	glfwSetWindowUserPointer(m_context.window, this);
 	glfwSetScrollCallback(m_context.window, [](GLFWwindow *window, double xoffset, double yoffset) {
 		Application *app = (Application *) glfwGetWindowUserPointer(window);
@@ -99,7 +103,7 @@ Application::Application(const ApplicationConfig &config) :
 		vkBeginCommandBuffer(cmd_buffer, &begin_info);
 		m_renderer.gbuffer_pass.init(cmd_buffer);
 		m_renderer.raytraced_ao.init(cmd_buffer);
-		m_renderer.raytraced_gi.init(cmd_buffer);
+		//m_renderer.raytraced_gi.init(cmd_buffer);
 		m_renderer.path_tracing.init(cmd_buffer);
 		m_renderer.tonemap.init(cmd_buffer);
 
@@ -257,7 +261,7 @@ void Application::update_ui()
 		ImGui::Text("CSIG 2023 RayTracer");
 		ImGui::Text("FPS: %.f", ImGui::GetIO().Framerate);
 		ImGui::Text("Frames: %.d", m_num_frames);
-		if (ImGui::Combo("Mode", reinterpret_cast<int32_t*>(&m_render_mode), render_modes, 2))
+		if (ImGui::Combo("Mode", reinterpret_cast<int32_t *>(&m_render_mode), render_modes, 2))
 		{
 			m_renderer.tonemap.set_pathtracing(m_render_mode == RenderMode::PathTracing);
 		}
@@ -266,7 +270,7 @@ void Application::update_ui()
 		{
 			case RenderMode::Hybrid:
 				ui_update |= m_renderer.raytraced_ao.draw_ui();
-				ui_update |= m_renderer.raytraced_gi.draw_ui();
+				//ui_update |= m_renderer.raytraced_gi.draw_ui();
 				break;
 			case RenderMode::PathTracing:
 				ui_update |= m_renderer.path_tracing.draw_ui();
@@ -375,8 +379,9 @@ void Application::update(VkCommandBuffer cmd_buffer)
 		m_renderer.gbuffer_pass.update(m_scene);
 		m_renderer.path_tracing.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
 		m_renderer.raytraced_ao.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
-		m_renderer.raytraced_gi.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
-		m_renderer.tonemap.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, m_renderer.raytraced_gi.sample_probe_grid_view);
+		//m_renderer.raytraced_gi.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
+		//m_renderer.tonemap.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, m_renderer.raytraced_gi.sample_probe_grid_view);
+		m_renderer.tonemap.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, *m_renderer.path_tracing.path_tracing_image_view);
 	}
 
 	// Copy to device
@@ -385,16 +390,20 @@ void Application::update(VkCommandBuffer cmd_buffer)
 		glm::mat4 jitter_proj = glm::translate(glm::mat4(1.0f), glm::vec3(m_current_jitter, 0.0f)) * m_camera.proj;
 		m_camera.view_proj    = jitter_proj * m_camera.view;
 
-		GlobalBuffer global_buffer = {
+		GlobalData global_buffer = {
 		    .view_inv             = glm::inverse(m_camera.view),
 		    .projection_inv       = glm::inverse(jitter_proj),
 		    .view_projection_inv  = glm::inverse(jitter_proj * m_camera.view),
 		    .view_projection      = m_camera.view_proj,
+		    .prev_view            = m_camera.prev_view,
+		    .prev_projection      = m_camera.prev_proj,
 		    .prev_view_projection = m_camera.prev_view_proj,
 		    .cam_pos              = glm::vec4(m_camera.position, static_cast<float>(m_num_frames)),
 		    .jitter               = glm::vec4(m_current_jitter, m_prev_jitter),
 		};
 		m_camera.prev_view_proj = m_camera.view_proj;
+		m_camera.prev_view      = m_camera.view;
+		m_camera.prev_proj      = m_camera.proj;
 
 		{
 			VkBufferMemoryBarrier buffer_barrier = {
@@ -406,7 +415,7 @@ void Application::update(VkCommandBuffer cmd_buffer)
 			    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			    .buffer              = m_scene.global_buffer.vk_buffer,
 			    .offset              = 0,
-			    .size                = sizeof(GlobalBuffer),
+			    .size                = sizeof(GlobalData),
 			};
 			vkCmdPipelineBarrier(
 			    cmd_buffer,
@@ -414,7 +423,7 @@ void Application::update(VkCommandBuffer cmd_buffer)
 			    VK_PIPELINE_STAGE_TRANSFER_BIT,
 			    0, 0, nullptr, 1, &buffer_barrier, 0, nullptr);
 		}
-		vkCmdUpdateBuffer(cmd_buffer, m_scene.global_buffer.vk_buffer, 0, sizeof(GlobalBuffer), &global_buffer);
+		vkCmdUpdateBuffer(cmd_buffer, m_scene.global_buffer.vk_buffer, 0, sizeof(GlobalData), &global_buffer);
 		{
 			VkBufferMemoryBarrier buffer_barrier = {
 			    .sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
@@ -425,7 +434,7 @@ void Application::update(VkCommandBuffer cmd_buffer)
 			    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			    .buffer              = m_scene.global_buffer.vk_buffer,
 			    .offset              = 0,
-			    .size                = sizeof(GlobalBuffer),
+			    .size                = sizeof(GlobalData),
 			};
 			vkCmdPipelineBarrier(
 			    cmd_buffer,
@@ -448,10 +457,10 @@ void Application::render(VkCommandBuffer cmd_buffer)
 	{
 		case RenderMode::Hybrid:
 			m_renderer.raytraced_ao.draw(cmd_buffer);
-			m_renderer.raytraced_gi.draw(cmd_buffer);
+			//m_renderer.raytraced_gi.draw(cmd_buffer);
 			break;
 		case RenderMode::PathTracing:
-			m_renderer.path_tracing.draw(cmd_buffer);
+			m_renderer.path_tracing.draw(cmd_buffer, m_scene, m_renderer.gbuffer_pass);
 			break;
 		default:
 			break;
@@ -566,7 +575,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 	{
 		{
 			VkImageMemoryBarrier image_barriers[] = {
-			    {
+			    /*{
 			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 			        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
 			        .dstAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
@@ -582,7 +591,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			               .baseArrayLayer = 0,
 			               .layerCount     = 1,
                     },
-			    },
+			    },*/
 			    {
 			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 			        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
@@ -622,14 +631,14 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			    cmd_buffer,
 			    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 			    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
-			    0, 0, nullptr, 0, nullptr, 3, image_barriers);
+			    0, 0, nullptr, 0, nullptr, 2, image_barriers);
 		}
 
-		m_renderer.raytraced_gi.visualize_probe(cmd_buffer, m_renderer.raytraced_gi.sample_probe_grid_view, m_renderer.gbuffer_pass.depth_buffer_view[m_context.ping_pong]);
+		//m_renderer.raytraced_gi.visualize_probe(cmd_buffer, m_renderer.raytraced_gi.sample_probe_grid_view, m_renderer.gbuffer_pass.depth_buffer_view[m_context.ping_pong]);
 
 		{
 			VkImageMemoryBarrier image_barriers[] = {
-			    {
+			    /*{
 			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 			        .srcAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
 			        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
@@ -645,7 +654,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			               .baseArrayLayer = 0,
 			               .layerCount     = 1,
                     },
-			    },
+			    },*/
 			    {
 			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 			        .srcAccessMask       = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
@@ -668,10 +677,10 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			    cmd_buffer,
 			    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
 			    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-			    0, 0, nullptr, 0, nullptr, 2, image_barriers);
+			    0, 0, nullptr, 0, nullptr, 1, image_barriers);
 		}
 
-		m_renderer.tonemap.draw(cmd_buffer);
+		//m_renderer.tonemap.draw(cmd_buffer);
 
 		{
 			VkImageMemoryBarrier image_barriers[] = {

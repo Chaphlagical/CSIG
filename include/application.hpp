@@ -5,7 +5,7 @@
 #include "render/pipeline/gbuffer.hpp"
 #include "render/pipeline/pathtracing.hpp"
 #include "render/pipeline/raytraced_ao.hpp"
-#include "render/pipeline/raytraced_gi.hpp"
+// #include "render/pipeline/raytraced_gi.hpp"
 #include "render/pipeline/tonemap.hpp"
 #include "render/pipeline/ui/ui.hpp"
 #include "render/scene.hpp"
@@ -16,8 +16,8 @@ struct ApplicationConfig
 {
 	ContextConfig context_config;
 
-	//std::string scene_file = "assets/scenes/Deferred/Deferred.gltf";
-	std::string scene_file = "assets/scenes/conell_box.glb";
+	std::string scene_file = "assets/scenes/Deferred/Deferred.gltf";
+	// std::string scene_file = "assets/scenes/conell_box.glb";
 	std::string hdr_file   = "assets/textures/hdr/BasketballCourt_3k.hdr";
 };
 
@@ -41,16 +41,18 @@ class Application
   private:
 	Context m_context;
 
+	Scene m_scene;
+
 	std::array<VkCommandBuffer, 3> m_cmd_buffers = {VK_NULL_HANDLE};
 
 	struct
 	{
 		UI          ui;
-		PathTracing path_tracing;
 		GBufferPass gbuffer_pass;
+		PathTracing path_tracing;
 		RayTracedAO raytraced_ao;
-		RayTracedGI raytraced_gi;
-		Tonemap     tonemap;
+		// RayTracedGI raytraced_gi;
+		Tonemap tonemap;
 	} m_renderer;
 
 	struct
@@ -62,14 +64,15 @@ class Application
 		float     speed    = 1.f;
 		glm::vec3 velocity = glm::vec3(0.f);
 
-		glm::mat4 view = glm::mat4(1.f);
-		glm::mat4 proj = glm::mat4(1.f);
+		glm::mat4 view      = glm::mat4(1.f);
+		glm::mat4 proj      = glm::mat4(1.f);
+		glm::mat4 view_proj = glm::mat4(1.f);
 
-		glm::mat4 view_proj      = glm::mat4(1.f);
+		glm::mat4 prev_view      = glm::mat4(1.f);
+		glm::mat4 prev_proj      = glm::mat4(1.f);
 		glm::mat4 prev_view_proj = glm::mat4(1.f);
 	} m_camera;
 
-	Scene     m_scene;
 	BlueNoise m_blue_noise;
 
 	uint32_t m_current_frame = 0;
@@ -87,5 +90,5 @@ class Application
 	{
 		Hybrid,
 		PathTracing,
-	} m_render_mode = RenderMode::Hybrid;
+	} m_render_mode = RenderMode::PathTracing;
 };

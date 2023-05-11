@@ -61,16 +61,6 @@ shared vec4 shared_ray_direction_depth[CACHE_SIZE];
 shared vec3 shared_ray_hit_radiance[CACHE_SIZE];
 #endif
 
-float sign_not_zero(in float k)
-{
-    return (k >= 0.0) ? 1.0 : -1.0;
-}
-
-vec2 sign_not_zero(in vec2 v)
-{
-    return vec2(sign_not_zero(v.x), sign_not_zero(v.y));
-}
-
 uint probe_id(vec2 texel_xy)
 {
     uint probe_with_border_side = PROBE_SIDE_LENGTH + 2;
@@ -147,11 +137,6 @@ void main()
 {
     const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy) + (ivec2(gl_WorkGroupID.xy) * ivec2(2)) + ivec2(2);
     const uint relative_probe_id = probe_id(current_coord);
-
-    if(probe_state(relative_probe_id, ddgi_buffer, probe_data) == PROBE_STATE_INACTIVE)
-	{
-		return;
-	}
     
     vec3 result = vec3(0.0);
     float total_weight = 0.0;

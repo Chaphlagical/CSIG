@@ -2,6 +2,8 @@
 
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
 
 #include "common.glsl"
 
@@ -16,16 +18,10 @@ layout(location = 0) out vec4 GBufferA; // RGB: Albedo, A: Metallic
 layout(location = 1) out vec4 GBufferB; // RG: Normal, BA: Motion Vector
 layout(location = 2) out vec4 GBufferC; // R: Roughness, G: Curvature, B: Mesh ID, A: Linear Z
 
-layout(binding = 0) uniform UBO
+layout(binding = 0, scalar) uniform UBO
 {
-	mat4 view_inv;
-	mat4 projection_inv;
-	mat4 view_projection_inv;
-	mat4 view_projection;
-	mat4 prev_view_projection;
-	vec4 cam_pos;
-	vec4 jitter;
-} ubo;
+    GlobalData ubo;
+};
 
 layout(binding = 1) uniform sampler2D textures[];
 

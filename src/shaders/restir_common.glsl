@@ -5,21 +5,27 @@
 
 #define RESERVOIR_SIZE 1
 
-struct EmitterSample
+struct RestirSample
 {
-    vec3 position;
-    uint emitter_id;
-    vec3 normal;
-    float weight;
+    uint light_id;
 };
 
 struct Reservoir
 {
-    EmitterSample y;   // The output sample
+    RestirSample y;   // The output sample
     uint M; // The number of samples seen so far
     float w_sum;    // The sum of weights
     float W;
+    float pdf;
+    float p_hat
 };
+
+void init_reservoir(inout Reservoir reservoir)
+{
+    reservoir.w_sum = 0;
+    reservoir.W = 0;
+    reservoir.M = 0;
+}
 
 void update_reservoir(EmitterSample x, float w, uint seed, inout Reservoir reservoir)
 {
