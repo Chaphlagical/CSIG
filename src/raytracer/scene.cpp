@@ -40,11 +40,6 @@ static unsigned char g_cubemap_prefilter_comp_spv_data[] = {
 #include "cubemap_prefilter.comp.spv.h"
 };
 
-static inline size_t Align(size_t x, size_t alignment)
-{
-	return (x + (alignment - 1)) & ~(alignment - 1);
-}
-
 struct Mesh
 {
 	uint32_t vertices_offset = 0;
@@ -590,11 +585,23 @@ inline AccelerationStructure create_acceleration_structure(const Context &contex
 
 inline Buffer create_scratch_buffer(const Context &context, VkDeviceSize size)
 {
+	VkPhysicalDeviceAccelerationStructurePropertiesKHR properties = {};
+
+	properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
+	properties.pNext = NULL;
+
+	VkPhysicalDeviceProperties2 dev_props2 = {};
+
+	dev_props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+	dev_props2.pNext = &properties;
+
+	vkGetPhysicalDeviceProperties2(context.vk_physical_device, &dev_props2);
+
 	Buffer buffer = {};
 
 	VkBufferCreateInfo buffer_create_info = {
 	    .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-	    .size  = size,
+	    .size  = size_t(std::ceil(size / properties.minAccelerationStructureScratchOffsetAlignment) + 1) * properties.minAccelerationStructureScratchOffsetAlignment,
 	    .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
 	};
 	VmaAllocationCreateInfo allocation_create_info = {
@@ -607,6 +614,7 @@ inline Buffer create_scratch_buffer(const Context &context, VkDeviceSize size)
 	    .buffer = buffer.vk_buffer,
 	};
 	buffer.device_address = vkGetBufferDeviceAddressKHR(context.vk_device, &buffer_device_address_info);
+	buffer.device_address = align(buffer.device_address, properties.minAccelerationStructureScratchOffsetAlignment);
 	return buffer;
 }
 

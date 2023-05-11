@@ -93,7 +93,7 @@ bool hit_test(in rayQueryEXT ray_query, in Ray r)
 
 bool closest_hit(Ray ray)
 {
-	uint ray_flags = gl_RayFlagsNoneEXT;
+	uint ray_flags = gl_RayFlagsCullBackFacingTrianglesEXT;
   	prd.hit_t      = Infinity;
 
 	rayQueryEXT ray_query;
@@ -102,7 +102,7 @@ bool closest_hit(Ray ray)
 						ray_flags,
 						0xFF,
 						ray.origin,
-						0.001,
+						0.0,
 						ray.direction,
 						Infinity);
 
@@ -147,12 +147,12 @@ bool any_hit(Ray ray, float max_dist)
 	rayQueryInitializeEXT(
 		ray_query, 
 		tlas, 
-		gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT | gl_RayFlagsCullBackFacingTrianglesEXT, 
+		gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT, 
 		0xFF,
 		ray.origin,
-		0.0,
+		ShadowEpsilon,
 		ray.direction,
-		max_dist);
+		(1.0 - ShadowEpsilon) * max_dist);
 
 	while(rayQueryProceedEXT(ray_query))
 	{
@@ -260,23 +260,16 @@ LightSample sample_light(Ray ray, ShadeState sstate, float normal_bias, inout ui
 	}
 
 	// Sample a emitter
-	// uint emitter_id;
-	// sample_emitter_alias_table(rand2(seed), emitter_id, ls.pdf);
-	uint emitter_id = uint(float(scene_data.emitter_count) * rand(prd.seed));
-	ls.pdf /= float(scene_data.emitter_count);
+	uint emitter_id;
+	sample_emitter_alias_table(rand2(seed), emitter_id, ls.pdf);
 
 	if(emitter_id < scene_data.emitter_count)
 	{
 		Emitter emitter = get_emitter(emitter_id);
 		Instance instance = get_instance(emitter.instance_id);
 
-		ls.pdf /= instance.area;
-
 		// Sample a triangle
-		// int primitive_id = 0;
 		uint primitive_id = uint(float(instance.indices_count / 3) * rand(prd.seed));
-		float primitive_pdf;
-		// sample_mesh_alias_table(rand2(seed), instance, primitive_id, primitive_pdf);
 
 		const uint ind0 = get_index(instance.indices_offset + primitive_id * 3 + 0);
 		const uint ind1 = get_index(instance.indices_offset + primitive_id * 3 + 1);

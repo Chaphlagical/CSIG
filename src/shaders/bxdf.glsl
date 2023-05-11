@@ -2,6 +2,7 @@
 #define BXDF_GLSL
 
 #include "common.glsl"
+#include "shade_state.glsl"
 #include "random.glsl"
 
 struct BSDFSample

@@ -52,7 +52,7 @@ vec3 path_trace(vec2 frag_coord)
 
 		if(!is_hit)
 		{
-			// radiance += textureLod(skybox, ray.direction, 0).rgb * throughput;
+			radiance += textureLod(skybox, ray.direction, 0).rgb * throughput;
 			break;
 		}
 
@@ -62,7 +62,6 @@ vec3 path_trace(vec2 frag_coord)
 		if(ls.visible)
 		{
 			radiance += ls.radiance * throughput;
-			return ls.radiance; 
 		}
 
 		BSDFSample bs = sample_bsdf(sstate, -ray.direction, prd.seed);
