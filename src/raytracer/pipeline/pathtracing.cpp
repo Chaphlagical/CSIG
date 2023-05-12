@@ -69,30 +69,16 @@ PathTracing::PathTracing(const Context &context, const Scene &scene, const GBuff
 	// Create descriptor set layout
 	{
 		VkDescriptorSetLayoutBinding bindings[] = {
-		    // Sobol Sequence
-		    {
-		        .binding         = 0,
-		        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-		        .descriptorCount = 1,
-		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-		    },
-		    // Scrambling Ranking Tile
-		    {
-		        .binding         = 1,
-		        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-		        .descriptorCount = 1,
-		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-		    },
 		    // Previous Path Tracing Image
 		    {
-		        .binding         = 2,
+		        .binding         = 0,
 		        .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
 		        .descriptorCount = 1,
 		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
 		    },
 		    // Path Tracing Image
 		    {
-		        .binding         = 3,
+		        .binding         = 1,
 		        .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
 		        .descriptorCount = 1,
 		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
@@ -100,7 +86,7 @@ PathTracing::PathTracing(const Context &context, const Scene &scene, const GBuff
 		};
 		VkDescriptorSetLayoutCreateInfo create_info = {
 		    .sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		    .bindingCount = 4,
+		    .bindingCount = 2,
 		    .pBindings    = bindings,
 		};
 		vkCreateDescriptorSetLayout(m_context->vk_device, &create_info, nullptr, &m_descriptor_set_layout);
@@ -257,8 +243,8 @@ void PathTracing::update(const Scene &scene, const BlueNoise &blue_noise, const 
 			        .dstBinding       = 0,
 			        .dstArrayElement  = 0,
 			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .pImageInfo       = &sobol_sequence_info,
+			        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+			        .pImageInfo       = &path_tracing_image_info[!i],
 			        .pBufferInfo      = nullptr,
 			        .pTexelBufferView = nullptr,
 			    },
@@ -268,35 +254,13 @@ void PathTracing::update(const Scene &scene, const BlueNoise &blue_noise, const 
 			        .dstBinding       = 1,
 			        .dstArrayElement  = 0,
 			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .pImageInfo       = &scrambling_ranking_tile_info,
-			        .pBufferInfo      = nullptr,
-			        .pTexelBufferView = nullptr,
-			    },
-			    {
-			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			        .dstSet           = m_descriptor_sets[i],
-			        .dstBinding       = 2,
-			        .dstArrayElement  = 0,
-			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-			        .pImageInfo       = &path_tracing_image_info[!i],
-			        .pBufferInfo      = nullptr,
-			        .pTexelBufferView = nullptr,
-			    },
-			    {
-			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			        .dstSet           = m_descriptor_sets[i],
-			        .dstBinding       = 3,
-			        .dstArrayElement  = 0,
-			        .descriptorCount  = 1,
 			        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
 			        .pImageInfo       = &path_tracing_image_info[i],
 			        .pBufferInfo      = nullptr,
 			        .pTexelBufferView = nullptr,
 			    },
 			};
-			vkUpdateDescriptorSets(m_context->vk_device, 4, writes, 0, nullptr);
+			vkUpdateDescriptorSets(m_context->vk_device, 2, writes, 0, nullptr);
 		}
 	}
 }

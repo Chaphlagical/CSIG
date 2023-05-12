@@ -31,11 +31,18 @@ struct BlueNoise
 	Texture sobol_image;
 
 	VkImageView scrambling_ranking_image_views[9];
-	VkImageView sobol_image_view                  = VK_NULL_HANDLE;
+	VkImageView sobol_image_view = VK_NULL_HANDLE;
 
 	BlueNoise(const Context &context);
 
 	~BlueNoise();
+
+  public:
+	struct
+	{
+		VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+		VkDescriptorSet       set    = VK_NULL_HANDLE;
+	}descriptor;
 
   private:
 	const Context *m_context = nullptr;
