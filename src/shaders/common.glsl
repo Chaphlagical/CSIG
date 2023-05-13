@@ -1,52 +1,41 @@
 #ifndef COMMON_GLSL
 #define COMMON_GLSL
 
-const float PI = 3.14159265358979323846;
-const float InvPI = 0.31830988618379067154;
-const float Inv2PI = 0.15915494309189533577;
-const float Inv4PI = 0.07957747154594766788;
-const float PIOver2 = 1.57079632679489661923;
-const float PIOver4 = 0.78539816339744830961;
-const float Sqrt2 = 1.41421356237309504880;
-const float ShadowEpsilon = 0.0001;
-const float Epsilon = 1e-7;
-const float Infinity = 1e32;
-
 #include "common_data.hpp"
 
-void coordinate_system(vec3 N, out vec3 Nt, out vec3 Nb)
-{
-	Nt = normalize(((abs(N.z) > 0.99999f) ? vec3(-N.x * N.y, 1.0f - N.y * N.y, -N.y * N.z) :
-                                          vec3(-N.x * N.z, -N.y * N.z, 1.0f - N.z * N.z)));
-	Nb = normalize(cross(Nt, N));
-}
+// void coordinate_system(vec3 N, out vec3 Nt, out vec3 Nb)
+// {
+// 	Nt = normalize(((abs(N.z) > 0.99999f) ? vec3(-N.x * N.y, 1.0f - N.y * N.y, -N.y * N.z) :
+//                                           vec3(-N.x * N.z, -N.y * N.z, 1.0f - N.z * N.z)));
+// 	Nb = normalize(cross(Nt, N));
+// }
 
-vec2 direction_to_octohedral(vec3 normal)
-{
-    vec2 p = normal.xy * (1.0 / dot(abs(normal), vec3(1.0)));
-    return normal.z > 0.0 ? p : (1.0 - abs(p.yx)) * (step(0.0, p) * 2.0 - vec2(1.0));
-}
+// vec2 direction_to_octohedral(vec3 normal)
+// {
+//     vec2 p = normal.xy * (1.0 / dot(abs(normal), vec3(1.0)));
+//     return normal.z > 0.0 ? p : (1.0 - abs(p.yx)) * (step(0.0, p) * 2.0 - vec2(1.0));
+// }
 
-vec3 octohedral_to_direction(vec2 e)
-{
-    vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+// vec3 octohedral_to_direction(vec2 e)
+// {
+//     vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
 
-    if (v.z < 0.0)
-	{
-        v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
-	}
+//     if (v.z < 0.0)
+// 	{
+//         v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
+// 	}
 
-    return normalize(v);
-}
+//     return normalize(v);
+// }
 
-vec3 world_position_from_depth(vec2 uv, float ndc_depth, mat4 view_proj_inv)
-{
-    vec2 screen_pos = uv * 2.0 - 1.0;
-    vec4 ndc_pos = vec4(screen_pos, ndc_depth, 1.0);
-	vec4 world_pos  = view_proj_inv * ndc_pos;
-    world_pos = world_pos / world_pos.w;
-    return world_pos.xyz;
-}
+// vec3 world_position_from_depth(vec2 uv, float ndc_depth, mat4 view_proj_inv)
+// {
+//     vec2 screen_pos = uv * 2.0 - 1.0;
+//     vec4 ndc_pos = vec4(screen_pos, ndc_depth, 1.0);
+// 	vec4 world_pos  = view_proj_inv * ndc_pos;
+//     world_pos = world_pos / world_pos.w;
+//     return world_pos.xyz;
+// }
 
 vec3 local_to_world(vec3 n, vec3 v)
 {

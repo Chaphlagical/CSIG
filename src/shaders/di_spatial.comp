@@ -1,0 +1,97 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_ray_query : enable
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
+#extension GL_EXT_buffer_reference : enable
+#extension GL_EXT_buffer_reference2 : enable
+
+#define NUM_THREADS_X 8
+#define NUM_THREADS_Y 8
+
+#include "restir_common.glsl"
+#include "gbuffer_data.glsl"
+#include "scene.glsl"
+#include "raytrace.glsl"
+#include "bxdf.glsl"
+
+layout (local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants
+{
+	uint64_t passthrough_reservoir_addr;
+	uint64_t spatial_reservoir_addr;
+    uint spatial_reuse;
+}push_constants;
+
+void main()
+{
+    const ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    const ivec2 size = textureSize(gbufferA, 0);
+    const uint pixel_id = coord.x * size.y + coord.y;
+
+    if(pixel_id >= size.x * size.y)
+    {
+        return;
+    }
+
+    RestirReservoirBuffer(push_constants.spatial_reservoir_addr).reservoirs[pixel_id] = init_reservoir();
+    barrier();
+
+    uint seed = tea(size.x * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x, uint(ubo.cam_pos.w));
+
+    const float max_r = 10;
+    const int num_neighbor_samples = 5;
+
+    const Reservoir curr_reservoir = RestirReservoirBuffer(push_constants.passthrough_reservoir_addr).reservoirs[pixel_id];
+    Reservoir r = init_reservoir();
+    ShadeState sstate;
+    if (curr_reservoir.W != 0 && 
+        get_primary_state(vec2(coord) + vec2(0.5), 0, sstate))
+    {
+        combine_reservoir(r, curr_reservoir, sstate);
+        uint num_samples = r.M;
+
+        for (int i = 0; i < num_neighbor_samples; i++) 
+        {
+            // Choose a neighbor pixel
+            const float angle = rand(seed) * 2 * PI;
+            const float radius = sqrt(rand(seed)) * max_r;
+            ivec2 rand_offset = ivec2(floor(cos(angle) * radius), floor(sin(angle) * radius));
+            const ivec2 neighbor_coord = clamp(ivec2(coord.xy) + rand_offset, ivec2(0), ivec2(size.xy) - 1);
+            const float depth = texelFetch(depth_buffer, neighbor_coord, 0).r;
+            const vec3 n = octohedral_to_direction(texelFetch(gbufferB, neighbor_coord, 0).rg);
+
+            if (abs(depth - sstate.depth) > 0.1 * abs(sstate.depth) ||
+			dot(n, sstate.ffnormal) < cos(radians(25.0))) 
+            {
+                continue;
+            }
+
+            const uint neighbor_idx = neighbor_coord.x * size.y + neighbor_coord.y;
+            const Reservoir r_neightbor = get_reservoir(push_constants.passthrough_reservoir_addr, neighbor_idx);
+            combine_reservoir(r, r_neightbor, sstate);
+            num_samples += r_neightbor.M;
+        }
+
+        r.M = num_samples;
+        const float phat = compute_p_hat(r, sstate);
+        r.W = r.w_sum / (r.M * phat);
+
+        if(push_constants.spatial_reuse == 0)
+        {
+            RestirReservoirBuffer(push_constants.spatial_reservoir_addr).reservoirs[pixel_id].w_sum = curr_reservoir.w_sum;
+            RestirReservoirBuffer(push_constants.spatial_reservoir_addr).reservoirs[pixel_id].W = curr_reservoir.W;
+            RestirReservoirBuffer(push_constants.spatial_reservoir_addr).reservoirs[pixel_id].M = curr_reservoir.M;
+            RestirReservoirBuffer(push_constants.spatial_reservoir_addr).reservoirs[pixel_id].y = curr_reservoir.y;
+        }
+        else
+        {
+            RestirReservoirBuffer(push_constants.spatial_reservoir_addr).reservoirs[pixel_id].w_sum = r.w_sum;
+            RestirReservoirBuffer(push_constants.spatial_reservoir_addr).reservoirs[pixel_id].W = r.W;
+            RestirReservoirBuffer(push_constants.spatial_reservoir_addr).reservoirs[pixel_id].M = r.M;
+            RestirReservoirBuffer(push_constants.spatial_reservoir_addr).reservoirs[pixel_id].y = r.y;
+        }
+    }
+}

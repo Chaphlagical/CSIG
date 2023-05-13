@@ -23,6 +23,12 @@ layout(binding = 0, scalar) uniform UBO
     GlobalData ubo;
 };
 
+vec2 direction_to_octohedral(vec3 normal)
+{
+    vec2 p = normal.xy * (1.0 / dot(abs(normal), vec3(1.0)));
+    return normal.z > 0.0 ? p : (1.0 - abs(p.yx)) * (step(0.0, p) * 2.0 - vec2(1.0));
+}
+
 layout(binding = 1) uniform sampler2D textures[];
 
 layout(std430, binding = 2) buffer InstanceBuffer {

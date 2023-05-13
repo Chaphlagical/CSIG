@@ -1,7 +1,6 @@
 #ifndef BXDF_GLSL
 #define BXDF_GLSL
 
-#include "common.glsl"
 #include "shade_state.glsl"
 #include "random.glsl"
 
@@ -183,8 +182,6 @@ BSDFSample sample_bsdf(ShadeState sstate, vec3 V, inout uint seed)
   	float trans_weight   = (1.0 - sstate.mat.metallic_factor) * sstate.mat.transmission_factor;
 
 	vec3 Cdlin = sstate.mat.base_color.rgb;
-	float Cdlum = 0.3 * Cdlin.x + 0.6 * Cdlin.y + 0.1 * Cdlin.z;
-	vec3 Ctint = Cdlum > 0.0 ? Cdlin / Cdlum : vec3(1.0f);
 	vec3 Cspec0 = mix(vec3(0.0), Cdlin, sstate.mat.metallic_factor);
 
 	if(rand(seed) < trans_weight)
@@ -255,8 +252,6 @@ BSDFSample sample_bsdf(ShadeState sstate, vec3 V, inout uint seed)
 
 vec3 eval_bsdf(ShadeState sstate, vec3 V, vec3 N, vec3 L, out float pdf)
 {
-	vec3 f = vec3(0.0);
-
 	vec3 H;
 
 	if(dot(N, L) < 0.0)
@@ -297,9 +292,6 @@ vec3 eval_bsdf(ShadeState sstate, vec3 V, vec3 N, vec3 L, out float pdf)
 	if(trans_weight < 1.0)
 	{
 		vec3  Cdlin = sstate.mat.base_color.rgb;
-		float Cdlum = 0.3 * Cdlin.x + 0.6 * Cdlin.y + 0.1 * Cdlin.z;
-
-		vec3 Ctint = Cdlum > 0.0 ? Cdlin / Cdlum : vec3(1.0f);
 		vec3 Cspec0 = mix(vec3(0.0), Cdlin, sstate.mat.metallic_factor);
 
 		// Diffuse

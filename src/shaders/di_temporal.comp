@@ -1,0 +1,146 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_ray_query : enable
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
+#extension GL_EXT_buffer_reference : enable
+#extension GL_EXT_buffer_reference2 : enable
+
+#define NUM_THREADS_X 8
+#define NUM_THREADS_Y 8
+
+#include "restir_common.glsl"
+#include "gbuffer_data.glsl"
+#include "scene.glsl"
+#include "raytrace.glsl"
+#include "bxdf.glsl"
+
+layout (local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants
+{
+	uint64_t temporal_reservoir_addr;
+	uint64_t passthrough_reservoir_addr;
+    float normal_bias;
+    uint temporal_reuse;
+}push_constants;
+
+void main()
+{
+	const ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    const ivec2 size = textureSize(gbufferA, 0);
+    const uint pixel_id = coord.x * size.y + coord.y;
+
+    if(pixel_id >= size.x * size.y)
+    {
+        return;
+    }
+
+    RestirReservoirBuffer(push_constants.passthrough_reservoir_addr).reservoirs[pixel_id] = init_reservoir();
+    barrier();
+
+    prd.seed = tea(size.x * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x, uint(ubo.cam_pos.w));
+
+    Reservoir r_new = init_reservoir();
+    Reservoir r_prev = init_reservoir();
+    Reservoir r = init_reservoir();
+
+    ShadeState sstate;
+    if(get_primary_state(vec2(coord) + vec2(0.5), 0, sstate))
+    {
+        const uint M = 1;
+        const uint light_samples = min(scene_data.emitter_count, M);
+
+        // Init prev reservoir
+        {
+            vec4 prev_pos = ubo.prev_view * vec4(sstate.position, 1);
+            prev_pos /= prev_pos.z;
+            prev_pos = -ubo.prev_projection * prev_pos;
+            ivec2 prev_coords = ivec2(0.5 * (1 + prev_pos.xy) * size.xy);
+            if ((prev_coords.x < size.x && prev_coords.x >= 0) &&
+                (prev_coords.y < size.y && prev_coords.y >= 0)) 
+            {
+                r_prev = get_reservoir(push_constants.temporal_reservoir_addr, pixel_id);
+            }
+        }
+
+        Ray ray;
+        ray.origin = ubo.cam_pos.xyz;
+        ray.direction = normalize(sstate.position - ubo.cam_pos.xyz);
+
+        for (uint i = 0; i < light_samples; i++)
+        {
+            LightSample ls = sample_light(sstate);
+            float bsdf_pdf;
+            vec3 f = eval_bsdf(sstate, -ray.direction, sstate.ffnormal, ls.dir, bsdf_pdf);
+            const float p_hat = luminance(f * ls.le * abs(dot(ls.norm, -ls.dir)) * abs(dot(sstate.ffnormal, ls.dir)) / (ls.dist * ls.dist));
+            RestirSample x;
+            x.light_id = ls.id;
+            update_reservoir(r_new, x, p_hat / ls.pdf);
+        }
+
+        // Visibility check
+        if(r_new.w_sum > 0)
+        {
+            LightSample ls = sample_light_idx(sstate, r_new.y.light_id);
+            Ray shadow_ray;
+            shadow_ray.origin = offset_ray(sstate.position, dot(ls.dir, sstate.ffnormal) > 0 ? sstate.ffnormal : -sstate.ffnormal);
+			shadow_ray.direction = ls.dir;
+			if(!any_hit(shadow_ray, length(shadow_ray.origin - ls.pos)))
+			{
+                float bsdf_pdf;
+                vec3 f = eval_bsdf(sstate, -ray.direction, sstate.ffnormal, ls.dir, bsdf_pdf);
+                const float p_hat = luminance(f * ls.le * abs(dot(ls.norm, -ls.dir)) * abs(dot(sstate.ffnormal, ls.dir)) / (ls.dist * ls.dist));
+                if (p_hat == 0) 
+                {
+                    r_new.W = 0;
+                }
+                else 
+                {
+                    r_new.W = r_new.w_sum / (p_hat * r_new.M);
+                }
+			}
+        }
+
+
+        // Temporal reuse
+        combine_reservoir(r, r_new, sstate);
+        uint num_samples = r_new.M;
+
+        // Combine prev reservoir
+        {
+            r_prev.M = min(20 * r.M, r_prev.M);
+            combine_reservoir(r, r_prev, sstate);
+            num_samples += r_prev.M;
+        }
+
+        r.M = num_samples;
+
+        if (r_new.W > 0 || r_prev.W > 0) 
+        {
+            const float phat = compute_p_hat(r, sstate) * r.M;
+            r.W = phat == 0 ? 0 : r.w_sum / phat;
+        } 
+        else 
+        {
+            r.W = 0;
+        }
+
+        if(push_constants.temporal_reuse == 0)
+        {
+            RestirReservoirBuffer(push_constants.passthrough_reservoir_addr).reservoirs[pixel_id].w_sum = r_new.w_sum;
+            RestirReservoirBuffer(push_constants.passthrough_reservoir_addr).reservoirs[pixel_id].W = r_new.W;
+            RestirReservoirBuffer(push_constants.passthrough_reservoir_addr).reservoirs[pixel_id].M = r_new.M;
+            RestirReservoirBuffer(push_constants.passthrough_reservoir_addr).reservoirs[pixel_id].y = r_new.y;
+        }
+        else
+        {
+            RestirReservoirBuffer(push_constants.passthrough_reservoir_addr).reservoirs[pixel_id].w_sum = r.w_sum;
+            RestirReservoirBuffer(push_constants.passthrough_reservoir_addr).reservoirs[pixel_id].W = r.W;
+            RestirReservoirBuffer(push_constants.passthrough_reservoir_addr).reservoirs[pixel_id].M = r.M;
+            RestirReservoirBuffer(push_constants.passthrough_reservoir_addr).reservoirs[pixel_id].y = r.y;
+        }
+    }
+
+}

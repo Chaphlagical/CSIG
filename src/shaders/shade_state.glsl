@@ -1,6 +1,8 @@
 #ifndef SHADE_STATE_GLSL
 #define SHADE_STATE_GLSL
 
+#include "common_data.hpp"
+
 struct ShadeState
 {
 	vec3 normal;
@@ -11,6 +13,7 @@ struct ShadeState
 	vec3 bitangent;
 	float eta;
 	bool primary;
+	float depth;
 	Material mat;
 };
 

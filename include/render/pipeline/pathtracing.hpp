@@ -31,9 +31,9 @@ class PathTracing
 
 	struct
 	{
-		int32_t  max_depth     = 5;
-		float    bias          = 0.01f;
-		uint32_t frame_count   = 0;
+		int32_t  max_depth   = 5;
+		float    bias        = 0.0001f;
+		uint32_t frame_count = 0;
 	} m_push_constant;
 
 	VkPipelineLayout      m_pipeline_layout       = VK_NULL_HANDLE;

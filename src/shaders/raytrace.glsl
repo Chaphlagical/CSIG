@@ -24,11 +24,13 @@ struct RtPayload
 
 struct LightSample
 {
-	vec3 radiance;
+	vec3 le;
 	vec3 dir;
+	vec3 pos;
+	vec3 norm;
 	float dist;
 	float pdf;
-	bool visible;
+	uint id;
 };
 
 float power_heuristic(float a, float b)
@@ -165,7 +167,24 @@ bool any_hit(Ray ray, float max_dist)
 		}
 	}
 
-	return (rayQueryGetIntersectionTypeEXT(ray_query, true) != gl_RayQueryCommittedIntersectionNoneEXT);
+	return rayQueryGetIntersectionTypeEXT(ray_query, true) != gl_RayQueryCommittedIntersectionNoneEXT;
+}
+
+vec3 offset_ray(vec3 p, vec3 n)
+{
+    const float intScale = 256.0f;
+    const float floatScale = 1.0f / 65536.0f;
+    const float origin = 1.0f / 32.0f;
+
+    ivec3 of_i = ivec3(intScale * n.x, intScale * n.y, intScale * n.z);
+
+    vec3 p_i = vec3(intBitsToFloat (floatBitsToInt(p.x) + ((p.x < 0) ? -of_i.x : of_i.x)),
+                  intBitsToFloat (floatBitsToInt(p.y) + ((p.y < 0) ? -of_i.y : of_i.y)),
+                  intBitsToFloat (floatBitsToInt(p.z) + ((p.z < 0) ? -of_i.z : of_i.z)));
+
+    return vec3(abs(p.x) < origin ? p.x + floatScale * n.x : p_i.x, //
+              abs(p.y) < origin ? p.y + floatScale * n.y : p_i.y, //
+              abs(p.z) < origin ? p.z + floatScale * n.z : p_i.z);
 }
 
 ShadeState get_shade_state(Ray ray, RtPayload payload)
@@ -236,6 +255,7 @@ ShadeState get_shade_state(Ray ray, RtPayload payload)
 	sstate.tangent = world_tangent;
 	sstate.bitangent = world_bitangent;
 	sstate.mat = material;
+	sstate.depth = payload.hit_t;
 
 	if(dot(sstate.normal, sstate.geom_normal) <= 0)
 	{
@@ -247,29 +267,23 @@ ShadeState get_shade_state(Ray ray, RtPayload payload)
 	return sstate;
 }
 
-LightSample sample_light(Ray ray, ShadeState sstate, float normal_bias, inout uint seed)
+LightSample sample_light_idx(ShadeState sstate, uint idx)
 {
 	LightSample ls;
-	ls.radiance = vec3(0);
-	ls.visible = false;
+	ls.le = vec3(0);
 	ls.pdf = 1.0;
+	ls.id = idx;
 
-	if(scene_data.emitter_count == 0)
+	if(idx < scene_data.emitter_count)
 	{
-		return ls;
-	}
-
-	// Sample a emitter
-	uint emitter_id;
-	sample_emitter_alias_table(rand2(seed), emitter_id, ls.pdf);
-
-	if(emitter_id < scene_data.emitter_count)
-	{
-		Emitter emitter = get_emitter(emitter_id);
+		Emitter emitter = get_emitter(idx);
 		Instance instance = get_instance(emitter.instance_id);
 
 		// Sample a triangle
-		uint primitive_id = uint(float(instance.indices_count / 3) * rand(prd.seed));
+		// uint primitive_id = uint(float(instance.indices_count / 3) * rand(prd.seed));
+		uint primitive_id;
+		float primitive_pdf;
+		sample_mesh_alias_table(rand2(prd.seed), instance, primitive_id, primitive_pdf);
 
 		const uint ind0 = get_index(instance.indices_offset + primitive_id * 3 + 0);
 		const uint ind1 = get_index(instance.indices_offset + primitive_id * 3 + 1);
@@ -279,33 +293,37 @@ LightSample sample_light(Ray ray, ShadeState sstate, float normal_bias, inout ui
 		const Vertex v1 = get_vertex(instance.vertices_offset + ind1);
 		const Vertex v2 = get_vertex(instance.vertices_offset + ind2);
 
-		float a = sqrt(rand(seed));
-		vec3 position = v0.position.xyz + (v1.position - v0.position).xyz * (1.0 - a) + (v2.position - v0.position).xyz * (a * rand(seed));
-		vec3 normal = normalize(cross(v1.position.xyz - v0.position.xyz, v2.position.xyz - v1.position.xyz));
-		vec3 sample_pos = (instance.transform * vec4(position, 1.0)).xyz;
-		vec3 light_norm = normalize(transpose(mat3(instance.transform_inv)) * normal.xyz);
+		float a = sqrt(rand(prd.seed));
+		float b = a * rand(prd.seed);
+		vec3 position = v0.position.xyz + (v1.position - v0.position).xyz * (1.0 - a) + (v2.position - v0.position).xyz * b;
+		vec3 normal = v0.normal.xyz + (v1.normal - v0.normal).xyz * (1.0 - a) + (v2.normal - v0.normal).xyz * b;
 
-		ls.dir = normalize(sample_pos - sstate.position);
-		float dist = length(sample_pos - sstate.position);
-
-		if(dot(ls.dir, sstate.ffnormal) > 0)
-		{
-			Ray shadow_ray;
-			shadow_ray.origin = sstate.position + normal_bias * (dot(ls.dir, sstate.ffnormal) > 0 ? sstate.ffnormal : -sstate.ffnormal);
-			shadow_ray.direction = ls.dir;
-			if(!any_hit(shadow_ray, dist))
-			{
-				ls.visible = true;
-				ls.pdf *= dist * dist / abs(dot(light_norm, -ls.dir));
-				vec3 light_contrib = emitter.intensity / ls.pdf;
-				float bsdf_pdf;
-				vec3 f = eval_bsdf(sstate, -ray.direction, sstate.ffnormal, ls.dir, bsdf_pdf);
-				float mis_weight = max(0.0, power_heuristic(ls.pdf, bsdf_pdf));
-				ls.radiance = mis_weight * f * light_contrib;
-			}
-		}
+		ls.pos = (instance.transform * vec4(position, 1.0)).xyz;
+		ls.norm = normalize(transpose(mat3(instance.transform_inv)) * normal.xyz);
+		ls.dir = normalize(ls.pos - sstate.position);
+		ls.dist = length(ls.pos - sstate.position);
+		ls.le = emitter.intensity;
 	}
-	
+	return ls;
+}
+
+LightSample sample_light(ShadeState sstate)
+{
+	if(scene_data.emitter_count == 0)
+	{
+		LightSample ls;
+		ls.le = vec3(0);
+		ls.pdf = 1.0;
+		return ls;
+	}
+
+	// Sample a emitter
+	uint emitter_id;
+	float emitter_pdf;
+	sample_emitter_alias_table(rand2(prd.seed), emitter_id, emitter_pdf);
+	LightSample ls = sample_light_idx(sstate, emitter_id);
+	ls.id = emitter_id;
+	ls.pdf = emitter_pdf;
 	return ls;
 }
 

@@ -4,8 +4,8 @@
 #include "render/context.hpp"
 #include "render/pipeline/gbuffer.hpp"
 #include "render/pipeline/pathtracing.hpp"
-#include "render/pipeline/raytraced_ao.hpp"
-// #include "render/pipeline/raytraced_gi.hpp"
+//#include "render/pipeline/raytraced_ao.hpp"
+#include "render/pipeline/raytraced_di.hpp"
 #include "render/pipeline/tonemap.hpp"
 #include "render/pipeline/ui/ui.hpp"
 #include "render/scene.hpp"
@@ -50,7 +50,8 @@ class Application
 		UI          ui;
 		GBufferPass gbuffer_pass;
 		PathTracing path_tracing;
-		RayTracedAO raytraced_ao;
+		RayTracedDI raytraced_di;
+		//RayTracedAO raytraced_ao;
 		// RayTracedGI raytraced_gi;
 		Tonemap tonemap;
 	} m_renderer;

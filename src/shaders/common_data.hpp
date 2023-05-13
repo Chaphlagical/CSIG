@@ -8,6 +8,29 @@ using vec4 = glm::vec4;
 using vec3 = glm::vec3;
 using vec2 = glm::vec2;
 using uint = uint32_t;
+#else
+const float PI            = 3.14159265358979323846;
+const float InvPI         = 0.31830988618379067154;
+const float Inv2PI        = 0.15915494309189533577;
+const float Inv4PI        = 0.07957747154594766788;
+const float PIOver2       = 1.57079632679489661923;
+const float PIOver4       = 0.78539816339744830961;
+const float Sqrt2         = 1.41421356237309504880;
+const float ShadowEpsilon = 0.0001;
+const float Epsilon       = 1e-7;
+const float Infinity      = 1e32;
+
+void coordinate_system(vec3 N, out vec3 Nt, out vec3 Nb)
+{
+	Nt = normalize(((abs(N.z) > 0.99999f) ? vec3(-N.x * N.y, 1.0f - N.y * N.y, -N.y * N.z) :
+	                                        vec3(-N.x * N.z, -N.y * N.z, 1.0f - N.z * N.z)));
+	Nb = normalize(cross(Nt, N));
+}
+
+float luminance(vec3 color)
+{
+	return dot(color, vec3(0.212671, 0.715160, 0.072169));
+}
 #endif        // CPP
 
 struct GlobalData
@@ -41,7 +64,7 @@ struct Instance
 
 	uint  mesh;
 	uint  material;
-	int  emitter;
+	int   emitter;
 	float area;
 };
 
@@ -68,6 +91,25 @@ struct Material
 	int32_t normal_texture;
 	int32_t metallic_roughness_texture;
 	vec2    padding;
+
+#ifdef CPP
+	Material() :
+	    alpha_mode(0),
+	    double_sided(false),
+	    cutoff(0.f),
+	    metallic_factor(0.f),
+	    roughness_factor(0.f),
+	    transmission_factor(0.f),
+	    clearcoat_factor(0.f),
+	    clearcoat_roughness_factor(0.f),
+	    base_color(glm::vec4(1.f)),
+	    emissive_factor(glm::vec3(1.f)),
+	    base_color_texture(-1),
+	    normal_texture(-1),
+	    metallic_roughness_texture(-1)
+	{
+	}
+#endif
 };
 
 struct SceneData

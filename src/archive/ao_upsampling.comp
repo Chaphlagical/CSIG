@@ -2,9 +2,10 @@
 
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_EXT_shader_explicit_arithmetic_types : enable
+#extension GL_EXT_scalar_block_layout : enable
 
 #define USE_EDGE_STOPPING_NORMAL_WEIGHT
-#include "common.glsl"
+#include "gbuffer_data.glsl"
 #include "edge_stopping.glsl"
 
 #define NUM_THREADS_X 8

@@ -46,7 +46,8 @@ Application::Application(const ApplicationConfig &config) :
         .ui{m_context},
         .gbuffer_pass{m_context},
         .path_tracing{m_context, m_scene, m_renderer.gbuffer_pass},
-        .raytraced_ao{m_context},
+        .raytraced_di{m_context, m_scene, m_renderer.gbuffer_pass},
+        //.raytraced_ao{m_context},
         //.raytraced_gi{m_context},
         .tonemap{m_context},
     },
@@ -102,7 +103,8 @@ Application::Application(const ApplicationConfig &config) :
 
 		vkBeginCommandBuffer(cmd_buffer, &begin_info);
 		m_renderer.gbuffer_pass.init(cmd_buffer);
-		m_renderer.raytraced_ao.init(cmd_buffer);
+		//m_renderer.raytraced_ao.init(cmd_buffer);
+		m_renderer.raytraced_di.init(cmd_buffer);
 		//m_renderer.raytraced_gi.init(cmd_buffer);
 		m_renderer.path_tracing.init(cmd_buffer);
 		m_renderer.tonemap.init(cmd_buffer);
@@ -161,6 +163,8 @@ Application::Application(const ApplicationConfig &config) :
 	{
 		m_jitter_samples.push_back(glm::vec2((2.f * halton_sequence(2, i) - 1.f), (2.f * halton_sequence(3, i) - 1.f)));
 	}
+
+	vkDeviceWaitIdle(m_context.vk_device);
 }
 
 Application::~Application()
@@ -269,7 +273,8 @@ void Application::update_ui()
 		switch (m_render_mode)
 		{
 			case RenderMode::Hybrid:
-				ui_update |= m_renderer.raytraced_ao.draw_ui();
+				ui_update |= m_renderer.raytraced_di.draw_ui();
+				//ui_update |= m_renderer.raytraced_ao.draw_ui();
 				//ui_update |= m_renderer.raytraced_gi.draw_ui();
 				break;
 			case RenderMode::PathTracing:
@@ -378,10 +383,10 @@ void Application::update(VkCommandBuffer cmd_buffer)
 		vkDeviceWaitIdle(m_context.vk_device);
 		m_renderer.gbuffer_pass.update(m_scene);
 		m_renderer.path_tracing.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
-		m_renderer.raytraced_ao.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
-		//m_renderer.raytraced_gi.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
-		//m_renderer.tonemap.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, m_renderer.raytraced_gi.sample_probe_grid_view);
-		m_renderer.tonemap.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, *m_renderer.path_tracing.path_tracing_image_view);
+		//m_renderer.raytraced_ao.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
+		m_renderer.raytraced_di.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
+		m_renderer.tonemap.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, m_renderer.raytraced_di.output_view);
+		//m_renderer.tonemap.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, *m_renderer.path_tracing.path_tracing_image_view);
 	}
 
 	// Copy to device
@@ -456,8 +461,8 @@ void Application::render(VkCommandBuffer cmd_buffer)
 	switch (m_render_mode)
 	{
 		case RenderMode::Hybrid:
-			m_renderer.raytraced_ao.draw(cmd_buffer);
-			//m_renderer.raytraced_gi.draw(cmd_buffer);
+			//m_renderer.raytraced_ao.draw(cmd_buffer);
+			m_renderer.raytraced_di.draw(cmd_buffer, m_scene, m_renderer.gbuffer_pass);
 			break;
 		case RenderMode::PathTracing:
 			m_renderer.path_tracing.draw(cmd_buffer, m_scene, m_renderer.gbuffer_pass);
@@ -573,36 +578,21 @@ void Application::render(VkCommandBuffer cmd_buffer)
 	}
 	else
 	{
+		m_renderer.tonemap.draw(cmd_buffer);
+
 		{
 			VkImageMemoryBarrier image_barriers[] = {
-			    /*{
-			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-			        .dstAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-			        .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			        .newLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.raytraced_gi.sample_probe_grid_image.vk_image,
-			        .subresourceRange    = VkImageSubresourceRange{
-			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-			               .baseMipLevel   = 0,
-			               .levelCount     = 1,
-			               .baseArrayLayer = 0,
-			               .layerCount     = 1,
-                    },
-			    },*/
 			    {
 			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-			        .dstAccessMask       = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
-			        .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			        .newLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+			        .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+			        .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.gbuffer_pass.depth_buffer[m_context.ping_pong].vk_image,
+			        .image               = m_renderer.tonemap.tonemapped_image.vk_image,
 			        .subresourceRange    = VkImageSubresourceRange{
-			               .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
+			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 			               .baseMipLevel   = 0,
 			               .levelCount     = 1,
 			               .baseArrayLayer = 0,
@@ -629,91 +619,16 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			};
 			vkCmdPipelineBarrier(
 			    cmd_buffer,
-			    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-			    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
-			    0, 0, nullptr, 0, nullptr, 2, image_barriers);
-		}
-
-		//m_renderer.raytraced_gi.visualize_probe(cmd_buffer, m_renderer.raytraced_gi.sample_probe_grid_view, m_renderer.gbuffer_pass.depth_buffer_view[m_context.ping_pong]);
-
-		{
-			VkImageMemoryBarrier image_barriers[] = {
-			    /*{
-			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			        .srcAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-			        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-			        .oldLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.raytraced_gi.sample_probe_grid_image.vk_image,
-			        .subresourceRange    = VkImageSubresourceRange{
-			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-			               .baseMipLevel   = 0,
-			               .levelCount     = 1,
-			               .baseArrayLayer = 0,
-			               .layerCount     = 1,
-                    },
-			    },*/
-			    {
-			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			        .srcAccessMask       = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
-			        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-			        .oldLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-			        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.gbuffer_pass.depth_buffer[m_context.ping_pong].vk_image,
-			        .subresourceRange    = VkImageSubresourceRange{
-			               .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
-			               .baseMipLevel   = 0,
-			               .levelCount     = 1,
-			               .baseArrayLayer = 0,
-			               .layerCount     = 1,
-                    },
-			    },
-			};
-			vkCmdPipelineBarrier(
-			    cmd_buffer,
-			    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-			    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-			    0, 0, nullptr, 0, nullptr, 1, image_barriers);
-		}
-
-		//m_renderer.tonemap.draw(cmd_buffer);
-
-		{
-			VkImageMemoryBarrier image_barriers[] = {
-			    {
-			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			        .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
-			        .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
-			        .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
-			        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.tonemap.tonemapped_image.vk_image,
-			        .subresourceRange    = VkImageSubresourceRange{
-			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-			               .baseMipLevel   = 0,
-			               .levelCount     = 1,
-			               .baseArrayLayer = 0,
-			               .layerCount     = 1,
-                    },
-			    },
-			};
-			vkCmdPipelineBarrier(
-			    cmd_buffer,
 			    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 			    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-			    0, 0, nullptr, 0, nullptr, 1, image_barriers);
+			    0, 0, nullptr, 0, nullptr, 2, image_barriers);
 		}
 
 		present(cmd_buffer, m_renderer.tonemap.tonemapped_image.vk_image);
 
 		{
 			VkImageMemoryBarrier image_barriers[] = {
-			    {
+			    { 
 			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 			        .srcAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
 			        .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
@@ -747,6 +662,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			               .layerCount     = 1,
                     },
 			    },
+
 			};
 			vkCmdPipelineBarrier(
 			    cmd_buffer,
@@ -754,6 +670,188 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			    VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
 			    0, 0, nullptr, 0, nullptr, 2, image_barriers);
 		}
+
+		//{
+		//	VkImageMemoryBarrier image_barriers[] = {
+		//	    /*{
+		//	        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		//	        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+		//	        .dstAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+		//	        .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		//	        .newLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		//	        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		//	        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		//	        .image               = m_renderer.raytraced_gi.sample_probe_grid_image.vk_image,
+		//	        .subresourceRange    = VkImageSubresourceRange{
+		//	               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		//	               .baseMipLevel   = 0,
+		//	               .levelCount     = 1,
+		//	               .baseArrayLayer = 0,
+		//	               .layerCount     = 1,
+  //                  },
+		//	    },*/
+		//	    {
+		//	        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		//	        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+		//	        .dstAccessMask       = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+		//	        .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		//	        .newLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+		//	        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		//	        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		//	        .image               = m_renderer.gbuffer_pass.depth_buffer[m_context.ping_pong].vk_image,
+		//	        .subresourceRange    = VkImageSubresourceRange{
+		//	               .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
+		//	               .baseMipLevel   = 0,
+		//	               .levelCount     = 1,
+		//	               .baseArrayLayer = 0,
+		//	               .layerCount     = 1,
+  //                  },
+		//	    },
+		//	    {
+		//	        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		//	        .srcAccessMask       = VK_ACCESS_MEMORY_READ_BIT,
+		//	        .dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
+		//	        .oldLayout           = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		//	        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		//	        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		//	        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		//	        .image               = m_context.swapchain_images[m_context.image_index],
+		//	        .subresourceRange    = VkImageSubresourceRange{
+		//	               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		//	               .baseMipLevel   = 0,
+		//	               .levelCount     = 1,
+		//	               .baseArrayLayer = 0,
+		//	               .layerCount     = 1,
+  //                  },
+		//	    },
+		//	};
+		//	vkCmdPipelineBarrier(
+		//	    cmd_buffer,
+		//	    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+		//	    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+		//	    0, 0, nullptr, 0, nullptr, 2, image_barriers);
+		//}
+
+		////m_renderer.raytraced_gi.visualize_probe(cmd_buffer, m_renderer.raytraced_gi.sample_probe_grid_view, m_renderer.gbuffer_pass.depth_buffer_view[m_context.ping_pong]);
+
+		//{
+		//	VkImageMemoryBarrier image_barriers[] = {
+		//	    /*{
+		//	        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		//	        .srcAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+		//	        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+		//	        .oldLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		//	        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		//	        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		//	        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		//	        .image               = m_renderer.raytraced_gi.sample_probe_grid_image.vk_image,
+		//	        .subresourceRange    = VkImageSubresourceRange{
+		//	               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		//	               .baseMipLevel   = 0,
+		//	               .levelCount     = 1,
+		//	               .baseArrayLayer = 0,
+		//	               .layerCount     = 1,
+  //                  },
+		//	    },*/
+		//	    {
+		//	        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		//	        .srcAccessMask       = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+		//	        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+		//	        .oldLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+		//	        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		//	        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		//	        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		//	        .image               = m_renderer.gbuffer_pass.depth_buffer[m_context.ping_pong].vk_image,
+		//	        .subresourceRange    = VkImageSubresourceRange{
+		//	               .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
+		//	               .baseMipLevel   = 0,
+		//	               .levelCount     = 1,
+		//	               .baseArrayLayer = 0,
+		//	               .layerCount     = 1,
+  //                  },
+		//	    },
+		//	};
+		//	vkCmdPipelineBarrier(
+		//	    cmd_buffer,
+		//	    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+		//	    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+		//	    0, 0, nullptr, 0, nullptr, 1, image_barriers);
+		//}
+
+		////m_renderer.tonemap.draw(cmd_buffer);
+
+		//{
+		//	VkImageMemoryBarrier image_barriers[] = {
+		//	    {
+		//	        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		//	        .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+		//	        .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+		//	        .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+		//	        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		//	        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		//	        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		//	        .image               = m_renderer.tonemap.tonemapped_image.vk_image,
+		//	        .subresourceRange    = VkImageSubresourceRange{
+		//	               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		//	               .baseMipLevel   = 0,
+		//	               .levelCount     = 1,
+		//	               .baseArrayLayer = 0,
+		//	               .layerCount     = 1,
+  //                  },
+		//	    },
+		//	};
+		//	vkCmdPipelineBarrier(
+		//	    cmd_buffer,
+		//	    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+		//	    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+		//	    0, 0, nullptr, 0, nullptr, 1, image_barriers);
+		//}
+
+		//present(cmd_buffer, m_renderer.tonemap.tonemapped_image.vk_image);
+
+		//{
+		//	VkImageMemoryBarrier image_barriers[] = {
+		//	    {
+		//	        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		//	        .srcAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+		//	        .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+		//	        .oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		//	        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+		//	        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		//	        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		//	        .image               = m_renderer.tonemap.tonemapped_image.vk_image,
+		//	        .subresourceRange    = VkImageSubresourceRange{
+		//	               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		//	               .baseMipLevel   = 0,
+		//	               .levelCount     = 1,
+		//	               .baseArrayLayer = 0,
+		//	               .layerCount     = 1,
+  //                  },
+		//	    },
+		//	    {
+		//	        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		//	        .srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
+		//	        .dstAccessMask       = VK_ACCESS_MEMORY_READ_BIT,
+		//	        .oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		//	        .newLayout           = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		//	        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		//	        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		//	        .image               = m_context.swapchain_images[m_context.image_index],
+		//	        .subresourceRange    = VkImageSubresourceRange{
+		//	               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		//	               .baseMipLevel   = 0,
+		//	               .levelCount     = 1,
+		//	               .baseArrayLayer = 0,
+		//	               .layerCount     = 1,
+  //                  },
+		//	    },
+		//	};
+		//	vkCmdPipelineBarrier(
+		//	    cmd_buffer,
+		//	    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+		//	    VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+		//	    0, 0, nullptr, 0, nullptr, 2, image_barriers);
+		//}
 	}
 
 	// Draw UI

@@ -1,7 +1,7 @@
 #ifndef SAMPLE_GLSL
 #define SAMPLE_GLSL
 
-#include "common.glsl"
+#include "common_data.hpp"
 
 vec2 uniform_sample_disk(vec2 u)
 {

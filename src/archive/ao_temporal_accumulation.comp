@@ -4,7 +4,7 @@
 #extension GL_EXT_scalar_block_layout : enable
 #extension GL_EXT_shader_explicit_arithmetic_types : enable
 
-#include "common.glsl"
+#include "gbuffer_data.glsl"
 #define REPROJECTION_SINGLE_COLOR_CHANNEL
 #include "reproject.glsl"
 
