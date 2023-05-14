@@ -22,10 +22,9 @@ layout(set = 2, binding = 0, rgba16f) uniform image2D output_image;
 
 layout(push_constant) uniform PushConstants
 {
-	uint64_t passthrough_reservoir_addr;
 	uint64_t temporal_reservoir_addr;
 	uint64_t spatial_reservoir_addr;
-    float normal_bias;
+    int debug;
 }push_constants;
 
 void main()
@@ -39,7 +38,7 @@ void main()
         return;
     }
 
-    RestirReservoirBuffer(push_constants.temporal_reservoir_addr).reservoirs[pixel_id] = init_reservoir();
+    // RestirReservoirBuffer(push_constants.temporal_reservoir_addr).reservoirs[pixel_id] = init_reservoir();
     barrier();
 
     prd.seed = tea(size.x * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x, uint(ubo.cam_pos.w));
@@ -54,6 +53,7 @@ void main()
         radiance += sstate.mat.emissive_factor;
         if (r.W > 0)
         {
+            // radiance += compute_L_with_visibility(r, sstate);
             radiance += r.W * compute_L_with_visibility(r, sstate);
             RestirReservoirBuffer(push_constants.temporal_reservoir_addr).reservoirs[pixel_id].w_sum = r.w_sum;
             RestirReservoirBuffer(push_constants.temporal_reservoir_addr).reservoirs[pixel_id].W = r.W;

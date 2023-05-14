@@ -14,6 +14,7 @@ struct ShadeState
 	float eta;
 	bool primary;
 	float depth;
+	vec2 motion_vector;	// only for primary bounce
 	Material mat;
 };
 

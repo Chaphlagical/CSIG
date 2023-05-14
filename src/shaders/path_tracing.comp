@@ -45,13 +45,13 @@ vec3 path_trace(vec2 frag_coord)
 
 		if(!is_hit)
 		{
-			radiance += textureLod(skybox, ray.direction, 0).rgb * throughput; 
+			radiance += textureLod(skybox, ray.direction, 0).rgb * throughput;
 			break;
 		}
 
-		LightSample ls = sample_light(sstate);
-		
+		if(scene_data.emitter_count > 0)
 		{
+			LightSample ls = sample_light(sstate);
 			Ray shadow_ray;
 			shadow_ray.origin = offset_ray(sstate.position, dot(ls.dir, sstate.ffnormal) > 0 ? sstate.ffnormal : -sstate.ffnormal);
 			shadow_ray.direction = ls.dir;
@@ -59,8 +59,10 @@ vec3 path_trace(vec2 frag_coord)
 			{
 				float bsdf_pdf;
 				vec3 f = eval_bsdf(sstate, -ray.direction, sstate.ffnormal, ls.dir, bsdf_pdf);
-				float mis_weight = max(0.0, power_heuristic(ls.pdf, bsdf_pdf));
-				radiance += throughput * mis_weight * f * ls.le * abs(dot(ls.norm, -ls.dir)) / (ls.dist * ls.dist);
+				float geo_term = abs(dot(ls.norm, -ls.dir)) / (ls.dist * ls.dist);
+				float pdf_nee = ls.pdf / geo_term;
+				float mis_weight = (pdf_nee * pdf_nee) / (pdf_nee * pdf_nee + bsdf_pdf * bsdf_pdf);
+				radiance += throughput * mis_weight * f * ls.le;
 			}
 		}
 
@@ -68,7 +70,7 @@ vec3 path_trace(vec2 frag_coord)
 
 		if(bs.pdf > 0.0)
 		{
-			throughput *= bs.f;
+			throughput *= bs.f * abs(dot(bs.L, sstate.ffnormal)) / bs.pdf;
 		}
 		else
 		{
@@ -96,10 +98,10 @@ vec3 path_trace(vec2 frag_coord)
 		if(instance.emitter >= 0)
 		{
 			float dist_sq = dot(sstate.position - ray.origin, sstate.position - ray.origin);
-			float geo_term = dot(bs.L, sstate.ffnormal) / dist_sq;
+			float geo_term = abs(dot(bs.L, sstate.ffnormal)) / dist_sq;
 			float pdf_nee = emitter_pdf(instance.emitter) / geo_term;
 			float mis_weight = (bs.pdf * bs.pdf) / (pdf_nee * pdf_nee + bs.pdf * bs.pdf);
-			radiance += mis_weight * sstate.mat.emissive_factor * throughput;
+			radiance += throughput * mis_weight * sstate.mat.emissive_factor;
 		}
 	}
 

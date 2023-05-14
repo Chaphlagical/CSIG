@@ -16,7 +16,9 @@ struct ApplicationConfig
 {
 	ContextConfig context_config;
 
-	 std::string scene_file = "assets/scenes/Deferred/Deferred.gltf";
+	 //std::string scene_file = "assets/scenes/test.glb";
+	std::string scene_file = "assets/scenes/Deferred/Deferred.gltf";
+	//std::string scene_file = "assets/scenes/GI/GI.gltf";
 	//std::string scene_file = "assets/scenes/conell_box.glb";
 	std::string hdr_file   = "assets/textures/hdr/BasketballCourt_3k.hdr";
 };

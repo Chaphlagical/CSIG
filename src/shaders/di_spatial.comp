@@ -50,34 +50,34 @@ void main()
     if (curr_reservoir.W != 0 && 
         get_primary_state(vec2(coord) + vec2(0.5), 0, sstate))
     {
-        combine_reservoir(r, curr_reservoir, sstate);
-        uint num_samples = r.M;
+        // combine_reservoir(r, curr_reservoir, sstate);
+        // uint num_samples = r.M;
 
-        for (int i = 0; i < num_neighbor_samples; i++) 
-        {
-            // Choose a neighbor pixel
-            const float angle = rand(seed) * 2 * PI;
-            const float radius = sqrt(rand(seed)) * max_r;
-            ivec2 rand_offset = ivec2(floor(cos(angle) * radius), floor(sin(angle) * radius));
-            const ivec2 neighbor_coord = clamp(ivec2(coord.xy) + rand_offset, ivec2(0), ivec2(size.xy) - 1);
-            const float depth = texelFetch(depth_buffer, neighbor_coord, 0).r;
-            const vec3 n = octohedral_to_direction(texelFetch(gbufferB, neighbor_coord, 0).rg);
+        // for (int i = 0; i < num_neighbor_samples; i++) 
+        // {
+        //     // Choose a neighbor pixel
+        //     const float angle = rand(seed) * 2 * PI;
+        //     const float radius = sqrt(rand(seed)) * max_r;
+        //     ivec2 rand_offset = ivec2(floor(cos(angle) * radius), floor(sin(angle) * radius));
+        //     const ivec2 neighbor_coord = clamp(ivec2(coord.xy) + rand_offset, ivec2(0), ivec2(size.xy) - 1);
+        //     const float depth = texelFetch(depth_buffer, neighbor_coord, 0).r;
+        //     const vec3 n = octohedral_to_direction(texelFetch(gbufferB, neighbor_coord, 0).rg);
 
-            if (abs(depth - sstate.depth) > 0.1 * abs(sstate.depth) ||
-			dot(n, sstate.ffnormal) < cos(radians(25.0))) 
-            {
-                continue;
-            }
+        //     if (abs(depth - sstate.depth) > 0.1 * abs(sstate.depth) ||
+		// 	dot(n, sstate.ffnormal) < cos(radians(25.0))) 
+        //     {
+        //         continue;
+        //     }
 
-            const uint neighbor_idx = neighbor_coord.x * size.y + neighbor_coord.y;
-            const Reservoir r_neightbor = get_reservoir(push_constants.passthrough_reservoir_addr, neighbor_idx);
-            combine_reservoir(r, r_neightbor, sstate);
-            num_samples += r_neightbor.M;
-        }
+        //     const uint neighbor_idx = neighbor_coord.x * size.y + neighbor_coord.y;
+        //     const Reservoir r_neightbor = get_reservoir(push_constants.passthrough_reservoir_addr, neighbor_idx);
+        //     combine_reservoir(r, r_neightbor, sstate);
+        //     num_samples += r_neightbor.M;
+        // }
 
-        r.M = num_samples;
-        const float phat = compute_p_hat(r, sstate);
-        r.W = r.w_sum / (r.M * phat);
+        // r.M = num_samples;
+        // const float phat = compute_p_hat(r, sstate);
+        // r.W = r.w_sum / (r.M * phat);
 
         if(push_constants.spatial_reuse == 0)
         {

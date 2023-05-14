@@ -55,13 +55,11 @@ bool hit_test(in rayQueryEXT ray_query, in Ray r)
 	float base_color_alpha = material.base_color.a;
 	if(material.base_color_texture > -1)
 	{
-		const uint ind0 = get_index(instance.indices_offset + primitive_id * 3 + 0);
-		const uint ind1 = get_index(instance.indices_offset + primitive_id * 3 + 1);
-		const uint ind2 = get_index(instance.indices_offset + primitive_id * 3 + 2);
+		const uvec3 prim_id = get_prim(instance.indices_offset / 3 + primitive_id);
 
-		const Vertex v0 = get_vertex(instance.vertices_offset + ind0);
-		const Vertex v1 = get_vertex(instance.vertices_offset + ind1);
-		const Vertex v2 = get_vertex(instance.vertices_offset + ind2);
+		const Vertex v0 = get_vertex(instance.vertices_offset + prim_id.x);
+		const Vertex v1 = get_vertex(instance.vertices_offset + prim_id.y);
+		const Vertex v2 = get_vertex(instance.vertices_offset + prim_id.z);
 
 		const vec2 uv0 = vec2(v0.position.w, v0.normal.w);
 		const vec2 uv1 = vec2(v1.position.w, v1.normal.w);
@@ -194,13 +192,11 @@ ShadeState get_shade_state(Ray ray, RtPayload payload)
 	const vec3 bary = vec3(1.0 - payload.bary_coord.x - payload.bary_coord.y, payload.bary_coord.x, payload.bary_coord.y);
 	const Instance instance = get_instance(instance_id);
 
-	const uint ind0 = get_index(instance.indices_offset + primitive_id * 3 + 0);
-	const uint ind1 = get_index(instance.indices_offset + primitive_id * 3 + 1);
-	const uint ind2 = get_index(instance.indices_offset + primitive_id * 3 + 2);
+	const uvec3 prim_id = get_prim(instance.indices_offset / 3 + primitive_id);
 
-	const Vertex v0 = get_vertex(instance.vertices_offset + ind0);
-	const Vertex v1 = get_vertex(instance.vertices_offset + ind1);
-	const Vertex v2 = get_vertex(instance.vertices_offset + ind2);
+	const Vertex v0 = get_vertex(instance.vertices_offset + prim_id.x);
+	const Vertex v1 = get_vertex(instance.vertices_offset + prim_id.y);
+	const Vertex v2 = get_vertex(instance.vertices_offset + prim_id.z);
 
 	const vec3 position = v0.position.xyz * bary.x + v1.position.xyz * bary.y + v2.position.xyz * bary.z;
 	const vec3 world_position = vec3(payload.object_to_world * vec4(position, 1.0));
@@ -280,18 +276,15 @@ LightSample sample_light_idx(ShadeState sstate, uint idx)
 		Instance instance = get_instance(emitter.instance_id);
 
 		// Sample a triangle
-		// uint primitive_id = uint(float(instance.indices_count / 3) * rand(prd.seed));
 		uint primitive_id;
 		float primitive_pdf;
 		sample_mesh_alias_table(rand2(prd.seed), instance, primitive_id, primitive_pdf);
 
-		const uint ind0 = get_index(instance.indices_offset + primitive_id * 3 + 0);
-		const uint ind1 = get_index(instance.indices_offset + primitive_id * 3 + 1);
-		const uint ind2 = get_index(instance.indices_offset + primitive_id * 3 + 2);
+		const uvec3 prim_id = get_prim(instance.indices_offset / 3 + primitive_id);
 
-		const Vertex v0 = get_vertex(instance.vertices_offset + ind0);
-		const Vertex v1 = get_vertex(instance.vertices_offset + ind1);
-		const Vertex v2 = get_vertex(instance.vertices_offset + ind2);
+		const Vertex v0 = get_vertex(instance.vertices_offset + prim_id.x);
+		const Vertex v1 = get_vertex(instance.vertices_offset + prim_id.y);
+		const Vertex v2 = get_vertex(instance.vertices_offset + prim_id.z);
 
 		float a = sqrt(rand(prd.seed));
 		float b = a * rand(prd.seed);

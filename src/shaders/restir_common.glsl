@@ -20,8 +20,6 @@ struct Reservoir
     uint M; // The number of samples seen so far
     float w_sum;    // The sum of weights
     float W;
-    float pdf;
-    float p_hat;
 };
 
 layout(buffer_reference, scalar) buffer RestirReservoirBuffer

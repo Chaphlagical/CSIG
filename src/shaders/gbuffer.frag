@@ -59,8 +59,7 @@ vec4 fetch_base_color(in Material material, in vec2 uv)
 	else
 	{
 		vec4 base_color = texture(textures[material.base_color_texture], uv);
-		base_color.rgb = pow(base_color.rgb, vec3(2.2));
-		return base_color * material.base_color;
+		return pow(base_color, vec4(2.2)) * material.base_color;
 	}
 }
 
@@ -73,7 +72,7 @@ vec2 fetch_roughness_metallic(in Material material, in vec2 uv)
 	else
 	{
 		vec2 roughness_metallic = texture(textures[material.metallic_roughness_texture], uv).gb;
-		return roughness_metallic * vec2(material.roughness_factor, material.metallic_factor);
+		return pow(roughness_metallic, vec2(2.2)) * vec2(material.roughness_factor, material.metallic_factor);
 	}
 }
 

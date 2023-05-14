@@ -473,7 +473,6 @@ void RayTracedDI::draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBu
 			};
 			m_temporal_pass.push_constants.temporal_reservoir_addr    = temporal_reservoir_buffer.device_address;
 			m_temporal_pass.push_constants.passthrough_reservoir_addr = passthrough_reservoir_buffer.device_address;
-			m_temporal_pass.push_constants.normal_bias                = m_normal_bias;
 			m_temporal_pass.push_constants.temporal_reuse             = m_temporal_reuse;
 			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_pass.pipeline_layout, 0, 2, descriptors, 0, nullptr);
 			vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_pass.pipeline);
@@ -588,10 +587,8 @@ void RayTracedDI::draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBu
 			    gbuffer_pass.descriptor.sets[m_context->ping_pong],
 			    m_composite_pass.descriptor_set,
 			};
-			m_composite_pass.push_constants.passthrough_reservoir_addr = passthrough_reservoir_buffer.device_address;
 			m_composite_pass.push_constants.temporal_reservoir_addr    = temporal_reservoir_buffer.device_address;
 			m_composite_pass.push_constants.spatial_reservoir_addr     = spatial_reservoir_buffer.device_address;
-			m_composite_pass.push_constants.normal_bias                = m_normal_bias;
 			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_composite_pass.pipeline_layout, 0, 3, descriptors, 0, nullptr);
 			vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_composite_pass.pipeline);
 			vkCmdPushConstants(cmd_buffer, m_composite_pass.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_composite_pass.push_constants), &m_composite_pass.push_constants);
@@ -657,9 +654,10 @@ bool RayTracedDI::draw_ui()
 {
 	if (ImGui::TreeNode("Raytrace DI"))
 	{
-		ImGui::DragFloat("Bias", &m_normal_bias, 0.00001f, -1.f, 1.f, "%.10f");
 		ImGui::Checkbox("Spatial Reuse", &m_spatial_reuse);
 		ImGui::Checkbox("Temporal Reuse", &m_temporal_reuse);
+		ImGui::DragInt("Debug", &m_composite_pass.push_constants.debug, 1, 0, 1000);
+		ImGui::DragInt("M", &m_temporal_pass.push_constants.M, 1, 1, 32);
 		ImGui::TreePop();
 	}
 	return false;

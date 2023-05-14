@@ -477,6 +477,7 @@ inline Buffer create_buffer(const Context &context, VkBufferUsageFlags usage, vo
 		vmaCreateBuffer(context.vma_allocator, &buffer_create_info, &allocation_create_info, &staging_buffer.vk_buffer, &staging_buffer.vma_allocation, &allocation_info);
 	}
 
+	if (data)
 	{
 		uint8_t *mapped_data = nullptr;
 		vmaMapMemory(context.vma_allocator, staging_buffer.vma_allocation, reinterpret_cast<void **>(&mapped_data));
@@ -852,6 +853,7 @@ void Scene::load_scene(const std::string &filename)
 			material.alpha_mode     = raw_material.alpha_mode;
 			material.cutoff         = raw_material.alpha_cutoff;
 			std::memcpy(glm::value_ptr(material.emissive_factor), raw_material.emissive_factor, sizeof(glm::vec3));
+			material.emissive_factor = glm::pow(material.emissive_factor, vec3(2.2));
 			if (raw_material.has_pbr_metallic_roughness)
 			{
 				material.metallic_factor  = raw_material.pbr_metallic_roughness.metallic_factor;
@@ -957,7 +959,7 @@ void Scene::load_scene(const std::string &filename)
 
 		scene_info.vertices_count = static_cast<uint32_t>(vertices.size());
 		scene_info.indices_count  = static_cast<uint32_t>(indices.size());
-		scene_info.mesh_count  = static_cast<uint32_t>(meshes.size());
+		scene_info.mesh_count     = static_cast<uint32_t>(meshes.size());
 
 		vertex_buffer = create_buffer(*m_context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, vertices.data(), vertices.size() * sizeof(Vertex));
 		index_buffer  = create_buffer(*m_context, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, indices.data(), indices.size() * sizeof(uint32_t));
@@ -1064,7 +1066,7 @@ void Scene::load_scene(const std::string &filename)
 
 		// Build emitter buffer
 		{
-			emitter_buffer                 = create_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, emitters.data(), emitters.size() * sizeof(Emitter));
+			emitter_buffer                 = create_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, emitters.data(), std::max(emitters.size(), 1ull) * sizeof(Emitter));
 			scene_info.emitter_count       = static_cast<uint32_t>(emitters.size());
 			scene_info.emitter_buffer_addr = emitter_buffer.device_address;
 		}
@@ -1080,7 +1082,7 @@ void Scene::load_scene(const std::string &filename)
 			}
 
 			std::vector<AliasTable> alias_table        = create_alias_table_buffer(*m_context, emitter_probs, total_weight);
-			emitter_alias_table_buffer                 = create_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, alias_table.data(), alias_table.size() * sizeof(AliasTable));
+			emitter_alias_table_buffer                 = create_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, alias_table.data(), std::max(alias_table.size(), 1ull) * sizeof(AliasTable));
 			scene_info.emitter_alias_table_buffer_addr = emitter_alias_table_buffer.device_address;
 		}
 
@@ -2942,9 +2944,9 @@ void Scene::destroy_scene()
 	if (mesh_alias_table_buffer.vk_buffer && mesh_alias_table_buffer.vma_allocation)
 	{
 		vmaDestroyBuffer(m_context->vma_allocator, mesh_alias_table_buffer.vk_buffer, mesh_alias_table_buffer.vma_allocation);
-		mesh_alias_table_buffer.vk_buffer         = VK_NULL_HANDLE;
-		mesh_alias_table_buffer.vma_allocation    = VK_NULL_HANDLE;
-		mesh_alias_table_buffer.device_address    = 0;
+		mesh_alias_table_buffer.vk_buffer      = VK_NULL_HANDLE;
+		mesh_alias_table_buffer.vma_allocation = VK_NULL_HANDLE;
+		mesh_alias_table_buffer.device_address = 0;
 	}
 }
 
