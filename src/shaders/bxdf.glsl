@@ -25,7 +25,7 @@ vec3 cosine_sample_hemisphere(float r1, float r2)
 
 vec3 importance_sample_GTR2(float rgh, float r1, float r2)
 {
-	float a = rgh;
+	float a = max(0.001, rgh);
 
 	float phi = r1 * 2.0 * PI;
 
@@ -62,16 +62,21 @@ float schlick_fresnel(float u)
 	return m2 * m2 * m;        // pow(m,5)
 }
 
+vec3 schlick_fresnel_roughness(float cos_theta, vec3 F0, float roughness)
+{
+	return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(max(1.0 - cos_theta, 0.0), 5.0);
+}
+
 float SmithG_GGX(float NdotV, float alphaG)
 {
 	float a = alphaG * alphaG;
 	float b = NdotV * NdotV;
-	return 1.0 / (NdotV + max(sqrt(a + b - a * b), 0.0001));
+	return 1.0 / (NdotV + sqrt(a + b - a * b));
 }
 
 float dielectric_fresnel(float cos_theta_i, float eta)
 {
-	float sinThetaTSq = eta * eta * (1.0 - cos_theta_i * cos_theta_i);
+	float sinThetaTSq = eta * eta * (1.0f - cos_theta_i * cos_theta_i);
 
 	// Total internal reflection
 	if (sinThetaTSq > 1.0)
@@ -98,6 +103,7 @@ vec3 eval_diffuse(ShadeState sstate, vec3 V, vec3 N, vec3 L, vec3 H, inout float
 
 	float FL   = schlick_fresnel(dot(N, L));
 	float FV   = schlick_fresnel(dot(N, V));
+	float FH   = schlick_fresnel(dot(L, H));
 	float Fd90 = 0.5 + 2.0 * dot(L, H) * dot(L, H) * sstate.mat.roughness_factor;
 	float Fd   = mix(1.0, Fd90, FL) * mix(1.0, Fd90, FV);
 
@@ -110,13 +116,13 @@ vec3 eval_specular(ShadeState sstate, vec3 Cspec0, vec3 V, vec3 N, vec3 L, vec3 
 	{
 		return vec3(0.0);
 	}
-	float a = max(0.0001, pow(sstate.mat.roughness_factor, 2.0));
-	float D = GTR2(dot(N, H), a);
+
+	float D = GTR2(dot(N, H), sstate.mat.roughness_factor);
 	pdf     = D * dot(N, H) / (4.0 * dot(V, H));
 
 	float FH = schlick_fresnel(dot(L, H));
 	vec3  F  = mix(Cspec0, vec3(1.0), FH);
-	float G  = SmithG_GGX(dot(N, L), a) * SmithG_GGX(dot(N, V), a);
+	float G  = SmithG_GGX(dot(N, L), sstate.mat.roughness_factor) * SmithG_GGX(dot(N, V), sstate.mat.roughness_factor);
 	return F * D * G;
 }
 
@@ -126,7 +132,7 @@ vec3 eval_clearcoat(ShadeState sstate, vec3 V, vec3 N, vec3 L, vec3 H, inout flo
 	{
 		return vec3(0.0);
 	}
-	
+
 	float D = GTR1(dot(N, H), sstate.mat.clearcoat_roughness_factor);
 	pdf     = D * dot(N, H) / (4.0 * dot(V, H));
 
@@ -142,26 +148,25 @@ vec3 eval_dielectric_reflection(ShadeState sstate, vec3 V, vec3 N, vec3 L, vec3 
 	{
 		return vec3(0.0);
 	}
-	float a = max(0.0001, pow(sstate.mat.roughness_factor, 2.0));
+
 	float F = dielectric_fresnel(dot(V, H), sstate.eta);
-	float D = GTR2(dot(N, H), a);
+	float D = GTR2(dot(N, H), sstate.mat.roughness_factor);
 
 	pdf = D * dot(N, H) * F / (4.0 * dot(V, H));
 
-	float G = SmithG_GGX(abs(dot(N, L)), a) * SmithG_GGX(dot(N, V), a);
+	float G = SmithG_GGX(abs(dot(N, L)), sstate.mat.roughness_factor) * SmithG_GGX(dot(N, V), sstate.mat.roughness_factor);
 	return sstate.mat.base_color.rgb * F * D * G;
 }
 
 vec3 eval_dielectric_refraction(ShadeState sstate, vec3 V, vec3 N, vec3 L, vec3 H, inout float pdf)
 {
-	float a = max(0.0001, pow(sstate.mat.roughness_factor, 2.0));
 	float F = dielectric_fresnel(abs(dot(V, H)), sstate.eta);
-	float D = GTR2(dot(N, H), a);
+	float D = GTR2(dot(N, H), sstate.mat.roughness_factor);
 
 	float denomSqrt = dot(L, H) * sstate.eta + dot(V, H);
 	pdf             = D * dot(N, H) * (1.0 - F) * abs(dot(L, H)) / (denomSqrt * denomSqrt);
 
-	float G = SmithG_GGX(abs(dot(N, L)), a) * SmithG_GGX(dot(N, V), a);
+	float G = SmithG_GGX(abs(dot(N, L)), sstate.mat.roughness_factor) * SmithG_GGX(dot(N, V), sstate.mat.roughness_factor);
 	return sstate.mat.base_color.rgb * (1.0 - F) * D * G * abs(dot(V, H)) * abs(dot(L, H)) * 4.0 * sstate.eta * sstate.eta / (denomSqrt * denomSqrt);
 }
 

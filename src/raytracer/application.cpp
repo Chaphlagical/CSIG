@@ -103,9 +103,9 @@ Application::Application(const ApplicationConfig &config) :
 
 		vkBeginCommandBuffer(cmd_buffer, &begin_info);
 		m_renderer.gbuffer_pass.init(cmd_buffer);
-		//m_renderer.raytraced_ao.init(cmd_buffer);
+		// m_renderer.raytraced_ao.init(cmd_buffer);
 		m_renderer.raytraced_di.init(cmd_buffer);
-		//m_renderer.raytraced_gi.init(cmd_buffer);
+		// m_renderer.raytraced_gi.init(cmd_buffer);
 		m_renderer.path_tracing.init(cmd_buffer);
 		m_renderer.tonemap.init(cmd_buffer);
 
@@ -274,8 +274,8 @@ void Application::update_ui()
 		{
 			case RenderMode::Hybrid:
 				ui_update |= m_renderer.raytraced_di.draw_ui();
-				//ui_update |= m_renderer.raytraced_ao.draw_ui();
-				//ui_update |= m_renderer.raytraced_gi.draw_ui();
+				// ui_update |= m_renderer.raytraced_ao.draw_ui();
+				// ui_update |= m_renderer.raytraced_gi.draw_ui();
 				break;
 			case RenderMode::PathTracing:
 				ui_update |= m_renderer.path_tracing.draw_ui();
@@ -383,32 +383,35 @@ void Application::update(VkCommandBuffer cmd_buffer)
 		vkDeviceWaitIdle(m_context.vk_device);
 		m_renderer.gbuffer_pass.update(m_scene);
 		m_renderer.path_tracing.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
-		//m_renderer.raytraced_ao.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
+		// m_renderer.raytraced_ao.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
 		m_renderer.raytraced_di.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
 		m_renderer.tonemap.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, m_renderer.raytraced_di.output_view);
-		//m_renderer.tonemap.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, *m_renderer.path_tracing.path_tracing_image_view);
+		// m_renderer.tonemap.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, *m_renderer.path_tracing.path_tracing_image_view);
 	}
 
 	// Copy to device
 	{
 		m_context.begin_marker(cmd_buffer, "Update Uniform Buffer");
-		glm::mat4 jitter_proj = glm::translate(glm::mat4(1.0f), glm::vec3(m_current_jitter, 0.0f)) * m_camera.proj;
-		m_camera.view_proj    = jitter_proj * m_camera.view;
+		glm::mat4 jitter_proj  = glm::translate(glm::mat4(1.0f), glm::vec3(m_current_jitter, 0.0f)) * m_camera.proj;
+		m_camera.view_proj     = jitter_proj * m_camera.view;
+		m_camera.view_proj_inv = glm::inverse(m_camera.view_proj);
 
 		GlobalData global_buffer = {
-		    .view_inv             = glm::inverse(m_camera.view),
-		    .projection_inv       = glm::inverse(jitter_proj),
-		    .view_projection_inv  = glm::inverse(jitter_proj * m_camera.view),
-		    .view_projection      = m_camera.view_proj,
-		    .prev_view            = m_camera.prev_view,
-		    .prev_projection      = m_camera.prev_proj,
-		    .prev_view_projection = m_camera.prev_view_proj,
-		    .cam_pos              = glm::vec4(m_camera.position, static_cast<float>(m_num_frames)),
-		    .jitter               = glm::vec4(m_current_jitter, m_prev_jitter),
+		    .view_inv                 = glm::inverse(m_camera.view),
+		    .projection_inv           = glm::inverse(jitter_proj),
+		    .view_projection_inv      = m_camera.view_proj_inv,
+		    .view_projection          = m_camera.view_proj,
+		    .prev_view                = m_camera.prev_view,
+		    .prev_projection          = m_camera.prev_proj,
+		    .prev_view_projection     = m_camera.prev_view_proj,
+		    .prev_view_projection_inv = m_camera.prev_view_proj_inv,
+		    .cam_pos                  = glm::vec4(m_camera.position, static_cast<float>(m_num_frames)),
+		    .jitter                   = glm::vec4(m_current_jitter, m_prev_jitter),
 		};
-		m_camera.prev_view_proj = m_camera.view_proj;
-		m_camera.prev_view      = m_camera.view;
-		m_camera.prev_proj      = m_camera.proj;
+		m_camera.prev_view_proj     = m_camera.view_proj;
+		m_camera.prev_view_proj_inv = m_camera.view_proj_inv;
+		m_camera.prev_view          = m_camera.view;
+		m_camera.prev_proj          = m_camera.proj;
 
 		{
 			VkBufferMemoryBarrier buffer_barrier = {
@@ -461,7 +464,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 	switch (m_render_mode)
 	{
 		case RenderMode::Hybrid:
-			//m_renderer.raytraced_ao.draw(cmd_buffer);
+			// m_renderer.raytraced_ao.draw(cmd_buffer);
 			m_renderer.raytraced_di.draw(cmd_buffer, m_scene, m_renderer.gbuffer_pass);
 			break;
 		case RenderMode::PathTracing:
@@ -628,7 +631,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 
 		{
 			VkImageMemoryBarrier image_barriers[] = {
-			    { 
+			    {
 			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 			        .srcAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
 			        .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
@@ -688,7 +691,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 		//	               .levelCount     = 1,
 		//	               .baseArrayLayer = 0,
 		//	               .layerCount     = 1,
-  //                  },
+		//                  },
 		//	    },*/
 		//	    {
 		//	        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -705,7 +708,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 		//	               .levelCount     = 1,
 		//	               .baseArrayLayer = 0,
 		//	               .layerCount     = 1,
-  //                  },
+		//                  },
 		//	    },
 		//	    {
 		//	        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -722,7 +725,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 		//	               .levelCount     = 1,
 		//	               .baseArrayLayer = 0,
 		//	               .layerCount     = 1,
-  //                  },
+		//                  },
 		//	    },
 		//	};
 		//	vkCmdPipelineBarrier(
@@ -751,7 +754,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 		//	               .levelCount     = 1,
 		//	               .baseArrayLayer = 0,
 		//	               .layerCount     = 1,
-  //                  },
+		//                  },
 		//	    },*/
 		//	    {
 		//	        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -768,7 +771,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 		//	               .levelCount     = 1,
 		//	               .baseArrayLayer = 0,
 		//	               .layerCount     = 1,
-  //                  },
+		//                  },
 		//	    },
 		//	};
 		//	vkCmdPipelineBarrier(
@@ -797,7 +800,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 		//	               .levelCount     = 1,
 		//	               .baseArrayLayer = 0,
 		//	               .layerCount     = 1,
-  //                  },
+		//                  },
 		//	    },
 		//	};
 		//	vkCmdPipelineBarrier(
@@ -807,7 +810,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 		//	    0, 0, nullptr, 0, nullptr, 1, image_barriers);
 		//}
 
-		//present(cmd_buffer, m_renderer.tonemap.tonemapped_image.vk_image);
+		// present(cmd_buffer, m_renderer.tonemap.tonemapped_image.vk_image);
 
 		//{
 		//	VkImageMemoryBarrier image_barriers[] = {
@@ -826,7 +829,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 		//	               .levelCount     = 1,
 		//	               .baseArrayLayer = 0,
 		//	               .layerCount     = 1,
-  //                  },
+		//                  },
 		//	    },
 		//	    {
 		//	        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -843,7 +846,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 		//	               .levelCount     = 1,
 		//	               .baseArrayLayer = 0,
 		//	               .layerCount     = 1,
-  //                  },
+		//                  },
 		//	    },
 		//	};
 		//	vkCmdPipelineBarrier(

@@ -23,6 +23,8 @@ layout(push_constant) uniform PushConstants
 	uint64_t passthrough_reservoir_addr;
 	uint64_t spatial_reservoir_addr;
     uint spatial_reuse;
+    float radius;
+    uint samples;
 }push_constants;
 
 void main()
@@ -31,7 +33,7 @@ void main()
     const ivec2 size = textureSize(gbufferA, 0);
     const uint pixel_id = coord.x * size.y + coord.y;
 
-    if(pixel_id >= size.x * size.y)
+    if(coord.x >= size.x || coord.y >= size.y)
     {
         return;
     }
@@ -39,59 +41,48 @@ void main()
     RestirReservoirBuffer(push_constants.spatial_reservoir_addr).reservoirs[pixel_id] = init_reservoir();
     barrier();
 
-    uint seed = tea(size.x * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x, uint(ubo.cam_pos.w));
+    prd.seed = tea(size.x * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x, uint(ubo.cam_pos.w));
 
-    const float max_r = 10;
-    const int num_neighbor_samples = 5;
+    Reservoir r = RestirReservoirBuffer(push_constants.passthrough_reservoir_addr).reservoirs[pixel_id];
 
-    const Reservoir curr_reservoir = RestirReservoirBuffer(push_constants.passthrough_reservoir_addr).reservoirs[pixel_id];
-    Reservoir r = init_reservoir();
     ShadeState sstate;
-    if (curr_reservoir.W != 0 && 
-        get_primary_state(vec2(coord) + vec2(0.5), 0, sstate))
+
+    if (push_constants.spatial_reuse == 1 && 
+        get_primary_state(vec2(coord) + vec2(0.5), 0, sstate) &&
+        dot(sstate.ffnormal, sstate.ffnormal) != 0)
     {
-        // combine_reservoir(r, curr_reservoir, sstate);
-        // uint num_samples = r.M;
-
-        // for (int i = 0; i < num_neighbor_samples; i++) 
-        // {
-        //     // Choose a neighbor pixel
-        //     const float angle = rand(seed) * 2 * PI;
-        //     const float radius = sqrt(rand(seed)) * max_r;
-        //     ivec2 rand_offset = ivec2(floor(cos(angle) * radius), floor(sin(angle) * radius));
-        //     const ivec2 neighbor_coord = clamp(ivec2(coord.xy) + rand_offset, ivec2(0), ivec2(size.xy) - 1);
-        //     const float depth = texelFetch(depth_buffer, neighbor_coord, 0).r;
-        //     const vec3 n = octohedral_to_direction(texelFetch(gbufferB, neighbor_coord, 0).rg);
-
-        //     if (abs(depth - sstate.depth) > 0.1 * abs(sstate.depth) ||
-		// 	dot(n, sstate.ffnormal) < cos(radians(25.0))) 
-        //     {
-        //         continue;
-        //     }
-
-        //     const uint neighbor_idx = neighbor_coord.x * size.y + neighbor_coord.y;
-        //     const Reservoir r_neightbor = get_reservoir(push_constants.passthrough_reservoir_addr, neighbor_idx);
-        //     combine_reservoir(r, r_neightbor, sstate);
-        //     num_samples += r_neightbor.M;
-        // }
-
-        // r.M = num_samples;
-        // const float phat = compute_p_hat(r, sstate);
-        // r.W = r.w_sum / (r.M * phat);
-
-        if(push_constants.spatial_reuse == 0)
+        for (int i = 0; i < push_constants.samples; i++) 
         {
-            RestirReservoirBuffer(push_constants.spatial_reservoir_addr).reservoirs[pixel_id].w_sum = curr_reservoir.w_sum;
-            RestirReservoirBuffer(push_constants.spatial_reservoir_addr).reservoirs[pixel_id].W = curr_reservoir.W;
-            RestirReservoirBuffer(push_constants.spatial_reservoir_addr).reservoirs[pixel_id].M = curr_reservoir.M;
-            RestirReservoirBuffer(push_constants.spatial_reservoir_addr).reservoirs[pixel_id].y = curr_reservoir.y;
-        }
-        else
-        {
-            RestirReservoirBuffer(push_constants.spatial_reservoir_addr).reservoirs[pixel_id].w_sum = r.w_sum;
-            RestirReservoirBuffer(push_constants.spatial_reservoir_addr).reservoirs[pixel_id].W = r.W;
-            RestirReservoirBuffer(push_constants.spatial_reservoir_addr).reservoirs[pixel_id].M = r.M;
-            RestirReservoirBuffer(push_constants.spatial_reservoir_addr).reservoirs[pixel_id].y = r.y;
-        }
+            // Choose a neighbor pixel
+            const float angle = rand(prd.seed) * 2 * PI;
+            const float radius = sqrt(rand(prd.seed)) * push_constants.radius;
+            ivec2 rand_offset = ivec2(floor(cos(angle) * radius), floor(sin(angle) * radius));
+            const ivec2 neighbor_coord = clamp(ivec2(coord.xy) + rand_offset, ivec2(0), ivec2(size.xy) - 1);
+            ShadeState neighbor_sstate;
+            if(get_primary_state(vec2(neighbor_coord) + vec2(0.5), 0, neighbor_sstate))
+            {
+                vec3 pos_diff = sstate.position - neighbor_sstate.position;
+                if(dot(pos_diff, pos_diff) < 0.01 && abs(sstate.depth - neighbor_sstate.depth) < sstate.depth * 0.1)
+                {
+                    vec3 base_color_diff = sstate.mat.base_color.rgb - neighbor_sstate.mat.base_color.rgb;
+                    if(dot(base_color_diff, base_color_diff) < 0.01)
+                    {
+                        float normal_dot = dot(sstate.ffnormal, neighbor_sstate.ffnormal);
+                        if(normal_dot > 0.9063)
+                        {
+                            const int neighbor_idx = neighbor_coord.x * size.y + neighbor_coord.y;
+                            const Reservoir r_neightbor = get_reservoir(push_constants.passthrough_reservoir_addr, neighbor_idx);
+                            if(r_neightbor.num_samples > 0)
+                            {
+                                float p_hat = eval_phat(r_neightbor.light_id, sstate);
+                                combine_reservoir(r, r_neightbor, p_hat);
+                            }
+                        }
+                    }
+                }
+            }                
+        }      
     }
+
+    RestirReservoirBuffer(push_constants.spatial_reservoir_addr).reservoirs[pixel_id] = r;
 }

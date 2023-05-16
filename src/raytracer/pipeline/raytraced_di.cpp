@@ -17,21 +17,6 @@ static unsigned char g_di_composite_comp_spv_data[] = {
 #include "di_composite.comp.spv.h"
 };
 
-struct RestirSample
-{
-	uint32_t light_id;
-};
-
-struct alignas(16) Reservoir
-{
-	RestirSample y;            // The output sample
-	uint32_t     M;            // The number of samples seen so far
-	float        w_sum;        // The sum of weights
-	float        W;
-	float        pdf;
-	float        p_hat;
-};
-
 RayTracedDI::RayTracedDI(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass) :
     m_context(&context)
 {
@@ -587,8 +572,10 @@ void RayTracedDI::draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBu
 			    gbuffer_pass.descriptor.sets[m_context->ping_pong],
 			    m_composite_pass.descriptor_set,
 			};
+			m_composite_pass.push_constants.passthrough_reservoir_addr = passthrough_reservoir_buffer.device_address;
 			m_composite_pass.push_constants.temporal_reservoir_addr    = temporal_reservoir_buffer.device_address;
 			m_composite_pass.push_constants.spatial_reservoir_addr     = spatial_reservoir_buffer.device_address;
+			m_composite_pass.push_constants.normal_bias                = m_normal_bias;
 			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_composite_pass.pipeline_layout, 0, 3, descriptors, 0, nullptr);
 			vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_composite_pass.pipeline);
 			vkCmdPushConstants(cmd_buffer, m_composite_pass.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_composite_pass.push_constants), &m_composite_pass.push_constants);
@@ -654,10 +641,16 @@ bool RayTracedDI::draw_ui()
 {
 	if (ImGui::TreeNode("Raytrace DI"))
 	{
-		ImGui::Checkbox("Spatial Reuse", &m_spatial_reuse);
-		ImGui::Checkbox("Temporal Reuse", &m_temporal_reuse);
-		ImGui::DragInt("Debug", &m_composite_pass.push_constants.debug, 1, 0, 1000);
+		ImGui::DragFloat("Bias", &m_normal_bias, 0.00001f, -1.f, 1.f, "%.10f");
 		ImGui::DragInt("M", &m_temporal_pass.push_constants.M, 1, 1, 32);
+		ImGui::Checkbox("Temporal Reuse", &m_temporal_reuse);
+		if (ImGui::TreeNode("Spatial Reuse"))
+		{
+			ImGui::Checkbox("Enable", &m_spatial_reuse);
+			ImGui::DragInt("Samples", &m_spatial_pass.push_constants.samples, 1, 1, 32);
+			ImGui::DragFloat("Radius", &m_spatial_pass.push_constants.radius, 0.1f, 0.f, 30.f, "%.1f");
+			ImGui::TreePop();
+		}
 		ImGui::TreePop();
 	}
 	return false;

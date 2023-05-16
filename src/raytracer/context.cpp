@@ -690,7 +690,7 @@ Context::Context(const ContextConfig &config)
 		createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		createInfo.preTransform     = capabilities.currentTransform;
 		createInfo.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-		createInfo.presentMode      = VK_PRESENT_MODE_MAILBOX_KHR;
+		createInfo.presentMode      = VK_PRESENT_MODE_FIFO_KHR;
 		createInfo.clipped          = VK_TRUE;
 
 		vkCreateSwapchainKHR(vk_device, &createInfo, nullptr, &vk_swapchain);

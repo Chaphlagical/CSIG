@@ -42,6 +42,7 @@ struct GlobalData
 	mat4 prev_view;
 	mat4 prev_projection;
 	mat4 prev_view_projection;
+	mat4 prev_view_projection_inv;
 	vec4 cam_pos;        // xyz - position, w - num_frames
 	vec4 jitter;
 };
@@ -70,10 +71,20 @@ struct Instance
 
 struct Emitter
 {
-	mat4 transform;
-	vec3 intensity;
-	uint instance_id;
+	vec4 p0;
+	vec4 p1;
+	vec4 p2;
 };
+
+#ifndef CPP
+void unpack_emitter(Emitter emitter, out vec3 p0, out vec3 p1, out vec3 p2, out vec3 intensity)
+{
+	p0        = emitter.p0.xyz;
+	p1        = emitter.p1.xyz;
+	p2        = emitter.p2.xyz;
+	intensity = vec3(emitter.p0.w, emitter.p1.w, emitter.p2.w);
+}
+#endif
 
 struct Material
 {
@@ -137,6 +148,15 @@ struct AliasTable
 	int   alias;        // The i's column's another event's idx
 	float ori_prob;
 	float alias_ori_prob;
+};
+
+struct Reservoir
+{
+	int   light_id;
+	float p_hat;
+	float sum_weights;
+	float w;
+	uint  num_samples;
 };
 
 #endif        // !COMMON_DATA_HPP

@@ -853,7 +853,6 @@ void Scene::load_scene(const std::string &filename)
 			material.alpha_mode     = raw_material.alpha_mode;
 			material.cutoff         = raw_material.alpha_cutoff;
 			std::memcpy(glm::value_ptr(material.emissive_factor), raw_material.emissive_factor, sizeof(glm::vec3));
-			material.emissive_factor = glm::pow(material.emissive_factor, vec3(2.2));
 			if (raw_material.has_pbr_metallic_roughness)
 			{
 				material.metallic_factor  = raw_material.pbr_metallic_roughness.metallic_factor;
@@ -1027,15 +1026,27 @@ void Scene::load_scene(const std::string &filename)
 					};
 					std::memcpy(glm::value_ptr(instance.transform), matrix, sizeof(instance.transform));
 					instance.transform_inv = glm::inverse(instance.transform);
+					int32_t emitter_offset = static_cast<int32_t>(emitters.size());
 					if (materials[mesh.material].emissive_factor != glm::vec3(0.f))
 					{
-						emitters.push_back(
-						    Emitter{
-						        .transform   = instance.transform,
-						        .intensity   = materials[mesh.material].emissive_factor,
-						        .instance_id = static_cast<uint32_t>(instances.size()),
-						    });
-						instance.emitter = static_cast<uint32_t>(emitters.size() - 1);
+						for (uint32_t tri_idx = 0; tri_idx < mesh.indices_count / 3; tri_idx++)
+						{
+							const uint32_t i0 = indices[mesh.indices_offset + tri_idx * 3 + 0];
+							const uint32_t i1 = indices[mesh.indices_offset + tri_idx * 3 + 1];
+							const uint32_t i2 = indices[mesh.indices_offset + tri_idx * 3 + 2];
+
+							glm::vec3 p0 = instance.transform * glm::vec4(glm::vec3(vertices[mesh.vertices_offset + i0].position), 1.f);
+							glm::vec3 p1 = instance.transform * glm::vec4(glm::vec3(vertices[mesh.vertices_offset + i1].position), 1.f);
+							glm::vec3 p2 = instance.transform * glm::vec4(glm::vec3(vertices[mesh.vertices_offset + i2].position), 1.f);
+
+							emitters.push_back(
+							    Emitter{
+							        .p0 = glm::vec4(p0, materials[mesh.material].emissive_factor.r),
+							        .p1 = glm::vec4(p1, materials[mesh.material].emissive_factor.g),
+							        .p2 = glm::vec4(p2, materials[mesh.material].emissive_factor.b),
+							    });
+						}
+						instance.emitter = emitter_offset;
 					}
 					else
 					{
@@ -1077,7 +1088,14 @@ void Scene::load_scene(const std::string &filename)
 			std::vector<float> emitter_probs(emitters.size());
 			for (uint32_t i = 0; i < emitters.size(); i++)
 			{
-				emitter_probs[i] = glm::dot(emitters[i].intensity, glm::vec3(0.212671f, 0.715160f, 0.072169f)) * instances[emitters[i].instance_id].area;
+				glm::vec3 p0        = emitters[i].p0;
+				glm::vec3 p1        = emitters[i].p1;
+				glm::vec3 p2        = emitters[i].p2;
+
+				glm::vec3 intensity = glm::vec3(emitters[i].p0.w, emitters[i].p1.w, emitters[i].p2.w);
+				float     area      = glm::length(glm::cross(p1 - p0, p2 - p1)) * 0.5f;
+
+				emitter_probs[i] = glm::dot(intensity, glm::vec3(0.212671f, 0.715160f, 0.072169f)) * area;
 				total_weight += emitter_probs[i];
 			}
 

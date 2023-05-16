@@ -9,20 +9,7 @@
 
 #define RESERVOIR_SIZE 1
 
-struct RestirSample
-{
-    uint light_id;
-};
-
-struct Reservoir
-{
-    RestirSample y;   // The output sample
-    uint M; // The number of samples seen so far
-    float w_sum;    // The sum of weights
-    float W;
-};
-
-layout(buffer_reference, scalar) buffer RestirReservoirBuffer
+layout(buffer_reference, scalar, buffer_reference_align = 4) buffer RestirReservoirBuffer
 {
     Reservoir reservoirs[];
 };
@@ -31,63 +18,61 @@ Reservoir init_reservoir()
 {
     Reservoir reservoir;
 
-    reservoir.w_sum = 0;
-    reservoir.W = 0;
-    reservoir.M = 0;
+    reservoir.light_id = -1;
+    reservoir.p_hat = 0;
+    reservoir.sum_weights = 0;
+    reservoir.w = 0;
+    reservoir.num_samples = 0;
 
     return reservoir;
 }
 
-void update_reservoir(inout Reservoir reservoir, RestirSample x, float w)
+vec3 eval_L(uint light_id, ShadeState sstate)
 {
-    reservoir.w_sum += w;
-    reservoir.M += 1;
-    if(rand(prd.seed) < w / reservoir.w_sum)
-    {
-        reservoir.y = x;
-    }
-}
-
-vec3 compute_L(const Reservoir r, ShadeState sstate) 
-{
-    Ray ray;
-    ray.origin = ubo.cam_pos.xyz;
-    ray.direction = normalize(sstate.position - ubo.cam_pos.xyz);
-    LightSample ls = sample_light_idx(sstate, r.y.light_id);
+    LightSample ls = sample_light_idx(sstate, light_id);
+    vec3 wo = normalize(ubo.cam_pos.xyz - sstate.position);
     float bsdf_pdf;
-    vec3 f = eval_bsdf(sstate, -ray.direction, sstate.ffnormal, ls.dir, bsdf_pdf);
-    return f * ls.le * abs(dot(ls.norm, -ls.dir)) * abs(dot(sstate.ffnormal, ls.dir)) / (ls.dist * ls.dist);
+    vec3 f = eval_bsdf(sstate, wo, sstate.ffnormal, ls.dir, bsdf_pdf);
+    float geo_term = abs(dot(ls.norm, -ls.dir)) * abs(dot(sstate.ffnormal, ls.dir)) / (ls.dist * ls.dist);
+    return ls.le * f * abs(dot(sstate.ffnormal, ls.dir));
 }
 
-vec3 compute_L_with_visibility(const Reservoir r, ShadeState sstate) 
+float eval_phat(uint light_id, ShadeState sstate)
 {
-    Ray ray;
-    ray.origin = ubo.cam_pos.xyz;
-    ray.direction = normalize(sstate.position - ubo.cam_pos.xyz);
-    LightSample ls = sample_light_idx(sstate, r.y.light_id);
-    Ray shadow_ray;
-    shadow_ray.origin = offset_ray(sstate.position, dot(ls.dir, sstate.ffnormal) > 0 ? sstate.ffnormal : -sstate.ffnormal);
-    shadow_ray.direction = ls.dir;
-    if(!any_hit(shadow_ray, length(shadow_ray.origin - ls.pos)))
+    return luminance(eval_L(light_id, sstate));
+}
+
+void update_reservoir(inout Reservoir res, int light_id, float weight, float p_hat, float w) 
+{
+    res.sum_weights += weight;
+    float prob = weight / res.sum_weights;
+    if(rand(prd.seed) < prob)
     {
-        float bsdf_pdf;
-        vec3 f = eval_bsdf(sstate, -ray.direction, sstate.ffnormal, ls.dir, bsdf_pdf);
-        return f * ls.le * abs(dot(ls.norm, -ls.dir)) * abs(dot(sstate.ffnormal, ls.dir)) / (ls.dist * ls.dist);
+        res.light_id = light_id;
+        res.p_hat = p_hat;
+        res.w = w;
     }
-    return vec3(0);
 }
 
-float compute_p_hat(const Reservoir r_new, ShadeState sstate) 
-{ 
-    return luminance(compute_L(r_new, sstate)); 
+void add_sample_to_reservoir(inout Reservoir res, int light_id, float light_pdf, float p_hat)
+{
+    float weight = p_hat / light_pdf;
+    res.num_samples += 1;
+    float w = (res.sum_weights + weight) / (res.num_samples * p_hat);
+    update_reservoir(res, light_id, weight, p_hat, w);
 }
 
-void combine_reservoir(inout Reservoir r1, const Reservoir r2, ShadeState sstate) {
-    float fac = r2.W * r2.M;
-    if (fac > 0) 
+void combine_reservoir(inout Reservoir self, Reservoir other, float p_hat)
+{
+    self.num_samples += other.num_samples;
+    float weight = p_hat * other.w * other.num_samples;
+    if(weight > 0)
     {
-        fac *= compute_p_hat(r2, sstate);
-        update_reservoir(r1, r2.y, fac);
+        update_reservoir(self, other.light_id, weight, p_hat, other.w);
+    }
+    if(self.w > 0)
+    {
+        self.w = self.sum_weights / (self.num_samples * self.p_hat);
     }
 }
 

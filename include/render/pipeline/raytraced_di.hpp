@@ -37,11 +37,9 @@ struct RayTracedDI
   private:
 	const Context *m_context = nullptr;
 
-	uint32_t m_width;
-	uint32_t m_height;
-
-	bool m_spatial_reuse  = true;
-	bool m_temporal_reuse = true;
+	float m_normal_bias    = 0.0001f;
+	bool  m_spatial_reuse  = false;
+	bool  m_temporal_reuse = false;
 
 	struct
 	{
@@ -50,8 +48,7 @@ struct RayTracedDI
 			uint64_t temporal_reservoir_addr    = 0;
 			uint64_t passthrough_reservoir_addr = 0;
 			uint32_t temporal_reuse             = 0;
-			int32_t  M                          = 1;
-			uint32_t mip                        = 1;
+			int32_t  M                          = 4;
 		} push_constants;
 
 		VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
@@ -65,7 +62,8 @@ struct RayTracedDI
 			uint64_t passthrough_reservoir_addr = 0;
 			uint64_t spatial_reservoir_addr     = 0;
 			uint32_t spatial_reuse              = 0;
-			uint32_t mip                        = 1;
+			float    radius                     = 10.f;
+			int32_t samples                     = 5;
 		} push_constants;
 
 		VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
@@ -76,10 +74,10 @@ struct RayTracedDI
 	{
 		struct
 		{
-			uint64_t temporal_reservoir_addr = 0;
-			uint64_t spatial_reservoir_addr  = 0;
-			int32_t  debug                   = 0;
-			uint32_t mip                     = 1;
+			uint64_t passthrough_reservoir_addr = 0;
+			uint64_t temporal_reservoir_addr    = 0;
+			uint64_t spatial_reservoir_addr     = 0;
+			float    normal_bias                = 0.0001f;
 		} push_constants;
 
 		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;

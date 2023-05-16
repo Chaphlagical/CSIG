@@ -4,7 +4,7 @@
 #include "render/context.hpp"
 #include "render/pipeline/gbuffer.hpp"
 #include "render/pipeline/pathtracing.hpp"
-//#include "render/pipeline/raytraced_ao.hpp"
+// #include "render/pipeline/raytraced_ao.hpp"
 #include "render/pipeline/raytraced_di.hpp"
 #include "render/pipeline/tonemap.hpp"
 #include "render/pipeline/ui/ui.hpp"
@@ -16,11 +16,10 @@ struct ApplicationConfig
 {
 	ContextConfig context_config;
 
-	 //std::string scene_file = "assets/scenes/test.glb";
-	std::string scene_file = "assets/scenes/Deferred/Deferred.gltf";
-	//std::string scene_file = "assets/scenes/GI/GI.gltf";
-	//std::string scene_file = "assets/scenes/conell_box.glb";
-	std::string hdr_file   = "assets/textures/hdr/BasketballCourt_3k.hdr";
+	//std::string scene_file = "assets/scenes/Deferred/Deferred.gltf";
+	// std::string scene_file = "assets/scenes/test.glb";
+	 std::string scene_file = "assets/scenes/conell_box.glb";
+	std::string hdr_file = "assets/textures/hdr/BasketballCourt_3k.hdr";
 };
 
 class Application
@@ -53,8 +52,8 @@ class Application
 		GBufferPass gbuffer_pass;
 		PathTracing path_tracing;
 		RayTracedDI raytraced_di;
-		//RayTracedAO raytraced_ao;
-		// RayTracedGI raytraced_gi;
+		// RayTracedAO raytraced_ao;
+		//  RayTracedGI raytraced_gi;
 		Tonemap tonemap;
 	} m_renderer;
 
@@ -67,13 +66,15 @@ class Application
 		float     speed    = 1.f;
 		glm::vec3 velocity = glm::vec3(0.f);
 
-		glm::mat4 view      = glm::mat4(1.f);
-		glm::mat4 proj      = glm::mat4(1.f);
-		glm::mat4 view_proj = glm::mat4(1.f);
+		glm::mat4 view          = glm::mat4(1.f);
+		glm::mat4 proj          = glm::mat4(1.f);
+		glm::mat4 view_proj     = glm::mat4(1.f);
+		glm::mat4 view_proj_inv = glm::mat4(1.f);
 
-		glm::mat4 prev_view      = glm::mat4(1.f);
-		glm::mat4 prev_proj      = glm::mat4(1.f);
-		glm::mat4 prev_view_proj = glm::mat4(1.f);
+		glm::mat4 prev_view          = glm::mat4(1.f);
+		glm::mat4 prev_proj          = glm::mat4(1.f);
+		glm::mat4 prev_view_proj     = glm::mat4(1.f);
+		glm::mat4 prev_view_proj_inv = glm::mat4(1.f);
 	} m_camera;
 
 	BlueNoise m_blue_noise;
@@ -93,5 +94,5 @@ class Application
 	{
 		Hybrid,
 		PathTracing,
-	} m_render_mode = RenderMode::PathTracing;
+	} m_render_mode = RenderMode::Hybrid;
 };

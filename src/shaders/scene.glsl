@@ -15,37 +15,37 @@ layout(set = 0, binding = 2, scalar) uniform SceneBuffer
 layout(set = 0, binding = 3) uniform sampler2D textures[];
 layout(set = 0, binding = 4) uniform samplerCube skybox;
 
-layout(buffer_reference, std430, scalar) readonly buffer InstanceBuffer
+layout(buffer_reference, scalar) readonly buffer InstanceBuffer
 {
     Instance instances[];
 };
 
-layout(buffer_reference, std430, scalar) readonly buffer VertexBuffer
+layout(buffer_reference, scalar) readonly buffer VertexBuffer
 {
     Vertex vertices[];
 };
 
-layout(buffer_reference, std430, buffer_reference_align = 4, scalar) readonly buffer IndexBuffer
+layout(buffer_reference, scalar) readonly buffer IndexBuffer
 {
-    uvec3 indices[];
+    uint indices[];
 };
 
-layout(buffer_reference, std430, scalar) readonly buffer MaterialBuffer
+layout(buffer_reference, scalar) readonly buffer MaterialBuffer
 {
 	Material materials[];
 };
 
-layout(buffer_reference, std430, scalar) readonly buffer EmitterBuffer
+layout(buffer_reference, scalar) readonly buffer EmitterBuffer
 {
 	Emitter emitters[];
 };
 
-layout(buffer_reference, std430, scalar) readonly buffer EmitterAliasTableBuffer
+layout(buffer_reference, scalar) readonly buffer EmitterAliasTableBuffer
 {
 	AliasTable emitter_alias_tables[];
 };
 
-layout(buffer_reference, std430, scalar) readonly buffer MeshAliasTableBuffer
+layout(buffer_reference, scalar) readonly buffer MeshAliasTableBuffer
 {
 	AliasTable mesh_alias_tables[];
 };
@@ -68,9 +68,9 @@ Vertex get_vertex(uint id)
     return vertex_buffer.vertices[id];
 }
 
-uvec3 get_prim(uint id)
+uint get_index(uint id)
 {
-	return index_buffer.indices[id];
+    return index_buffer.indices[id];
 }
 
 Material get_material(uint id)
