@@ -27,10 +27,10 @@ enum BlueNoiseSpp
 
 struct BlueNoise
 {
-	Texture scrambling_ranking_images[9];
-	Texture sobol_image;
-
+	Texture     scrambling_ranking_images[9];
 	VkImageView scrambling_ranking_image_views[9];
+
+	Texture     sobol_image;
 	VkImageView sobol_image_view = VK_NULL_HANDLE;
 
 	BlueNoise(const Context &context);
@@ -42,7 +42,27 @@ struct BlueNoise
 	{
 		VkDescriptorSetLayout layout = VK_NULL_HANDLE;
 		VkDescriptorSet       set    = VK_NULL_HANDLE;
-	}descriptor;
+	} descriptor;
+
+  private:
+	const Context *m_context = nullptr;
+};
+
+struct LUT
+{
+	Texture     ggx_image;
+	VkImageView ggx_view = VK_NULL_HANDLE;
+
+	LUT(const Context &context);
+
+	~LUT();
+
+  public:
+	struct
+	{
+		VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+		VkDescriptorSet       set    = VK_NULL_HANDLE;
+	} descriptor;
 
   private:
 	const Context *m_context = nullptr;

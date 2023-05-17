@@ -63,6 +63,41 @@ vec2 surface_point_reprojection(ivec2 coord, vec2 motion_vector, ivec2 size)
     return vec2(coord) + motion_vector.xy * vec2(size);
 }
 
+vec2 virtual_point_reprojection(ivec2 current_coord, ivec2 size, float depth, float ray_length, vec3 cam_pos, mat4 view_proj_inverse, mat4 prev_view_proj)
+{
+    const vec2 tex_coord  = current_coord / vec2(size);
+    vec3       ray_origin = world_position_from_depth(tex_coord, depth, view_proj_inverse);
+
+    vec3 camera_ray = ray_origin - cam_pos.xyz;
+
+    float camera_ray_length = length(camera_ray);
+    float reflection_ray_length = ray_length;
+
+    camera_ray = normalize(camera_ray);
+
+    vec3 parallax_hit_point = cam_pos.xyz + camera_ray * (camera_ray_length + reflection_ray_length);
+
+    vec4 reprojected_parallax_hit_point = prev_view_proj * vec4(parallax_hit_point, 1.0f);
+
+    reprojected_parallax_hit_point.xy /= reprojected_parallax_hit_point.w;
+
+    return (reprojected_parallax_hit_point.xy * 0.5 + 0.5) * vec2(size);
+}
+
+vec2 compute_history_coord(ivec2 current_coord, ivec2 size, float depth, vec2 motion, float curvature, float ray_length, vec3 cam_pos, mat4 view_proj_inverse, mat4 prev_view_proj)
+{
+    const vec2 surface_history_coord = surface_point_reprojection(current_coord, motion, size);
+
+    vec2 history_coord = surface_history_coord;
+
+    if (ray_length > 0.0 && curvature == 0.0)
+    {
+        history_coord = virtual_point_reprojection(current_coord, size, depth, ray_length, cam_pos, view_proj_inverse, prev_view_proj);
+    }
+
+    return history_coord;
+}
+
 bool reprojection(
     in ivec2 frag_coord,
     in float depth,
@@ -109,11 +144,24 @@ bool reprojection(
     const vec3 current_pos = world_position_from_depth(tex_coord, depth, view_projection_inv);
 
 #ifdef REPROJECTION_REFLECTION
+    const float curvature = gbufferC_data.g;
+    const vec2 vec2 history_tex_coord = tex_coord + current_motion;
+    const vec2 reprojected_coord = compute_history_coord(frag_coord, 
+                                                         ivec2(image_dim), 
+                                                         depth, 
+                                                         current_motion, 
+                                                         curvature, 
+                                                         ray_length, 
+                                                         cam_pos, 
+                                                         view_proj_inverse, 
+                                                         prev_view_proj);
+    const ivec2 history_coord = ivec2(reprojected_coord);                                                      
+    const vec2  history_coord_floor = reprojected_coord;             
 // TODO
 #else
-    const ivec2 prev_coord = ivec2(vec2(frag_coord) + current_motion.xy * image_size + vec2(0.5));
-    const vec2 prev_coord_floor = floor(vec2(frag_coord.xy)) + current_motion.xy * image_size;
-    const vec2 prev_tex_coord = tex_coord + current_motion.xy;
+    const ivec2 history_coord = ivec2(vec2(frag_coord) + current_motion.xy * image_size + vec2(0.5));
+    const vec2 history_coord_floor = floor(vec2(frag_coord.xy)) + current_motion.xy * image_size;
+    const vec2 history_tex_coord = tex_coord + current_motion.xy;
 #endif
 
 #ifdef REPROJECTION_SINGLE_COLOR_CHANNEL
@@ -121,7 +169,6 @@ bool reprojection(
 #else
     history_color = vec3(0.0);
 #endif
-
 #ifdef REPROJECTION_MOMENTS
     history_moments = vec2(0.0f);
 #endif
@@ -133,7 +180,7 @@ bool reprojection(
     bool valid = false;
     for(int sample_idx = 0; sample_idx < 4; sample_idx++)
     {
-        ivec2 loc = ivec2(prev_coord_floor) + offset[sample_idx];
+        ivec2 loc = ivec2(history_coord_floor) + offset[sample_idx];
 
         vec4 prev_gbufferB_data = texelFetch(sampler_prev_gbufferB, loc, g_buffer_mip);
         vec4 prev_gbufferC_data = texelFetch(sampler_prev_gbufferC, loc, g_buffer_mip);
@@ -141,9 +188,9 @@ bool reprojection(
 
         vec3 prev_normal = octohedral_to_direction(gbufferB_data.xy);
         uint prev_instance_id = uint(gbufferC_data.z);
-        vec3 prev_pos = world_position_from_depth(prev_tex_coord, prev_depth, view_projection_inv);
+        vec3 prev_pos = world_position_from_depth(history_tex_coord, prev_depth, view_projection_inv);
 
-        v[sample_idx] = is_reprojection_valid(prev_coord, current_pos, prev_pos, current_normal, prev_normal, current_instance_id, prev_instance_id, ivec2(image_size));
+        v[sample_idx] = is_reprojection_valid(history_coord, current_pos, prev_pos, current_normal, prev_normal, current_instance_id, prev_instance_id, ivec2(image_size));
 
         valid = valid || v[sample_idx];
     }
@@ -151,8 +198,8 @@ bool reprojection(
     if(valid)
     {
         float sum_w = 0.0;
-        float x = fract(prev_coord_floor.x);
-        float y = fract(prev_coord_floor.y);
+        float x = fract(history_coord_floor.x);
+        float y = fract(history_coord_floor.y);
 
         float w[4] = { (1 - x) * (1 - y), x * (1 - y), (1 - x) * y, x * y };
 
@@ -167,7 +214,7 @@ bool reprojection(
 
         for(int sample_idx = 0; sample_idx < 4; sample_idx++)
         {
-            ivec2 loc = ivec2(prev_coord_floor) + offset[sample_idx];
+            ivec2 loc = ivec2(history_coord_floor) + offset[sample_idx];
             if (v[sample_idx])
             {
 #ifdef REPROJECTION_SINGLE_COLOR_CHANNEL
@@ -201,7 +248,7 @@ bool reprojection(
         {
             for (int xx = -radius; xx <= radius; xx++)
             {
-                ivec2 p = ivec2(prev_coord) + ivec2(xx, yy);
+                ivec2 p = ivec2(history_coord) + ivec2(xx, yy);
 
                 vec4 prev_gbufferB_data = texelFetch(sampler_prev_gbufferB, p, g_buffer_mip);
                 vec4 prev_gbufferC_data = texelFetch(sampler_prev_gbufferC, p, g_buffer_mip);
@@ -209,9 +256,9 @@ bool reprojection(
 
                 vec3 prev_normal = octohedral_to_direction(gbufferB_data.xy);
                 uint prev_instance_id = uint(gbufferC_data.z);
-                vec3 prev_pos = world_position_from_depth(prev_tex_coord, prev_depth, view_projection_inv);
+                vec3 prev_pos = world_position_from_depth(history_tex_coord, prev_depth, view_projection_inv);
 
-                if (is_reprojection_valid(prev_coord, current_pos, prev_pos, current_normal, prev_normal, current_instance_id, prev_instance_id, ivec2(image_size)))
+                if (is_reprojection_valid(history_coord, current_pos, prev_pos, current_normal, prev_normal, current_instance_id, prev_instance_id, ivec2(image_size)))
                 {
 #ifdef REPROJECTION_SINGLE_COLOR_CHANNEL
                     history_color += texelFetch(sampler_history_output, p, 0).r;
@@ -238,9 +285,9 @@ bool reprojection(
     if(valid)
     {
 #ifdef REPROJECTION_MOMENTS
-        history_length = texelFetch(sampler_history_moments_length, prev_coord, 0).b;
+        history_length = texelFetch(sampler_history_moments_length, history_coord, 0).b;
 #else
-        history_length = texelFetch(sampler_history_length, prev_coord, 0).r;
+        history_length = texelFetch(sampler_history_length, history_coord, 0).r;
 #endif
     }
     else

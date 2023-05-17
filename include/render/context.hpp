@@ -81,6 +81,8 @@ struct Context
 
 	VkPhysicalDeviceProperties physical_device_properties;
 
+	VkSampler default_sampler = VK_NULL_HANDLE;
+
 	explicit Context(const ContextConfig &config);
 
 	~Context();

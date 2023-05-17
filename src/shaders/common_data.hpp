@@ -43,7 +43,8 @@ struct GlobalData
 	mat4 prev_projection;
 	mat4 prev_view_projection;
 	mat4 prev_view_projection_inv;
-	vec4 cam_pos;        // xyz - position, w - num_frames
+	vec4 cam_pos;             // xyz - position, w - num_frames
+	vec4 prev_cam_pos;        // xyz - position, w - padding
 	vec4 jitter;
 };
 
@@ -71,20 +72,57 @@ struct Instance
 
 struct Emitter
 {
-	vec4 p0;
-	vec4 p1;
-	vec4 p2;
+	float data[24];
 };
 
-#ifndef CPP
-void unpack_emitter(Emitter emitter, out vec3 p0, out vec3 p1, out vec3 p2, out vec3 intensity)
+#ifdef CPP
+inline Emitter pack_emitter(vec3 p0, vec3 p1, vec3 p2, vec3 n0, vec3 n1, vec3 n2, vec3 intensity)
 {
-	p0        = emitter.p0.xyz;
-	p1        = emitter.p1.xyz;
-	p2        = emitter.p2.xyz;
-	intensity = vec3(emitter.p0.w, emitter.p1.w, emitter.p2.w);
+	Emitter emitter = {
+	    .data = {
+	        p0.x,
+	        p0.y,
+	        p0.z,
+	        p1.x,
+	        p1.y,
+	        p1.z,
+	        p2.x,
+	        p2.y,
+	        p2.z,
+	        n0.x,
+	        n0.y,
+	        n0.z,
+	        n1.x,
+	        n1.y,
+	        n1.z,
+	        n2.x,
+	        n2.y,
+	        n2.z,
+	        intensity.x,
+	        intensity.y,
+	        intensity.z,
+	    },
+	};
+
+	return emitter;
 }
+#endif        // CPP
+
+#ifdef CPP
+inline void unpack_emitter(Emitter emitter, vec3 &p0, vec3 &p1, vec3 &p2, vec3 &n0, vec3 &n1, vec3 &n2, vec3 &intensity)
+#else
+void unpack_emitter(Emitter emitter, out vec3 p0, out vec3 p1, out vec3 p2, out vec3 n0, out vec3 n1, out vec3 n2, out vec3 intensity)
 #endif
+{
+	p0 = vec3(emitter.data[0], emitter.data[1], emitter.data[2]);
+	p1 = vec3(emitter.data[3], emitter.data[4], emitter.data[5]);
+	p2 = vec3(emitter.data[6], emitter.data[7], emitter.data[8]);
+	n0 = vec3(emitter.data[9], emitter.data[10], emitter.data[11]);
+	n1 = vec3(emitter.data[12], emitter.data[13], emitter.data[14]);
+	n2 = vec3(emitter.data[15], emitter.data[16], emitter.data[17]);
+
+	intensity = vec3(emitter.data[18], emitter.data[19], emitter.data[20]);
+}
 
 struct Material
 {

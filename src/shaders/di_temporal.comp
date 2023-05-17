@@ -24,6 +24,7 @@ layout(push_constant) uniform PushConstants
 	uint64_t passthrough_reservoir_addr;
     uint temporal_reuse;
     int M;
+    int clamp_threshold;
 }push_constants;
 
 void main()
@@ -93,7 +94,7 @@ void main()
                             {
                                 const uint prev_idx = uint(prev_frame_pos.x) * size.y + uint(prev_frame_pos.y);
                                 Reservoir prev_r = get_reservoir(push_constants.temporal_reservoir_addr, prev_idx);
-                                prev_r.num_samples = min(prev_r.num_samples, 20 * r.num_samples);
+                                prev_r.num_samples = min(prev_r.num_samples, push_constants.clamp_threshold * r.num_samples);
                                 if(prev_r.num_samples > 0)
                                 {
                                     float p_hat = eval_phat(prev_r.light_id, sstate);

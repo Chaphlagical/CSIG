@@ -4,6 +4,9 @@
 #include "shade_state.glsl"
 #include "random.glsl"
 
+#define MIRROR_REFLECTIONS_ROUGHNESS_THRESHOLD 0.05
+#define DIFFUSE_REFLECTIONS_ROUGHNESS_THRESHOLD 0.75
+
 struct BSDFSample
 {
 	vec3 L;

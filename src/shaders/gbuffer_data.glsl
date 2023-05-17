@@ -50,7 +50,7 @@ bool get_primary_state(vec2 frag_coord, int mip, out ShadeState sstate)
 	vec3 p = world_position_from_depth(frag_coord / vec2(image_size), depth, ubo.view_projection_inv);
 	vec3 n = octohedral_to_direction(gbufferB_data.rg);
 	material.base_color.rgb = gbufferA_data.rgb; 
-	material.roughness_factor = max(0.01, gbufferC_data.r);
+	material.roughness_factor = max(0.001, gbufferC_data.r);
 	material.metallic_factor = gbufferA_data.a;
 
 	sstate.normal = n;
@@ -67,8 +67,6 @@ bool get_primary_state(vec2 frag_coord, int mip, out ShadeState sstate)
 	sstate.primary = true;
 
 	return depth != 0;
-
-    return false;
 }
 
 bool get_prev_primary_state(vec2 frag_coord, int mip, out ShadeState sstate)
@@ -87,7 +85,7 @@ bool get_prev_primary_state(vec2 frag_coord, int mip, out ShadeState sstate)
 	vec3 p = world_position_from_depth(frag_coord / vec2(image_size), depth, ubo.prev_view_projection_inv);
 	vec3 n = octohedral_to_direction(gbufferB_data.rg);
 	material.base_color.rgb = gbufferA_data.rgb; 
-	material.roughness_factor = max(0.01, gbufferC_data.r);
+	material.roughness_factor = max(0.001, gbufferC_data.r);
 	material.metallic_factor = gbufferA_data.a;
 
 	sstate.normal = n;
@@ -104,7 +102,5 @@ bool get_prev_primary_state(vec2 frag_coord, int mip, out ShadeState sstate)
 	sstate.primary = true;
 
 	return depth != 0;
-
-    return false;
 }
 #endif

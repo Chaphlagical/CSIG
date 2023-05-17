@@ -42,6 +42,9 @@ struct Scene
 	std::vector<Texture>     textures;
 	std::vector<VkImageView> texture_views;
 
+	Texture     ggx_preintegration;
+	VkImageView ggx_preintegration_view = VK_NULL_HANDLE;
+
 	Envmap envmap;
 
 	VkSampler linear_sampler  = VK_NULL_HANDLE;
@@ -64,10 +67,10 @@ struct Scene
 	{
 		VkDescriptorSetLayout layout = VK_NULL_HANDLE;
 		VkDescriptorSet       set    = VK_NULL_HANDLE;
-	}descriptor;
+	} descriptor;
+
   private:
 	void destroy_scene();
-
 	void destroy_envmap();
 
   private:

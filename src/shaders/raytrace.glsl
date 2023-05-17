@@ -277,16 +277,15 @@ LightSample sample_light_idx(ShadeState sstate, uint idx)
 	if(idx < scene_data.emitter_count)
 	{
 		Emitter emitter = get_emitter(idx);
-
-		vec3 p0, p1, p2, intensity;
-		unpack_emitter(emitter, p0, p1, p2, intensity);
+		vec3 p0, p1, p2, n0, n1, n2, intensity;
+		unpack_emitter(emitter, p0, p1, p2, n0, n1, n2, intensity);
 
 		float area = 0.5 * length(cross(p1 - p0, p2 - p1));
 		float a = sqrt(rand(prd.seed));
 		float b = a * rand(prd.seed);
 		
 		ls.pos = p0.xyz + (p1 - p0).xyz * (1.0 - a) + (p2 - p0).xyz * b;
-		ls.norm = normalize(cross(p1 - p0, p2 - p1));
+		ls.norm = normalize(n0.xyz + (n1 - n0).xyz * (1.0 - a) + (n2 - n0).xyz * b);
 		ls.dir = normalize(ls.pos - sstate.position);
 		ls.dist = length(ls.pos - sstate.position);
 		ls.le = intensity;

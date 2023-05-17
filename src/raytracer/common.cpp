@@ -251,14 +251,14 @@ BlueNoise::BlueNoise(const Context &context) :
 			    // Scrambling Ranking
 			    {
 			        .binding         = 0,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 			        .descriptorCount = 9,
 			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 			    },
 			    // Sobol Image
 			    {
 			        .binding         = 1,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 			        .descriptorCount = 1,
 			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 			    },
@@ -290,13 +290,13 @@ BlueNoise::BlueNoise(const Context &context) :
 			for (auto &view : scrambling_ranking_image_views)
 			{
 				scrambling_ranking_infos.push_back(VkDescriptorImageInfo{
-				    .sampler     = VK_NULL_HANDLE,
+				    .sampler     = m_context->default_sampler,
 				    .imageView   = view,
 				    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 				});
 			}
 			VkDescriptorImageInfo sobol_info = {
-			    .sampler     = VK_NULL_HANDLE,
+			    .sampler     = m_context->default_sampler,
 			    .imageView   = sobol_image_view,
 			    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			};
@@ -307,7 +307,7 @@ BlueNoise::BlueNoise(const Context &context) :
 			        .dstBinding       = 0,
 			        .dstArrayElement  = 0,
 			        .descriptorCount  = 9,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 			        .pImageInfo       = scrambling_ranking_infos.data(),
 			        .pBufferInfo      = nullptr,
 			        .pTexelBufferView = nullptr,
@@ -318,7 +318,7 @@ BlueNoise::BlueNoise(const Context &context) :
 			        .dstBinding       = 1,
 			        .dstArrayElement  = 0,
 			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 			        .pImageInfo       = &sobol_info,
 			        .pBufferInfo      = nullptr,
 			        .pTexelBufferView = nullptr,
@@ -344,6 +344,78 @@ BlueNoise::~BlueNoise()
 		image.vma_allocation = VK_NULL_HANDLE;
 	}
 	vmaDestroyImage(m_context->vma_allocator, sobol_image.vk_image, sobol_image.vma_allocation);
+	vkDestroyDescriptorSetLayout(m_context->vk_device, descriptor.layout, nullptr);
+	vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 1, &descriptor.set);
+}
+
+LUT::LUT(const Context &context):
+    m_context(&context)
+{
+	std::tie(ggx_image, ggx_view) = load_texture(*m_context, "assets/textures/lut/brdf_lut.png");
+	m_context->set_object_name(VK_OBJECT_TYPE_IMAGE, (uint64_t) ggx_image.vk_image, "GGX LUT");
+	m_context->set_object_name(VK_OBJECT_TYPE_IMAGE_VIEW, (uint64_t) ggx_view, "GGX View");
+
+	{
+		// Create descriptor set layout
+		{
+			VkDescriptorSetLayoutBinding bindings[] = {
+			    // GGX LUT
+			    {
+			        .binding         = 0,
+			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			        .descriptorCount = 1,
+			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+			    },
+			};
+			VkDescriptorSetLayoutCreateInfo create_info = {
+			    .sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+			    .bindingCount = 1,
+			    .pBindings    = bindings,
+			};
+			vkCreateDescriptorSetLayout(m_context->vk_device, &create_info, nullptr, &descriptor.layout);
+		}
+
+		// Allocate descriptor set
+		{
+			VkDescriptorSetAllocateInfo allocate_info = {
+			    .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+			    .pNext              = nullptr,
+			    .descriptorPool     = m_context->vk_descriptor_pool,
+			    .descriptorSetCount = 1,
+			    .pSetLayouts        = &descriptor.layout,
+			};
+			vkAllocateDescriptorSets(m_context->vk_device, &allocate_info, &descriptor.set);
+		}
+
+		// Update descriptor set
+		{
+			VkDescriptorImageInfo ggx_info = {
+			    .sampler     = m_context->default_sampler,
+			    .imageView   = ggx_view,
+			    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			};
+			VkWriteDescriptorSet writes[] = {
+			    {
+			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			        .dstSet           = descriptor.set,
+			        .dstBinding       = 0,
+			        .dstArrayElement  = 0,
+			        .descriptorCount  = 1,
+			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			        .pImageInfo       = &ggx_info,
+			        .pBufferInfo      = nullptr,
+			        .pTexelBufferView = nullptr,
+			    },
+			};
+			vkUpdateDescriptorSets(m_context->vk_device, 1, writes, 0, nullptr);
+		}
+	}
+}
+
+LUT::~LUT()
+{
+	vkDestroyImageView(m_context->vk_device, ggx_view, nullptr);
+	vmaDestroyImage(m_context->vma_allocator, ggx_image.vk_image, ggx_image.vma_allocation);
 	vkDestroyDescriptorSetLayout(m_context->vk_device, descriptor.layout, nullptr);
 	vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 1, &descriptor.set);
 }

@@ -795,6 +795,26 @@ Context::Context(const ContextConfig &config)
 			vkCreateDescriptorPool(vk_device, &pool_info, nullptr, &vk_descriptor_pool);
 		}
 	}
+
+	// Create default sampler
+	VkSamplerCreateInfo sampler_create_info = {
+	    .sType            = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+	    .magFilter        = VK_FILTER_LINEAR,
+	    .minFilter        = VK_FILTER_LINEAR,
+	    .mipmapMode       = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+	    .addressModeU     = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+	    .addressModeV     = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+	    .addressModeW     = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+	    .mipLodBias       = 0.f,
+	    .anisotropyEnable = VK_FALSE,
+	    .maxAnisotropy    = 1.f,
+	    .compareEnable    = VK_FALSE,
+	    .compareOp        = VK_COMPARE_OP_NEVER,
+	    .minLod           = 0.f,
+	    .maxLod           = 12.f,
+	    .borderColor      = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
+	};
+	vkCreateSampler(vk_device, &sampler_create_info, nullptr, &default_sampler);
 }
 
 Context::~Context()
@@ -804,6 +824,8 @@ Context::~Context()
 	// Destroy window
 	glfwDestroyWindow(window);
 	glfwTerminate();
+
+	vkDestroySampler(vk_device, default_sampler, nullptr);
 
 	for (auto &view : swapchain_image_views)
 	{

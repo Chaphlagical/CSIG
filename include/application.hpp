@@ -4,6 +4,7 @@
 #include "render/context.hpp"
 #include "render/pipeline/gbuffer.hpp"
 #include "render/pipeline/pathtracing.hpp"
+#include "render/pipeline/raytraced_reflection.hpp"
 // #include "render/pipeline/raytraced_ao.hpp"
 #include "render/pipeline/raytraced_di.hpp"
 #include "render/pipeline/tonemap.hpp"
@@ -16,10 +17,10 @@ struct ApplicationConfig
 {
 	ContextConfig context_config;
 
-	//std::string scene_file = "assets/scenes/Deferred/Deferred.gltf";
-	// std::string scene_file = "assets/scenes/test.glb";
-	 std::string scene_file = "assets/scenes/conell_box.glb";
-	std::string hdr_file = "assets/textures/hdr/BasketballCourt_3k.hdr";
+	// std::string scene_file = "assets/scenes/Deferred/Deferred.gltf";
+	//  std::string scene_file = "assets/scenes/test.glb";
+	std::string scene_file = "assets/scenes/conell_box.glb";
+	std::string hdr_file   = "assets/textures/hdr/BasketballCourt_3k.hdr";
 };
 
 class Application
@@ -42,16 +43,19 @@ class Application
   private:
 	Context m_context;
 
-	Scene m_scene;
+	Scene     m_scene;
+	BlueNoise m_blue_noise;
+	LUT       m_lut;
 
 	std::array<VkCommandBuffer, 3> m_cmd_buffers = {VK_NULL_HANDLE};
 
 	struct
 	{
-		UI          ui;
-		GBufferPass gbuffer_pass;
-		PathTracing path_tracing;
-		RayTracedDI raytraced_di;
+		UI                  ui;
+		GBufferPass         gbuffer_pass;
+		PathTracing         path_tracing;
+		RayTracedDI         raytraced_di;
+		RayTracedReflection raytraced_reflection;
 		// RayTracedAO raytraced_ao;
 		//  RayTracedGI raytraced_gi;
 		Tonemap tonemap;
@@ -71,13 +75,12 @@ class Application
 		glm::mat4 view_proj     = glm::mat4(1.f);
 		glm::mat4 view_proj_inv = glm::mat4(1.f);
 
+		glm::vec3 prev_position      = glm::vec3(0.f);
 		glm::mat4 prev_view          = glm::mat4(1.f);
 		glm::mat4 prev_proj          = glm::mat4(1.f);
 		glm::mat4 prev_view_proj     = glm::mat4(1.f);
 		glm::mat4 prev_view_proj_inv = glm::mat4(1.f);
 	} m_camera;
-
-	BlueNoise m_blue_noise;
 
 	uint32_t m_current_frame = 0;
 	uint32_t m_num_frames    = 0;

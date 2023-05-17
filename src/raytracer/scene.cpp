@@ -733,6 +733,8 @@ Scene::Scene(const Context &context) :
 		    0,
 		    VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
 		    0,
+		    0,
+		    0,
 		};
 		VkDescriptorSetLayoutBinding bindings[] = {
 		    // Global buffer
@@ -770,17 +772,31 @@ Scene::Scene(const Context &context) :
 		        .descriptorCount = 1,
 		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 		    },
+		    // Irradiance SH
+		    {
+		        .binding         = 5,
+		        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .descriptorCount = 1,
+		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+		    },
+		    // Prefilter Map
+		    {
+		        .binding         = 6,
+		        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .descriptorCount = 1,
+		        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+		    },
 		};
 		VkDescriptorSetLayoutBindingFlagsCreateInfo descriptor_set_layout_binding_flag_create_info = {
 		    .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
-		    .bindingCount  = 5,
+		    .bindingCount  = 7,
 		    .pBindingFlags = descriptor_binding_flags,
 		};
 		VkDescriptorSetLayoutCreateInfo create_info = {
 		    .sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 		    .pNext        = &descriptor_set_layout_binding_flag_create_info,
 		    .flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
-		    .bindingCount = 5,
+		    .bindingCount = 7,
 		    .pBindings    = bindings,
 		};
 		vkCreateDescriptorSetLayout(m_context->vk_device, &create_info, nullptr, &descriptor.layout);
@@ -1039,12 +1055,13 @@ void Scene::load_scene(const std::string &filename)
 							glm::vec3 p1 = instance.transform * glm::vec4(glm::vec3(vertices[mesh.vertices_offset + i1].position), 1.f);
 							glm::vec3 p2 = instance.transform * glm::vec4(glm::vec3(vertices[mesh.vertices_offset + i2].position), 1.f);
 
-							emitters.push_back(
-							    Emitter{
-							        .p0 = glm::vec4(p0, materials[mesh.material].emissive_factor.r),
-							        .p1 = glm::vec4(p1, materials[mesh.material].emissive_factor.g),
-							        .p2 = glm::vec4(p2, materials[mesh.material].emissive_factor.b),
-							    });
+							glm::mat3 normal_mat = glm::mat3(glm::transpose(glm::inverse(instance.transform)));
+
+							glm::vec3 n0 = glm::normalize(normal_mat * glm::vec3(vertices[mesh.vertices_offset + i0].normal));
+							glm::vec3 n1 = glm::normalize(normal_mat * glm::vec3(vertices[mesh.vertices_offset + i1].normal));
+							glm::vec3 n2 = glm::normalize(normal_mat * glm::vec3(vertices[mesh.vertices_offset + i2].normal));
+
+							emitters.push_back(pack_emitter(p0, p1, p2, n0, n1, n2, materials[mesh.material].emissive_factor));
 						}
 						instance.emitter = emitter_offset;
 					}
@@ -1088,14 +1105,12 @@ void Scene::load_scene(const std::string &filename)
 			std::vector<float> emitter_probs(emitters.size());
 			for (uint32_t i = 0; i < emitters.size(); i++)
 			{
-				glm::vec3 p0        = emitters[i].p0;
-				glm::vec3 p1        = emitters[i].p1;
-				glm::vec3 p2        = emitters[i].p2;
+				glm::vec3 p0, p1, p2, n0, n1, n2, intensity;
+				unpack_emitter(emitters[i], p0, p1, p2, n0, n1, n2, intensity);
 
-				glm::vec3 intensity = glm::vec3(emitters[i].p0.w, emitters[i].p1.w, emitters[i].p2.w);
-				float     area      = glm::length(glm::cross(p1 - p0, p2 - p1)) * 0.5f;
+				float area = glm::length(glm::cross(p1 - p0, p2 - p1)) * 0.5f;
 
-				emitter_probs[i] = glm::dot(intensity, glm::vec3(0.212671f, 0.715160f, 0.072169f)) * area;
+				emitter_probs[i] = glm::dot(glm::vec3(intensity), glm::vec3(0.212671f, 0.715160f, 0.072169f)) * area;
 				total_weight += emitter_probs[i];
 			}
 
@@ -2648,7 +2663,7 @@ void Scene::load_envmap(const std::string &filename)
 		vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, prefilter_map.pipeline);
 		for (int32_t i = 0; i < PREFILTER_MIP_LEVELS; i++)
 		{
-			uint32_t mip_size = PREFILTER_MAP_SIZE * std::pow(0.5, i);
+			uint32_t mip_size = static_cast<uint32_t>(PREFILTER_MAP_SIZE * std::pow(0.5f, i));
 			vkCmdPushConstants(cmd_buffer, prefilter_map.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(int32_t), &i);
 			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, prefilter_map.pipeline_layout, 0, 1, &prefilter_map.descriptor_sets[i], 0, nullptr);
 			vkCmdDispatch(cmd_buffer, mip_size / 8, mip_size / 8, 6);
@@ -2780,6 +2795,16 @@ void Scene::update_descriptor()
 	    .imageView   = envmap.texture_view,
 	    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 	};
+	VkDescriptorImageInfo irradiance_sh_info = {
+	    .sampler     = linear_sampler,
+	    .imageView   = envmap.irradiance_sh_view,
+	    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	};
+	VkDescriptorImageInfo prefilter_map_info = {
+	    .sampler     = linear_sampler,
+	    .imageView   = envmap.prefilter_map_view,
+	    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	};
 	VkWriteDescriptorSetAccelerationStructureKHR as_write = {
 	    .sType                      = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR,
 	    .accelerationStructureCount = 1,
@@ -2842,8 +2867,30 @@ void Scene::update_descriptor()
 	        .pBufferInfo      = nullptr,
 	        .pTexelBufferView = nullptr,
 	    },
+	    {
+	        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+	        .dstSet           = descriptor.set,
+	        .dstBinding       = 5,
+	        .dstArrayElement  = 0,
+	        .descriptorCount  = 1,
+	        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+	        .pImageInfo       = &irradiance_sh_info,
+	        .pBufferInfo      = nullptr,
+	        .pTexelBufferView = nullptr,
+	    },
+	    {
+	        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+	        .dstSet           = descriptor.set,
+	        .dstBinding       = 6,
+	        .dstArrayElement  = 0,
+	        .descriptorCount  = 1,
+	        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+	        .pImageInfo       = &prefilter_map_info,
+	        .pBufferInfo      = nullptr,
+	        .pTexelBufferView = nullptr,
+	    },
 	};
-	vkUpdateDescriptorSets(m_context->vk_device, 5, writes, 0, nullptr);
+	vkUpdateDescriptorSets(m_context->vk_device, 7, writes, 0, nullptr);
 }
 
 void Scene::destroy_scene()

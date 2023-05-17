@@ -3,6 +3,8 @@
 
 #include "common_data.hpp"
 
+#define PREFILTER_MIP_LEVELS 5
+
 layout(set = 0, binding = 0, scalar) uniform GlobalUBO
 {
     GlobalData ubo;
@@ -14,6 +16,8 @@ layout(set = 0, binding = 2, scalar) uniform SceneBuffer
 };
 layout(set = 0, binding = 3) uniform sampler2D textures[];
 layout(set = 0, binding = 4) uniform samplerCube skybox;
+layout(set = 0, binding = 5) uniform sampler2D irradiance_sh;
+layout(set = 0, binding = 6) uniform samplerCube prefilter_map;
 
 layout(buffer_reference, scalar) readonly buffer InstanceBuffer
 {

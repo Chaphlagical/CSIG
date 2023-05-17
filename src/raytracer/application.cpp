@@ -42,16 +42,18 @@ bool is_key_pressed(GLFWwindow *window, uint32_t keycode)
 Application::Application(const ApplicationConfig &config) :
     m_context(config.context_config),
     m_scene(m_context),
+    m_blue_noise(m_context),
+    m_lut(m_context),
     m_renderer{
         .ui{m_context},
         .gbuffer_pass{m_context},
         .path_tracing{m_context, m_scene, m_renderer.gbuffer_pass},
         .raytraced_di{m_context, m_scene, m_renderer.gbuffer_pass},
+        .raytraced_reflection{m_context, m_scene, m_renderer.gbuffer_pass, m_blue_noise, m_lut},
         //.raytraced_ao{m_context},
         //.raytraced_gi{m_context},
         .tonemap{m_context},
-    },
-    m_blue_noise(m_context)
+    }
 {
 	m_scene.load_scene(config.scene_file);
 	m_scene.load_envmap(config.hdr_file);
@@ -105,6 +107,7 @@ Application::Application(const ApplicationConfig &config) :
 		m_renderer.gbuffer_pass.init(cmd_buffer);
 		// m_renderer.raytraced_ao.init(cmd_buffer);
 		m_renderer.raytraced_di.init(cmd_buffer);
+		m_renderer.raytraced_reflection.init(cmd_buffer);
 		// m_renderer.raytraced_gi.init(cmd_buffer);
 		m_renderer.path_tracing.init(cmd_buffer);
 		m_renderer.tonemap.init(cmd_buffer);
@@ -274,8 +277,8 @@ void Application::update_ui()
 		{
 			case RenderMode::Hybrid:
 				ui_update |= m_renderer.raytraced_di.draw_ui();
-				// ui_update |= m_renderer.raytraced_ao.draw_ui();
-				// ui_update |= m_renderer.raytraced_gi.draw_ui();
+				// ui_update |= m_renderer.raytraced_reflection.draw_ui();
+				//  ui_update |= m_renderer.raytraced_gi.draw_ui();
 				break;
 			case RenderMode::PathTracing:
 				ui_update |= m_renderer.path_tracing.draw_ui();
@@ -385,7 +388,8 @@ void Application::update(VkCommandBuffer cmd_buffer)
 		m_renderer.path_tracing.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
 		// m_renderer.raytraced_ao.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
 		m_renderer.raytraced_di.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
-		m_renderer.tonemap.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, m_renderer.raytraced_di.output_view);
+		m_renderer.raytraced_reflection.update(m_scene, m_renderer.gbuffer_pass, m_blue_noise, m_lut);
+		m_renderer.tonemap.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, m_renderer.raytraced_reflection.raytraced_view);
 		// m_renderer.tonemap.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, *m_renderer.path_tracing.path_tracing_image_view);
 	}
 
@@ -406,6 +410,7 @@ void Application::update(VkCommandBuffer cmd_buffer)
 		    .prev_view_projection     = m_camera.prev_view_proj,
 		    .prev_view_projection_inv = m_camera.prev_view_proj_inv,
 		    .cam_pos                  = glm::vec4(m_camera.position, static_cast<float>(m_num_frames)),
+		    .prev_cam_pos             = glm::vec4(m_camera.prev_position, 0.f),
 		    .jitter                   = glm::vec4(m_current_jitter, m_prev_jitter),
 		};
 		m_camera.prev_view_proj     = m_camera.view_proj;
@@ -466,6 +471,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 		case RenderMode::Hybrid:
 			// m_renderer.raytraced_ao.draw(cmd_buffer);
 			m_renderer.raytraced_di.draw(cmd_buffer, m_scene, m_renderer.gbuffer_pass);
+			m_renderer.raytraced_reflection.draw(cmd_buffer, m_scene, m_renderer.gbuffer_pass, m_blue_noise, m_lut);
 			break;
 		case RenderMode::PathTracing:
 			m_renderer.path_tracing.draw(cmd_buffer, m_scene, m_renderer.gbuffer_pass);

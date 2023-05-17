@@ -37,9 +37,8 @@ struct RayTracedDI
   private:
 	const Context *m_context = nullptr;
 
-	float m_normal_bias    = 0.0001f;
-	bool  m_spatial_reuse  = false;
-	bool  m_temporal_reuse = false;
+	bool m_spatial_reuse  = true;
+	bool m_temporal_reuse = true;
 
 	struct
 	{
@@ -49,6 +48,7 @@ struct RayTracedDI
 			uint64_t passthrough_reservoir_addr = 0;
 			uint32_t temporal_reuse             = 0;
 			int32_t  M                          = 4;
+			int32_t  clamp_threshold            = 4;
 		} push_constants;
 
 		VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
@@ -63,7 +63,7 @@ struct RayTracedDI
 			uint64_t spatial_reservoir_addr     = 0;
 			uint32_t spatial_reuse              = 0;
 			float    radius                     = 10.f;
-			int32_t samples                     = 5;
+			int32_t  samples                    = 5;
 		} push_constants;
 
 		VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
