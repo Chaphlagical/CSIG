@@ -11,6 +11,8 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 
+#include "render/pipeline/fsr.hpp"
+
 #include <vector>
 
 static VkDebugUtilsMessengerEXT vkDebugUtilsMessengerEXT;
@@ -229,6 +231,15 @@ Context::Context(const ContextConfig &config)
 			extent.height = config.height;
 		}
 
+		if (config.useFSR)
+		{
+			renderExtent = FSR::get_render_extent(config.FSRScaleFactor, extent);
+		}
+		else
+		{
+			renderExtent = extent;
+		}
+
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
@@ -365,6 +376,9 @@ Context::Context(const ContextConfig &config)
 		    VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME,
 		    VK_KHR_SPIRV_1_4_EXTENSION_NAME,
 		    VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME,
+
+			// Used for FSR
+		    VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME,
 		};
 
 		// Init vulkan physical device
@@ -650,6 +664,16 @@ Context::Context(const ContextConfig &config)
 			actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
 
 			extent = actualExtent;
+		}
+
+		// fix the renderExtent, if we had the extent changed
+		if (config.useFSR)
+		{
+			renderExtent = FSR::get_render_extent(config.FSRScaleFactor, extent);
+		}
+		else
+		{
+			renderExtent = extent;
 		}
 
 		assert(capabilities.maxImageCount >= 3);

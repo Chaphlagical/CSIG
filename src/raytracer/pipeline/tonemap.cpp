@@ -17,7 +17,7 @@ Tonemap::Tonemap(const Context &context) :
 		    .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 		    .imageType     = VK_IMAGE_TYPE_2D,
 		    .format        = VK_FORMAT_R8G8B8A8_UNORM,
-		    .extent        = VkExtent3D{m_context->extent.width, m_context->extent.height, 1},
+		    .extent        = VkExtent3D{m_context->renderExtent.width, m_context->renderExtent.height, 1},
 		    .mipLevels     = 1,
 		    .arrayLayers   = 1,
 		    .samples       = VK_SAMPLE_COUNT_1_BIT,
@@ -282,7 +282,12 @@ void Tonemap::draw(VkCommandBuffer cmd_buffer)
 		}
 		vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline);
 		vkCmdPushConstants(cmd_buffer, m_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_push_constants), &m_push_constants);
-		vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_context->extent.width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_context->extent.height) / float(NUM_THREADS_Y))), 1);
+		vkCmdDispatch(
+			cmd_buffer,
+		    static_cast<uint32_t>(ceil(float(m_context->renderExtent.width) / float(NUM_THREADS_X))),
+		    static_cast<uint32_t>(ceil(float(m_context->renderExtent.height) / float(NUM_THREADS_Y))),
+			1
+		);
 	}
 	m_context->end_marker(cmd_buffer);
 }

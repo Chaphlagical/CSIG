@@ -20,7 +20,7 @@ static unsigned char g_di_composite_comp_spv_data[] = {
 RayTracedDI::RayTracedDI(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass) :
     m_context(&context)
 {
-	size_t reservoir_size = static_cast<size_t>(context.extent.width * context.extent.height) * sizeof(Reservoir);
+	size_t reservoir_size = static_cast<size_t>(context.renderExtent.width * context.renderExtent.height) * sizeof(Reservoir);
 	{
 		VkBufferCreateInfo buffer_create_info = {
 		    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -66,7 +66,7 @@ RayTracedDI::RayTracedDI(const Context &context, const Scene &scene, const GBuff
 		    .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 		    .imageType     = VK_IMAGE_TYPE_2D,
 		    .format        = VK_FORMAT_R32G32B32A32_SFLOAT,
-		    .extent        = VkExtent3D{static_cast<uint32_t>(context.extent.width), static_cast<uint32_t>(context.extent.height), 1},
+		    .extent        = VkExtent3D{static_cast<uint32_t>(context.renderExtent.width), static_cast<uint32_t>(context.renderExtent.height), 1},
 		    .mipLevels     = 1,
 		    .arrayLayers   = 1,
 		    .samples       = VK_SAMPLE_COUNT_1_BIT,
@@ -462,7 +462,12 @@ void RayTracedDI::draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBu
 			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_pass.pipeline_layout, 0, 2, descriptors, 0, nullptr);
 			vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_pass.pipeline);
 			vkCmdPushConstants(cmd_buffer, m_temporal_pass.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_temporal_pass.push_constants), &m_temporal_pass.push_constants);
-			vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_context->extent.width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_context->extent.height) / float(NUM_THREADS_Y))), 1);
+			vkCmdDispatch(
+				cmd_buffer,
+			    static_cast<uint32_t>(ceil(float(m_context->renderExtent.width) / float(NUM_THREADS_X))),
+			    static_cast<uint32_t>(ceil(float(m_context->renderExtent.height) / float(NUM_THREADS_Y))),
+				1
+			);
 		}
 		m_context->end_marker(cmd_buffer);
 
@@ -510,7 +515,12 @@ void RayTracedDI::draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBu
 			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_spatial_pass.pipeline_layout, 0, 2, descriptors, 0, nullptr);
 			vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_spatial_pass.pipeline);
 			vkCmdPushConstants(cmd_buffer, m_spatial_pass.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_spatial_pass.push_constants), &m_spatial_pass.push_constants);
-			vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_context->extent.width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_context->extent.height) / float(NUM_THREADS_Y))), 1);
+			vkCmdDispatch(
+				cmd_buffer,
+			    static_cast<uint32_t>(ceil(float(m_context->renderExtent.width) / float(NUM_THREADS_X))),
+			    static_cast<uint32_t>(ceil(float(m_context->renderExtent.height) / float(NUM_THREADS_Y))),
+				1
+			);
 		}
 		m_context->end_marker(cmd_buffer);
 
@@ -578,7 +588,12 @@ void RayTracedDI::draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBu
 			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_composite_pass.pipeline_layout, 0, 3, descriptors, 0, nullptr);
 			vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_composite_pass.pipeline);
 			vkCmdPushConstants(cmd_buffer, m_composite_pass.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_composite_pass.push_constants), &m_composite_pass.push_constants);
-			vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_context->extent.width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_context->extent.height) / float(NUM_THREADS_Y))), 1);
+			vkCmdDispatch(
+				cmd_buffer,
+			    static_cast<uint32_t>(ceil(float(m_context->renderExtent.width) / float(NUM_THREADS_X))),
+			    static_cast<uint32_t>(ceil(float(m_context->renderExtent.height) / float(NUM_THREADS_Y))),
+				1
+			);
 		}
 		m_context->end_marker(cmd_buffer);
 

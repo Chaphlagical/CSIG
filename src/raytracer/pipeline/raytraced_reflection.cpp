@@ -24,8 +24,8 @@ RayTracedReflection::RayTracedReflection(const Context &context, const Scene &sc
 {
 	float scale_divisor = powf(2.0f, float(scale));
 
-	m_width  = static_cast<uint32_t>(static_cast<float>(context.extent.width) / scale_divisor);
-	m_height = static_cast<uint32_t>(static_cast<float>(context.extent.height) / scale_divisor);
+	m_width  = static_cast<uint32_t>(static_cast<float>(context.renderExtent.width) / scale_divisor);
+	m_height = static_cast<uint32_t>(static_cast<float>(context.renderExtent.height) / scale_divisor);
 
 	m_gbuffer_mip = static_cast<uint32_t>(scale);
 
@@ -230,7 +230,7 @@ RayTracedReflection::RayTracedReflection(const Context &context, const Scene &sc
 		    .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 		    .imageType     = VK_IMAGE_TYPE_2D,
 		    .format        = VK_FORMAT_R16G16B16A16_SFLOAT,
-		    .extent        = VkExtent3D{m_context->extent.width, m_context->extent.height, 1},
+		    .extent        = VkExtent3D{m_context->renderExtent.width, m_context->renderExtent.height, 1},
 		    .mipLevels     = 1,
 		    .arrayLayers   = 1,
 		    .samples       = VK_SAMPLE_COUNT_1_BIT,

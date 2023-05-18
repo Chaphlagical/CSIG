@@ -8,6 +8,7 @@
 // #include "render/pipeline/raytraced_ao.hpp"
 #include "render/pipeline/raytraced_di.hpp"
 #include "render/pipeline/tonemap.hpp"
+#include "render/pipeline/fsr.hpp"
 #include "render/pipeline/ui/ui.hpp"
 #include "render/scene.hpp"
 
@@ -59,6 +60,7 @@ class Application
 		// RayTracedAO raytraced_ao;
 		//  RayTracedGI raytraced_gi;
 		Tonemap tonemap;
+		FSR fsr;
 	} m_renderer;
 
 	struct

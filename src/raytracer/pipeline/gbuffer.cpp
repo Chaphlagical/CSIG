@@ -13,8 +13,8 @@ static unsigned char g_gbuffer_frag_spv_data[] = {
 GBufferPass::GBufferPass(const Context &context) :
     m_context(&context)
 {
-	width     = context.extent.width;
-	height    = context.extent.height;
+	width     = context.renderExtent.width;
+	height    = context.renderExtent.height;
 	mip_level = static_cast<uint32_t>(std::floor(std::log2(std::max(width, height))) + 1);
 
 	// Create shader module

@@ -53,6 +53,7 @@ Application::Application(const ApplicationConfig &config) :
         //.raytraced_ao{m_context},
         //.raytraced_gi{m_context},
         .tonemap{m_context},
+        .fsr{m_context}
     }
 {
 	m_scene.load_scene(config.scene_file);
@@ -368,7 +369,7 @@ void Application::update(VkCommandBuffer cmd_buffer)
 		              0, 1, 0, 0,
 		              0, 0, -1, 0,
 		              0, 0, 1, 1) *
-		    glm::perspective(glm::radians(60.f), static_cast<float>(m_context.extent.width) / static_cast<float>(m_context.extent.height), CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE);
+		    glm::perspective(glm::radians(60.f), static_cast<float>(m_context.renderExtent.width) / static_cast<float>(m_context.renderExtent.height), CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE);
 		m_renderer.path_tracing.reset_frames();
 	}
 	else
@@ -376,7 +377,7 @@ void Application::update(VkCommandBuffer cmd_buffer)
 		m_camera.velocity = glm::vec3(0.f);
 		m_prev_jitter     = m_current_jitter;
 		glm::vec2 halton  = m_jitter_samples[m_num_frames % m_jitter_samples.size()];
-		m_current_jitter  = glm::vec2(halton.x / float(m_context.extent.width), halton.y / float(m_context.extent.height));
+		m_current_jitter  = glm::vec2(halton.x / float(m_context.renderExtent.width), halton.y / float(m_context.renderExtent.height));
 
 		hide_cursor = false;
 	}
