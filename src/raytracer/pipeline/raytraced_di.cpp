@@ -38,8 +38,8 @@ RayTracedDI::RayTracedDI(const Context &context, const Scene &scene, const GBuff
 {
 	float scale_divisor = powf(2.0f, float(scale));
 
-	m_width  = static_cast<uint32_t>(static_cast<float>(context.extent.width) / scale_divisor);
-	m_height = static_cast<uint32_t>(static_cast<float>(context.extent.height) / scale_divisor);
+	m_width  = static_cast<uint32_t>(static_cast<float>(context.renderExtent.width) / scale_divisor);
+	m_height = static_cast<uint32_t>(static_cast<float>(context.renderExtent.height) / scale_divisor);
 
 	m_gbuffer_mip = static_cast<uint32_t>(scale);
 
@@ -1702,7 +1702,12 @@ void RayTracedDI::draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBu
 			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_pass.pipeline_layout, 0, 2, descriptors, 0, nullptr);
 			vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_temporal_pass.pipeline);
 			vkCmdPushConstants(cmd_buffer, m_temporal_pass.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_temporal_pass.push_constants), &m_temporal_pass.push_constants);
-			vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_context->extent.width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_context->extent.height) / float(NUM_THREADS_Y))), 1);
+			vkCmdDispatch(
+				cmd_buffer,
+			    static_cast<uint32_t>(ceil(float(m_context->renderExtent.width) / float(NUM_THREADS_X))),
+			    static_cast<uint32_t>(ceil(float(m_context->renderExtent.height) / float(NUM_THREADS_Y))),
+				1
+			);
 		}
 		m_context->end_marker(cmd_buffer);
 
@@ -1750,7 +1755,12 @@ void RayTracedDI::draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBu
 			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_spatial_pass.pipeline_layout, 0, 2, descriptors, 0, nullptr);
 			vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_spatial_pass.pipeline);
 			vkCmdPushConstants(cmd_buffer, m_spatial_pass.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_spatial_pass.push_constants), &m_spatial_pass.push_constants);
-			vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_context->extent.width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_context->extent.height) / float(NUM_THREADS_Y))), 1);
+			vkCmdDispatch(
+				cmd_buffer,
+			    static_cast<uint32_t>(ceil(float(m_context->renderExtent.width) / float(NUM_THREADS_X))),
+			    static_cast<uint32_t>(ceil(float(m_context->renderExtent.height) / float(NUM_THREADS_Y))),
+				1
+			);
 		}
 		m_context->end_marker(cmd_buffer);
 
@@ -1818,7 +1828,12 @@ void RayTracedDI::draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBu
 			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_composite_pass.pipeline_layout, 0, 3, descriptors, 0, nullptr);
 			vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_composite_pass.pipeline);
 			vkCmdPushConstants(cmd_buffer, m_composite_pass.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_composite_pass.push_constants), &m_composite_pass.push_constants);
-			vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_context->extent.width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_context->extent.height) / float(NUM_THREADS_Y))), 1);
+			vkCmdDispatch(
+				cmd_buffer,
+			    static_cast<uint32_t>(ceil(float(m_context->renderExtent.width) / float(NUM_THREADS_X))),
+			    static_cast<uint32_t>(ceil(float(m_context->renderExtent.height) / float(NUM_THREADS_Y))),
+				1
+			);
 		}
 		m_context->end_marker(cmd_buffer);
 

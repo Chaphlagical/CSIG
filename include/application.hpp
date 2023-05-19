@@ -11,6 +11,7 @@
 #include "render/pipeline/raytraced_reflection.hpp"
 #include "render/pipeline/taa.hpp"
 #include "render/pipeline/tonemap.hpp"
+#include "render/pipeline/fsr.hpp"
 #include "render/pipeline/ui/ui.hpp"
 #include "render/scene.hpp"
 
@@ -67,6 +68,7 @@ class Application
 		Composite           composite;
 		TAA                 taa;
 		Tonemap             tonemap;
+		FSR fsr;
 	} m_renderer;
 
 	struct

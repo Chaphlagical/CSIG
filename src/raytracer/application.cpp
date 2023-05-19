@@ -55,6 +55,7 @@ Application::Application(const ApplicationConfig &config) :
         .composite{m_context, m_lut, m_scene, m_renderer.gbuffer_pass},
         .taa{m_context, m_scene, m_renderer.gbuffer_pass},
         .tonemap{m_context},
+        .fsr{m_context}
     }
 {
 	m_scene.load_scene(config.scene_file);
@@ -115,6 +116,7 @@ Application::Application(const ApplicationConfig &config) :
 		m_renderer.composite.init(cmd_buffer);
 		m_renderer.taa.init(cmd_buffer);
 		m_renderer.tonemap.init(cmd_buffer);
+		m_renderer.fsr.init(cmd_buffer);
 
 		std::vector<VkImageMemoryBarrier> image_barriers;
 		for (auto &image : m_context.swapchain_images)
@@ -296,6 +298,7 @@ void Application::update_ui()
 			m_renderer.path_tracing.reset_frames();
 		}
 		m_renderer.tonemap.draw_ui();
+		m_renderer.fsr.draw_ui();
 		ImGui::End();
 	}
 	m_renderer.ui.end_frame();
@@ -373,7 +376,7 @@ void Application::update(VkCommandBuffer cmd_buffer)
 		              0, 1, 0, 0,
 		              0, 0, -1, 0,
 		              0, 0, 1, 1) *
-		    glm::perspective(glm::radians(60.f), static_cast<float>(m_context.extent.width) / static_cast<float>(m_context.extent.height), CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE);
+		    glm::perspective(glm::radians(60.f), static_cast<float>(m_context.renderExtent.width) / static_cast<float>(m_context.renderExtent.height), CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE);
 		m_renderer.path_tracing.reset_frames();
 	}
 	else
@@ -381,7 +384,7 @@ void Application::update(VkCommandBuffer cmd_buffer)
 		m_camera.velocity = glm::vec3(0.f);
 		m_prev_jitter     = m_current_jitter;
 		glm::vec2 halton  = m_jitter_samples[m_num_frames % m_jitter_samples.size()];
-		m_current_jitter  = glm::vec2(halton.x / float(m_context.extent.width), halton.y / float(m_context.extent.height));
+		m_current_jitter  = glm::vec2(halton.x / float(m_context.renderExtent.width), halton.y / float(m_context.renderExtent.height));
 
 		hide_cursor = false;
 	}
@@ -527,12 +530,41 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			    {
 			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 			        .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+			        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = m_renderer.tonemap.tonemapped_image.vk_image,
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = 1,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
+			};
+			vkCmdPipelineBarrier(
+			    cmd_buffer,
+			    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    0, 0, nullptr, 0, nullptr, 1, image_barriers);
+		}
+
+		m_renderer.fsr.draw(cmd_buffer);
+
+		{
+			VkImageMemoryBarrier image_barriers[] = {
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
 			        .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
 			        .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
 			        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.tonemap.tonemapped_image.vk_image,
+			        .image               = m_renderer.fsr.intermediate_image.vk_image,
 			        .subresourceRange    = VkImageSubresourceRange{
 			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 			               .baseMipLevel   = 0,
@@ -549,7 +581,9 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			    0, 0, nullptr, 0, nullptr, 1, image_barriers);
 		}
 
-		present(cmd_buffer, m_renderer.tonemap.tonemapped_image.vk_image);
+		//present(cmd_buffer, m_renderer.tonemap.tonemapped_image.vk_image);
+		present(cmd_buffer, m_renderer.fsr.upsampled_image.vk_image);
+		//present(cmd_buffer, m_renderer.fsr.intermediate_image.vk_image);
 
 		{
 			VkImageMemoryBarrier image_barriers[] = {
@@ -561,7 +595,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
 			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.tonemap.tonemapped_image.vk_image,
+			        .image               = m_renderer.fsr.upsampled_image.vk_image,
 			        .subresourceRange    = VkImageSubresourceRange{
 			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 			               .baseMipLevel   = 0,
@@ -645,7 +679,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 		}
 		//m_renderer.raytraced_gi.visualize_probe(cmd_buffer, m_renderer.tonemap.tonemapped_image_view, m_renderer.gbuffer_pass.depth_buffer_view[0], m_scene,m_renderer.gbuffer_pass);
 
-		present(cmd_buffer, m_renderer.tonemap.tonemapped_image.vk_image);
+		//present(cmd_buffer, m_renderer.tonemap.tonemapped_image.vk_image);
 
 		{
 			VkImageMemoryBarrier image_barriers[] = {

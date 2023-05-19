@@ -22,7 +22,7 @@ PathTracing::PathTracing(const Context &context, const Scene &scene, const GBuff
 			    .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 			    .imageType     = VK_IMAGE_TYPE_2D,
 			    .format        = VK_FORMAT_R32G32B32A32_SFLOAT,
-			    .extent        = VkExtent3D{static_cast<uint32_t>(m_context->extent.width), static_cast<uint32_t>(m_context->extent.height), 1},
+			    .extent        = VkExtent3D{static_cast<uint32_t>(m_context->renderExtent.width), static_cast<uint32_t>(m_context->renderExtent.height), 1},
 			    .mipLevels     = 1,
 			    .arrayLayers   = 1,
 			    .samples       = VK_SAMPLE_COUNT_1_BIT,
@@ -322,7 +322,12 @@ void PathTracing::draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBu
 			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout, 0, 3, descriptors, 0, nullptr);
 			vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline);
 			vkCmdPushConstants(cmd_buffer, m_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_push_constant), &m_push_constant);
-			vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_context->extent.width) / float(RAY_TRACE_NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_context->extent.height) / float(RAY_TRACE_NUM_THREADS_Y))), 1);
+			vkCmdDispatch(
+				cmd_buffer,
+				static_cast<uint32_t>(ceil(float(m_context->renderExtent.width) / float(RAY_TRACE_NUM_THREADS_X))),
+				static_cast<uint32_t>(ceil(float(m_context->renderExtent.height) / float(RAY_TRACE_NUM_THREADS_Y))),
+				1
+			);
 		}
 		m_context->end_marker(cmd_buffer);
 

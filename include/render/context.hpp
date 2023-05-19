@@ -15,6 +15,14 @@ struct ContextConfig
 
 	uint32_t width  = 1920;
 	uint32_t height = 1080;
+
+	bool useFSR = true;
+
+	// UltraQuality, 1.3f
+	// Quality, 1.5f
+	// Balanced, 1.7f
+	// Performance, 2.0f
+	float FSRScaleFactor = 1.5f;
 };
 
 struct Texture
@@ -75,11 +83,17 @@ struct Context
 
 	std::array<VkFence, 3> fences = {VK_NULL_HANDLE};
 
-	VkExtent2D extent      = {};
+	VkExtent2D extent = {};
+	VkExtent2D renderExtent = {};
 	uint32_t   image_index = 0;
 	bool       ping_pong   = false;
 
 	VkPhysicalDeviceProperties physical_device_properties;
+
+	// VkPhysicalDevice16BitStorageFeatures.storageBuffer16BitAccess &&
+	// VkPhysicalDeviceFloat16Int8FeaturesKHR.shaderFloat16
+	// TODO: check this according to https://github.com/GPUOpen-LibrariesAndSDKs/Cauldron/blob/b92d559bd083f44df9f8f42a6ad149c1584ae94c/src/VK/base/ExtFp16.cpp#L31
+	bool FsrFp16Enabled = true;
 
 	VkSampler default_sampler = VK_NULL_HANDLE;
 
