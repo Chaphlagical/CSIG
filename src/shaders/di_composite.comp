@@ -59,39 +59,17 @@ void main()
             RestirReservoirBuffer(push_constants.temporal_reservoir_addr).reservoirs[pixel_id] = r;
         }
     }
-            float lum = dot(radiance, vec3(0.212671, 0.715160, 0.072169));
-                if(lum > 1.0)
-            {
-                radiance *= 1.0 / lum;
-            }
 
-    // radiance=vec3(0);
+    float lum = dot(radiance, vec3(0.212671, 0.715160, 0.072169));
+    if(lum > 1.0)
+    {
+        radiance *= 1.0 / lum;
+    }
 
-    // for (int i = 0; i < 5; i++) 
-    //     {
-    //         // Choose a neighbor pixel
-    //         const float angle = rand(prd.seed) * 2 * PI;
-    //         const float radius = sqrt(rand(prd.seed)) * 30;
-    //         ivec2 rand_offset = ivec2(floor(cos(angle) * radius), floor(sin(angle) * radius));
-    //         const ivec2 neighbor_coord = clamp(ivec2(coord.xy) + rand_offset, ivec2(0), ivec2(size.xy) - 1);
-    //         ShadeState neighbor_sstate;
-    //         if(get_primary_state(vec2(neighbor_coord) + vec2(0.5), 0, neighbor_sstate))
-    //         {
-    //             vec3 pos_diff = sstate.position - neighbor_sstate.position;
-    //             if(dot(pos_diff, pos_diff) < 0.01 && abs(sstate.depth - neighbor_sstate.depth) < sstate.depth * 0.1)
-    //             {
-    //                 vec3 base_color_diff = sstate.mat.base_color.rgb - neighbor_sstate.mat.base_color.rgb;
-    //                 if(dot(base_color_diff, base_color_diff) < 0.01)
-    //                 {
-    //                     float normal_dot = dot(sstate.ffnormal, neighbor_sstate.ffnormal);
-    //                     if(normal_dot > 0.9063)
-    //                     {
-    //                         radiance = vec3(vec2(coord) / size, 0);
-    //                     }
-    //                 }
-    //             }
-    //         }                
-    //     }      
+    if(any(isnan(radiance)))
+    {
+        radiance = vec3(0);
+    }
 
     imageStore(output_image, ivec2(coord.xy), vec4(radiance, 1.0));
 }

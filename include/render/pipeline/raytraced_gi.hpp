@@ -10,17 +10,17 @@
 struct RayTracedGI
 {
   public:
-	RayTracedGI(const Context &context, RayTracedScale scale = RayTracedScale::Full_Res);
+	RayTracedGI(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, RayTracedScale scale = RayTracedScale::Full_Res);
 
 	~RayTracedGI();
 
 	void init(VkCommandBuffer cmd_buffer);
 
-	void update(const Scene &scene, const BlueNoise &blue_noise, const GBufferPass &gbuffer_pass);
+	void update(const Scene &scene);
 
-	void draw(VkCommandBuffer cmd_buffer);
+	void draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBufferPass &gbuffer_pass);
 
-	void visualize_probe(VkCommandBuffer cmd_buffer, VkImageView color_image, VkImageView depth_image = VK_NULL_HANDLE);
+	void visualize_probe(VkCommandBuffer cmd_buffer, VkImageView color_image, VkImageView depth_image, const Scene &scene, const GBufferPass &gbuffer_pass);
 
 	bool draw_ui();
 
@@ -32,10 +32,6 @@ struct RayTracedGI
 	// ray trace direction depth
 	Texture     direction_depth_image;
 	VkImageView direction_depth_view = VK_NULL_HANDLE;
-
-	// probe grid data image
-	Texture     probe_grid_data_image;
-	VkImageView probe_grid_data_view = VK_NULL_HANDLE;
 
 	// probe grid irradiance image
 	Texture     probe_grid_irradiance_image[2];
@@ -50,6 +46,12 @@ struct RayTracedGI
 	VkImageView sample_probe_grid_view = VK_NULL_HANDLE;
 
 	Buffer uniform_buffer;
+
+	struct
+	{
+		VkDescriptorSetLayout layout  = VK_NULL_HANDLE;
+		VkDescriptorSet       sets[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+	} descriptor;
 
   private:
 	void create_resource();
@@ -120,7 +122,7 @@ struct RayTracedGI
 		struct
 		{
 			bool       visibility_test               = true;
-			float      probe_distance                = 1.1f;
+			float      probe_distance                = 1.f;
 			float      recursive_energy_preservation = 0.85f;
 			uint32_t   irradiance_oct_size           = 8;
 			uint32_t   depth_oct_size                = 16;
@@ -188,23 +190,23 @@ struct RayTracedGI
 		VkDescriptorSet       descriptor_sets[2];
 	} m_probe_sample;
 
-	struct
-	{
-		struct
-		{
-			int32_t gbuffer_mip  = 0;
-			float   gi_intensity = 1.f;
-		} push_constants;
+	//struct
+	//{
+	//	struct
+	//	{
+	//		int32_t gbuffer_mip  = 0;
+	//		float   gi_intensity = 1.f;
+	//	} push_constants;
 
-		Buffer vertex_buffer;
-		Buffer index_buffer;
+	//	Buffer vertex_buffer;
+	//	Buffer index_buffer;
 
-		uint32_t vertex_count = 0;
-		uint32_t index_count  = 0;
+	//	uint32_t vertex_count = 0;
+	//	uint32_t index_count  = 0;
 
-		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
-		VkPipeline            pipeline              = VK_NULL_HANDLE;
-		VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
-		VkDescriptorSet       descriptor_sets[2];
-	} m_probe_visualize;
+	//	VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
+	//	VkPipeline            pipeline              = VK_NULL_HANDLE;
+	//	VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
+	//	VkDescriptorSet       descriptor_sets[2];
+	//} m_probe_visualize;
 };

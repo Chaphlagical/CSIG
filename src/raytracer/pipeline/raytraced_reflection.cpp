@@ -23,7 +23,7 @@ static unsigned char g_reflection_upsampling_comp_spv_data[] = {
 #include "reflection_upsampling.comp.spv.h"
 };
 
-RayTracedReflection::RayTracedReflection(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, const BlueNoise &blue_noise, const LUT &lut, RayTracedScale scale) :
+RayTracedReflection::RayTracedReflection(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, const BlueNoise &blue_noise, const LUT &lut, const RayTracedGI &raytraced_gi, RayTracedScale scale) :
     m_context(&context)
 {
 	float scale_divisor = powf(2.0f, float(scale));
@@ -332,6 +332,7 @@ RayTracedReflection::RayTracedReflection(const Context &context, const Scene &sc
 			    gbuffer_pass.descriptor.layout,
 			    blue_noise.descriptor.layout,
 			    lut.descriptor.layout,
+				raytraced_gi.descriptor.layout,
 			    m_raytrace.descriptor_set_layout,
 			};
 			VkPushConstantRange range = {
@@ -341,7 +342,7 @@ RayTracedReflection::RayTracedReflection(const Context &context, const Scene &sc
 			};
 			VkPipelineLayoutCreateInfo create_info = {
 			    .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-			    .setLayoutCount         = 5,
+			    .setLayoutCount         = 6,
 			    .pSetLayouts            = descriptor_set_layouts,
 			    .pushConstantRangeCount = 1,
 			    .pPushConstantRanges    = &range,
@@ -1501,7 +1502,7 @@ void RayTracedReflection::update(const Scene &scene, const GBufferPass &gbuffer_
 	}
 }
 
-void RayTracedReflection::draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBufferPass &gbuffer_pass, const BlueNoise &blue_noise, const LUT &lut)
+void RayTracedReflection::draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBufferPass &gbuffer_pass, const BlueNoise &blue_noise, const LUT &lut, const RayTracedGI &raytraced_gi)
 {
 	m_context->begin_marker(cmd_buffer, "Raytraced Reflection");
 	{
@@ -1539,10 +1540,11 @@ void RayTracedReflection::draw(VkCommandBuffer cmd_buffer, const Scene &scene, c
 			    gbuffer_pass.descriptor.sets[m_context->ping_pong],
 			    blue_noise.descriptor.set,
 			    lut.descriptor.set,
+			    raytraced_gi.descriptor.sets[m_context->ping_pong],
 			    m_raytrace.descriptor_set,
 			};
 			m_raytrace.push_constants.gbuffer_mip = m_gbuffer_mip;
-			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_raytrace.pipeline_layout, 0, 5, descriptors, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_raytrace.pipeline_layout, 0, 6, descriptors, 0, nullptr);
 			vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_raytrace.pipeline);
 			vkCmdPushConstants(cmd_buffer, m_raytrace.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_raytrace.push_constants), &m_raytrace.push_constants);
 			vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))), 1);

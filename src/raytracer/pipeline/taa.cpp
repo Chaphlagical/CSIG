@@ -15,7 +15,7 @@ TAA::TAA(const Context &context, const Scene &scene, const GBufferPass &gbuffer_
 		VkImageCreateInfo image_create_info = {
 		    .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 		    .imageType     = VK_IMAGE_TYPE_2D,
-		    .format        = VK_FORMAT_R8G8B8A8_UNORM,
+		    .format        = VK_FORMAT_R16G16B16A16_SFLOAT,
 		    .extent        = VkExtent3D{m_context->extent.width, m_context->extent.height, 1},
 		    .mipLevels     = 1,
 		    .arrayLayers   = 1,
@@ -33,7 +33,7 @@ TAA::TAA(const Context &context, const Scene &scene, const GBufferPass &gbuffer_
 		    .sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 		    .image            = output_image[i].vk_image,
 		    .viewType         = VK_IMAGE_VIEW_TYPE_2D,
-		    .format           = VK_FORMAT_R8G8B8A8_UNORM,
+		    .format           = VK_FORMAT_R16G16B16A16_SFLOAT,
 		    .components       = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
 		    .subresourceRange = {
 		        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,

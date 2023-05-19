@@ -3,6 +3,7 @@
 
 #include "scene.glsl"
 #include "common_data.hpp"
+#include "shade_state.glsl"
 
 struct Ray
 {

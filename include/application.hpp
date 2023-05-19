@@ -7,6 +7,7 @@
 #include "render/pipeline/pathtracing.hpp"
 #include "render/pipeline/raytraced_ao.hpp"
 #include "render/pipeline/raytraced_di.hpp"
+#include "render/pipeline/raytraced_gi.hpp"
 #include "render/pipeline/raytraced_reflection.hpp"
 #include "render/pipeline/taa.hpp"
 #include "render/pipeline/tonemap.hpp"
@@ -19,13 +20,13 @@ struct ApplicationConfig
 {
 	ContextConfig context_config;
 
-	 std::string scene_file = "assets/scenes/Deferred/Deferred.gltf";
+	 //std::string scene_file = "assets/scenes/Deferred/Deferred.gltf";
 	//   std::string scene_file = "assets/scenes/Shadow/Shadow.gltf";
 	// std::string scene_file = "assets/scenes/GI/GI.gltf";
-	//std::string scene_file = "assets/scenes/pica_pica.glb";
-	// std::string scene_file = "assets/scenes/test.glb";
-	 //std::string scene_file = "assets/scenes/conell_box.glb";
-	std::string hdr_file = "assets/textures/hdr/BasketballCourt_3k.hdr";
+	// std::string scene_file = "assets/scenes/pica_pica.glb";
+	 //std::string scene_file = "assets/scenes/test.glb";
+	std::string scene_file = "assets/scenes/conell_box.glb";
+	std::string hdr_file   = "assets/textures/hdr/BasketballCourt_3k.hdr";
 };
 
 class Application
@@ -60,12 +61,12 @@ class Application
 		GBufferPass         gbuffer_pass;
 		PathTracing         path_tracing;
 		RayTracedDI         raytraced_di;
-		RayTracedReflection raytraced_reflection;
 		RayTracedAO         raytraced_ao;
-		//  RayTracedGI raytraced_gi;
-		Composite composite;
-		TAA       taa;
-		Tonemap   tonemap;
+		RayTracedGI         raytraced_gi;
+		RayTracedReflection raytraced_reflection;
+		Composite           composite;
+		TAA                 taa;
+		Tonemap             tonemap;
 	} m_renderer;
 
 	struct

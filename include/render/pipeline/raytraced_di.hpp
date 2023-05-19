@@ -8,7 +8,7 @@
 struct RayTracedDI
 {
   public:
-	RayTracedDI(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass);
+	RayTracedDI(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, RayTracedScale scale = RayTracedScale::Full_Res);
 
 	~RayTracedDI();
 

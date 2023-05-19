@@ -14,7 +14,7 @@ Composite::Composite(const Context &context, const LUT &lut, const Scene &scene,
 		VkImageCreateInfo image_create_info = {
 		    .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 		    .imageType     = VK_IMAGE_TYPE_2D,
-		    .format        = VK_FORMAT_R8G8B8A8_UNORM,
+		    .format        = VK_FORMAT_R16G16B16A16_SFLOAT,
 		    .extent        = VkExtent3D{m_context->extent.width, m_context->extent.height, 1},
 		    .mipLevels     = 1,
 		    .arrayLayers   = 1,
@@ -32,7 +32,7 @@ Composite::Composite(const Context &context, const LUT &lut, const Scene &scene,
 		    .sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 		    .image            = output_image.vk_image,
 		    .viewType         = VK_IMAGE_VIEW_TYPE_2D,
-		    .format           = VK_FORMAT_R8G8B8A8_UNORM,
+		    .format           = VK_FORMAT_R16G16B16A16_SFLOAT,
 		    .components       = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
 		    .subresourceRange = {
 		        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
@@ -91,11 +91,18 @@ Composite::Composite(const Context &context, const LUT &lut, const Scene &scene,
 			        .descriptorCount = 1,
 			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
 			    },
+			    // GI
+			    {
+			        .binding         = 4,
+			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			        .descriptorCount = 1,
+			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
+			    },
 			};
 			VkDescriptorSetLayoutCreateInfo create_info = {
 			    .sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 			    .flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
-			    .bindingCount = 4,
+			    .bindingCount = 5,
 			    .pBindings    = bindings,
 			};
 			vkCreateDescriptorSetLayout(m_context->vk_device, &create_info, nullptr, &m_descriptor_set_layout);
@@ -199,7 +206,7 @@ void Composite::init(VkCommandBuffer cmd_buffer)
 	    0, 0, nullptr, 0, nullptr, 1, image_barriers);
 }
 
-void Composite::update(const Scene &scene, VkImageView direct, VkImageView reflection, VkImageView ao)
+void Composite::update(const Scene &scene, VkImageView direct, VkImageView reflection, VkImageView ao, VkImageView gi)
 {
 	VkDescriptorImageInfo direct_info = {
 	    .sampler     = scene.linear_sampler,
@@ -216,6 +223,12 @@ void Composite::update(const Scene &scene, VkImageView direct, VkImageView refle
 	VkDescriptorImageInfo ao_info = {
 	    .sampler     = scene.linear_sampler,
 	    .imageView   = ao,
+	    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	};
+
+	VkDescriptorImageInfo gi_info = {
+	    .sampler     = scene.linear_sampler,
+	    .imageView   = gi,
 	    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 	};
 
@@ -271,8 +284,19 @@ void Composite::update(const Scene &scene, VkImageView direct, VkImageView refle
 		        .pBufferInfo      = nullptr,
 		        .pTexelBufferView = nullptr,
 		    },
+		    {
+		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		        .dstSet           = m_descriptor_set,
+		        .dstBinding       = 4,
+		        .dstArrayElement  = 0,
+		        .descriptorCount  = 1,
+		        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		        .pImageInfo       = &gi_info,
+		        .pBufferInfo      = nullptr,
+		        .pTexelBufferView = nullptr,
+		    },
 		};
-		vkUpdateDescriptorSets(m_context->vk_device, 4, writes, 0, nullptr);
+		vkUpdateDescriptorSets(m_context->vk_device, 5, writes, 0, nullptr);
 	}
 }
 

@@ -1,7 +1,5 @@
 #define CACHE_SIZE 64
 
-#include "ddgi.glsl"
-
 #ifdef UPDATE_DEPTH
     #define NUM_THREADS_X 16
     #define NUM_THREADS_Y 16
@@ -47,8 +45,6 @@ layout(binding = 6) uniform DDGIBuffer
     uint depth_texture_height;
 } ddgi_buffer;
 
-layout(binding = 7) uniform sampler2DArray probe_data;
-
 layout(push_constant) uniform PushConstants
 {
     uint frame_count;
@@ -61,6 +57,16 @@ shared vec4 shared_ray_direction_depth[CACHE_SIZE];
 shared vec3 shared_ray_hit_radiance[CACHE_SIZE];
 #endif
 
+float sign_not_zero(in float k)
+{
+    return (k >= 0.0) ? 1.0 : -1.0;
+}
+
+vec2 sign_not_zero(in vec2 v)
+{
+    return vec2(sign_not_zero(v.x), sign_not_zero(v.y));
+}
+
 uint probe_id(vec2 texel_xy)
 {
     uint probe_with_border_side = PROBE_SIDE_LENGTH + 2;
@@ -72,7 +78,7 @@ vec2 normalized_oct_coord(ivec2 frag_coord)
 {
     int probe_with_border_side = int(PROBE_SIDE_LENGTH + 2);
     vec2 oct_frag_coord = ivec2((frag_coord.x - 2) % probe_with_border_side, (frag_coord.y - 2) % probe_with_border_side);
-    return (vec2(oct_frag_coord) + vec2(0.5)) * (2.0 / float(PROBE_SIDE_LENGTH)) - vec2(1.0, 1.0);
+    return (vec2(oct_frag_coord) + vec2(0.5f)) * (2.0f / float(PROBE_SIDE_LENGTH)) - vec2(1.0f, 1.0f);
 }
 
 vec3 oct_decode(vec2 o)
@@ -173,7 +179,6 @@ void main()
     {
         result = mix(result, prev_result, ddgi_buffer.hysteresis);
     }
-    
 #ifdef UPDATE_DEPTH
     imageStore(output_depth, current_coord, vec4(result, 1.0));
 #else

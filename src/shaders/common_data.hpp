@@ -126,25 +126,25 @@ void unpack_emitter(Emitter emitter, out vec3 p0, out vec3 p1, out vec3 p2, out 
 
 struct Material
 {
-	uint    alpha_mode;        // 0 - opaque, 1 - mask, 2 - blend
-	uint    double_sided;
-	float   cutoff;
-	float   metallic_factor;
-	float   roughness_factor;
-	float   transmission_factor;
-	float   clearcoat_factor;
-	float   clearcoat_roughness_factor;
-	vec4    base_color;
-	vec3    emissive_factor;
-	int     base_color_texture;
-	int32_t normal_texture;
-	int32_t metallic_roughness_texture;
-	vec2    padding;
+	uint  alpha_mode;        // 0 - opaque, 1 - mask, 2 - blend
+	uint  double_sided;
+	float cutoff;
+	float metallic_factor;
+	float roughness_factor;
+	float transmission_factor;
+	float clearcoat_factor;
+	float clearcoat_roughness_factor;
+	vec4  base_color;
+	vec3  emissive_factor;
+	int   base_color_texture;
+	int   normal_texture;
+	int   metallic_roughness_texture;
+	vec2  padding;
 
 #ifdef CPP
 	Material() :
 	    alpha_mode(0),
-	    double_sided(false),
+	    double_sided(0),
 	    cutoff(0.f),
 	    metallic_factor(0.f),
 	    roughness_factor(0.f),

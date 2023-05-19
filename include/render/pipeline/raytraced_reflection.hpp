@@ -3,12 +3,13 @@
 #include "render/common.hpp"
 #include "render/context.hpp"
 #include "render/pipeline/gbuffer.hpp"
+#include "render/pipeline/raytraced_gi.hpp"
 #include "render/scene.hpp"
 
 struct RayTracedReflection
 {
   public:
-	RayTracedReflection(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, const BlueNoise &blue_noise, const LUT &lut, RayTracedScale scale = RayTracedScale::Full_Res);
+	RayTracedReflection(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, const BlueNoise &blue_noise, const LUT &lut, const RayTracedGI& raytraced_gi, RayTracedScale scale = RayTracedScale::Half_Res);
 
 	~RayTracedReflection();
 
@@ -16,7 +17,7 @@ struct RayTracedReflection
 
 	void update(const Scene &scene, const GBufferPass &gbuffer_pass, const BlueNoise &blue_noise, const LUT &lut);
 
-	void draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBufferPass &gbuffer_pass, const BlueNoise &blue_noise, const LUT &lut);
+	void draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBufferPass &gbuffer_pass, const BlueNoise &blue_noise, const LUT &lut, const RayTracedGI &raytraced_gi);
 
 	bool draw_ui();
 

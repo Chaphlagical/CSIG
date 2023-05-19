@@ -49,9 +49,9 @@ Application::Application(const ApplicationConfig &config) :
         .gbuffer_pass{m_context},
         .path_tracing{m_context, m_scene, m_renderer.gbuffer_pass},
         .raytraced_di{m_context, m_scene, m_renderer.gbuffer_pass},
-        .raytraced_reflection{m_context, m_scene, m_renderer.gbuffer_pass, m_blue_noise, m_lut},
         .raytraced_ao{m_context, m_scene, m_renderer.gbuffer_pass},
-        //.raytraced_gi{m_context},
+        .raytraced_gi{m_context, m_scene, m_renderer.gbuffer_pass},
+        .raytraced_reflection{m_context, m_scene, m_renderer.gbuffer_pass, m_blue_noise, m_lut, m_renderer.raytraced_gi},
         .composite{m_context, m_lut, m_scene, m_renderer.gbuffer_pass},
         .taa{m_context, m_scene, m_renderer.gbuffer_pass},
         .tonemap{m_context},
@@ -108,10 +108,10 @@ Application::Application(const ApplicationConfig &config) :
 		vkBeginCommandBuffer(cmd_buffer, &begin_info);
 		m_renderer.path_tracing.init(cmd_buffer);
 		m_renderer.gbuffer_pass.init(cmd_buffer);
-		 m_renderer.raytraced_ao.init(cmd_buffer);
+		m_renderer.raytraced_ao.init(cmd_buffer);
 		m_renderer.raytraced_di.init(cmd_buffer);
 		m_renderer.raytraced_reflection.init(cmd_buffer);
-		// m_renderer.raytraced_gi.init(cmd_buffer);
+		m_renderer.raytraced_gi.init(cmd_buffer);
 		m_renderer.composite.init(cmd_buffer);
 		m_renderer.taa.init(cmd_buffer);
 		m_renderer.tonemap.init(cmd_buffer);
@@ -282,8 +282,8 @@ void Application::update_ui()
 			case RenderMode::Hybrid:
 				ui_update |= m_renderer.raytraced_di.draw_ui();
 				ui_update |= m_renderer.raytraced_ao.draw_ui();
-				// ui_update |= m_renderer.raytraced_reflection.draw_ui();
-				//  ui_update |= m_renderer.raytraced_gi.draw_ui();
+				ui_update |= m_renderer.raytraced_reflection.draw_ui();
+				ui_update |= m_renderer.raytraced_gi.draw_ui();
 				break;
 			case RenderMode::PathTracing:
 				ui_update |= m_renderer.path_tracing.draw_ui();
@@ -394,7 +394,8 @@ void Application::update(VkCommandBuffer cmd_buffer)
 		m_renderer.raytraced_di.update(m_scene, m_blue_noise, m_renderer.gbuffer_pass);
 		m_renderer.raytraced_reflection.update(m_scene, m_renderer.gbuffer_pass, m_blue_noise, m_lut);
 		m_renderer.raytraced_ao.update(m_scene, m_renderer.gbuffer_pass);
-		m_renderer.composite.update(m_scene, m_renderer.raytraced_di.output_view, m_renderer.raytraced_reflection.upsampling_view, m_renderer.raytraced_ao.upsampled_ao_image_view);
+		m_renderer.raytraced_gi.update(m_scene);
+		m_renderer.composite.update(m_scene, m_renderer.raytraced_di.upsampling_view, m_renderer.raytraced_reflection.upsampling_view, m_renderer.raytraced_ao.upsampled_ao_image_view, m_renderer.raytraced_gi.sample_probe_grid_view);
 		m_renderer.taa.update(m_scene, m_renderer.gbuffer_pass, m_renderer.composite.output_view);
 		m_renderer.tonemap.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, m_renderer.taa.output_view);
 	}
@@ -477,8 +478,9 @@ void Application::render(VkCommandBuffer cmd_buffer)
 		case RenderMode::Hybrid:
 			// m_renderer.raytraced_ao.draw(cmd_buffer);
 			m_renderer.raytraced_di.draw(cmd_buffer, m_scene, m_renderer.gbuffer_pass);
-			m_renderer.raytraced_reflection.draw(cmd_buffer, m_scene, m_renderer.gbuffer_pass, m_blue_noise, m_lut);
 			m_renderer.raytraced_ao.draw(cmd_buffer, m_scene, m_renderer.gbuffer_pass);
+			m_renderer.raytraced_gi.draw(cmd_buffer, m_scene, m_renderer.gbuffer_pass);
+			m_renderer.raytraced_reflection.draw(cmd_buffer, m_scene, m_renderer.gbuffer_pass, m_blue_noise, m_lut, m_renderer.raytraced_gi);
 			m_renderer.composite.draw(cmd_buffer, m_scene, m_renderer.gbuffer_pass, m_lut);
 			m_renderer.taa.draw(cmd_buffer, m_scene, m_renderer.gbuffer_pass);
 			break;
@@ -641,6 +643,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			    VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 			    0, 0, nullptr, 0, nullptr, 2, image_barriers);
 		}
+		//m_renderer.raytraced_gi.visualize_probe(cmd_buffer, m_renderer.tonemap.tonemapped_image_view, m_renderer.gbuffer_pass.depth_buffer_view[0], m_scene,m_renderer.gbuffer_pass);
 
 		present(cmd_buffer, m_renderer.tonemap.tonemapped_image.vk_image);
 

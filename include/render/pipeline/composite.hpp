@@ -16,7 +16,7 @@ struct Composite
 
 	void init(VkCommandBuffer cmd_buffer);
 
-	void update(const Scene &scene, VkImageView direct, VkImageView reflection, VkImageView ao);
+	void update(const Scene &scene, VkImageView direct, VkImageView reflection, VkImageView ao, VkImageView gi);
 
 	void draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBufferPass &gbuffer_pass, const LUT& lut);
 

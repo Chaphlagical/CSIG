@@ -23,6 +23,7 @@ layout(set = 3, binding = 0, rgba16f) uniform writeonly image2D output_image;
 layout(set = 3, binding = 1) uniform sampler2D direct_lighting;
 layout(set = 3, binding = 2) uniform sampler2D reflection_lighting;
 layout(set = 3, binding = 3) uniform sampler2D ao_image;
+layout(set = 3, binding = 4) uniform sampler2D gi_image;
 
 vec3 fresnel_schlick_roughness(float cos_theta, vec3 F0, float roughness)
 {
@@ -39,21 +40,19 @@ vec3 indirect_lighting(ShadeState sstate, Ray ray, ivec2 coord)
     vec3 kd = 1.0 - ks;
     kd *= 1.0 - sstate.mat.metallic_factor;
 
-    vec3 irradiance = vec3(0.0);
-    SH9 basis = evaluate_sh(sstate.ffnormal);
-    for (uint i = 0; i < 9; i++)
-    {
-        irradiance += texelFetch(irradiance_sh, ivec2(i, 0), 0).rgb * basis.weights[i];
-    }
-    irradiance = max(vec3(0), irradiance) * InvPI;
-    // vec3 diffuse = irradiance * sstate.mat.base_color.rgb;
-    vec3 diffuse = vec3(0);
-    // vec3        prefilteredColor   = u_PushConstants.reflections == 1 ? textureLod(s_Reflections, FS_IN_TexCoord, 0.0f).rgb : textureLod(s_Prefiltered, R, roughness * MAX_REFLECTION_LOD).rgb;
+    // vec3 irradiance = vec3(0.0);
+    // SH9 basis = evaluate_sh(sstate.ffnormal);
+    // for (uint i = 0; i < 9; i++)
+    // {
+    //     irradiance += texelFetch(irradiance_sh, ivec2(i, 0), 0).rgb * basis.weights[i];
+    // }
+    // irradiance = max(vec3(0), irradiance) * InvPI;
+    vec3 irradiance = texelFetch(gi_image, coord, 0).rgb;
+    vec3 diffuse = irradiance * sstate.mat.base_color.rgb;
     vec3 prefiltered_color = texelFetch(reflection_lighting, coord, 0).rgb;
     // vec3 prefiltered_color = textureLod(prefilter_map, R, sstate.mat.roughness_factor * PREFILTER_MIP_LEVELS).rgb;
     vec2 brdf = textureLod(ggx_preintegration, vec2(clamp(abs(dot(-ray.direction, sstate.ffnormal)), 0.0, 1.0), sstate.mat.roughness_factor), 0).rg;
     vec3 specular = prefiltered_color * (F * brdf.x + brdf.y);
-
     return (kd * diffuse + specular) * texelFetch(ao_image, coord, 0).r;
 }
 

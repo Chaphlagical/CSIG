@@ -1,7 +1,23 @@
-#ifndef DDGI_GLSL
-#define DDGI_GLSL
+#version 460
 
-struct DDGIUniform
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_ray_query : enable
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
+#extension GL_EXT_buffer_reference : enable
+#extension GL_EXT_buffer_reference2 : enable
+
+#include "common.glsl"
+#include "scene.glsl"
+#include "gbuffer_data.glsl"
+
+#define NUM_THREADS_X 8
+#define NUM_THREADS_Y 8
+
+layout(local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z = 1) in;
+
+layout(set = 2, binding = 0) uniform DDGIBuffer
 {
     vec3 grid_start;
     float max_distance;
@@ -19,32 +35,33 @@ struct DDGIUniform
     uint depth_probe_side_length;
     uint depth_texture_width;
     uint depth_texture_height;
-};
+} ddgi_buffer;
 
-ivec3 base_grid_coord(vec3 X, DDGIUniform ddgi) 
+layout(set = 2, binding = 1) uniform sampler2D probe_irradiance;
+layout(set = 2, binding = 2) uniform sampler2D probe_depth;
+layout(set = 2, binding = 3, rgba16f) uniform image2D output_gi;
+
+layout(push_constant) uniform PushConstants
 {
-    return clamp(ivec3((X - ddgi.grid_start) / ddgi.grid_step), ivec3(0, 0, 0), ivec3(ddgi.probe_count) - ivec3(1, 1, 1));
+	int gbuffer_mip;
+    float gi_intensity;
+}push_constants;
+
+const float FLT_EPS = 0.00000001;
+
+ivec3 base_grid_coord(vec3 X) 
+{
+    return clamp(ivec3((X - ddgi_buffer.grid_start) / ddgi_buffer.grid_step), ivec3(0, 0, 0), ivec3(ddgi_buffer.probe_count) - ivec3(1, 1, 1));
 }
 
-vec3 grid_coord_to_position(ivec3 c, DDGIUniform ddgi)
+vec3 grid_coord_to_position(ivec3 c)
 {
-    return ddgi.grid_step * vec3(c) + ddgi.grid_start;
+    return ddgi_buffer.grid_step * vec3(c) + ddgi_buffer.grid_start;
 }
 
-int grid_coord_to_probe_index(ivec3 probe_coord, DDGIUniform ddgi) 
+int grid_coord_to_probe_index(ivec3 probe_coord) 
 {
-    return int(probe_coord.x + probe_coord.y * ddgi.probe_count.x + probe_coord.z * ddgi.probe_count.x * ddgi.probe_count.y);
-}
-
-ivec3 probe_index_to_grid_coord(int index, DDGIUniform ddgi_buffer)
-{
-    ivec3 pos;
-
-    pos.x = index % ddgi_buffer.probe_count.x;
-    pos.y = (index % (ddgi_buffer.probe_count.x * ddgi_buffer.probe_count.y)) / ddgi_buffer.probe_count.x;
-    pos.z = index / (ddgi_buffer.probe_count.x * ddgi_buffer.probe_count.y);
-
-    return pos;
+    return int(probe_coord.x + probe_coord.y * ddgi_buffer.probe_count.x + probe_coord.z * ddgi_buffer.probe_count.x * ddgi_buffer.probe_count.y);
 }
 
 float sign_not_zero(in float k)
@@ -79,7 +96,7 @@ vec2 texture_coord_from_direction(vec3 dir, int probe_index, uint width, uint he
 
     int probes_per_row = (int(width) - 2) / int(probe_with_border_side);
 
-    vec2 probe_top_left_position = vec2(float(mod(float(probe_index), float(probes_per_row))) * probe_with_border_side,
+    vec2 probe_top_left_position = vec2(mod(float(probe_index), float(probes_per_row)) * probe_with_border_side,
         (probe_index / probes_per_row) * probe_with_border_side) + vec2(2.0, 2.0);
 
     vec2 normalized_probe_top_left_position = vec2(probe_top_left_position) / vec2(float(width), float(height));
@@ -87,10 +104,10 @@ vec2 texture_coord_from_direction(vec3 dir, int probe_index, uint width, uint he
     return vec2(normalized_probe_top_left_position + oct_coord_normalized_to_texture_dimensions);
 }
 
-vec3 sample_irradiance(vec3 P, vec3 N, vec3 V, DDGIUniform ddgi_buffer, sampler2D probe_depth, sampler2D probe_irradiance)
+vec3 sample_irradiance(vec3 P, vec3 N, vec3 V)
 {
-	ivec3 base_grid_coord = base_grid_coord(P, ddgi_buffer);
-    vec3 base_probe_pos = grid_coord_to_position(base_grid_coord, ddgi_buffer);
+    ivec3 base_grid_coord = base_grid_coord(P);
+    vec3 base_probe_pos = grid_coord_to_position(base_grid_coord);
 
     vec3 sum_irradiance = vec3(0.0);
     float sum_weight = 0.0;
@@ -101,8 +118,8 @@ vec3 sample_irradiance(vec3 P, vec3 N, vec3 V, DDGIUniform ddgi_buffer, sampler2
     {
         ivec3 offset = ivec3(i, i >> 1, i >> 2) & ivec3(1);
         ivec3 probe_grid_coord = clamp(base_grid_coord + offset, ivec3(0), ddgi_buffer.probe_count - ivec3(1));
-        int p = grid_coord_to_probe_index(probe_grid_coord, ddgi_buffer);
-        vec3 probe_pos = grid_coord_to_position(probe_grid_coord, ddgi_buffer);
+        int p = grid_coord_to_probe_index(probe_grid_coord);
+        vec3 probe_pos = grid_coord_to_position(probe_grid_coord);
         vec3 probe_to_point = P - probe_pos + (N + 3.0 * V) * ddgi_buffer.normal_bias;
         vec3 dir = normalize(-probe_to_point);
         vec3 trilinear = mix(1.0 - alpha, alpha, offset);
@@ -115,7 +132,7 @@ vec3 sample_irradiance(vec3 P, vec3 N, vec3 V, DDGIUniform ddgi_buffer, sampler2
 
             float dist_to_probe = length(probe_to_point);
 
-            vec2 temp = textureLod(probe_depth, tex_coord, 0.0).rg;
+            vec2 temp = textureLod(probe_depth, tex_coord, 0.0f).rg;
             float mean = temp.x;
             float variance = abs(pow(temp.x, 2.0) - temp.y);
 
@@ -157,4 +174,28 @@ vec3 sample_irradiance(vec3 P, vec3 N, vec3 V, DDGIUniform ddgi_buffer, sampler2
     return 0.5 * PI * net_irradiance;
 }
 
-#endif
+void main()
+{
+    const ivec2 size = textureSize(gbufferB, push_constants.gbuffer_mip);
+    const vec2 texel_size = vec2(1.0) / vec2(size);
+    const ivec2 current_coord = ivec2(gl_GlobalInvocationID.xy);
+    const vec2 pixel_center = vec2(current_coord) + vec2(0.5);
+    const vec2 tex_coord = pixel_center / vec2(size);
+
+    float depth = texelFetch(depth_buffer, current_coord, push_constants.gbuffer_mip).r;
+
+    if (depth == 1.0)
+    {
+        imageStore(output_gi, current_coord, vec4(0.0));
+        return;
+    }
+
+    vec3 P  = world_position_from_depth(tex_coord, depth, ubo.view_projection_inv);
+    vec3 N  = octohedral_to_direction(texelFetch(gbufferB, current_coord, push_constants.gbuffer_mip).rg);
+    vec3 V = normalize(ubo.cam_pos.xyz - P);
+    N = dot(N, V) > 0 ? N : -N;
+
+    vec3 irradiance = push_constants.gi_intensity * sample_irradiance(P, N, V);
+
+    imageStore(output_gi, current_coord, vec4(irradiance, 1.0));
+}

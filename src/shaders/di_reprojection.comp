@@ -10,7 +10,6 @@
 #include "scene.glsl"
 #include "bxdf.glsl"
 #include "gbuffer_data.glsl"
-#define REPROJECTION_REFLECTION
 #define REPROJECTION_MOMENTS
 #include "reproject.glsl"
 
@@ -138,7 +137,6 @@ void main()
     {
         vec4 color_ray_length = texelFetch(input_image, coord, 0);
         vec3 color = color_ray_length.rgb;
-        const float ray_length = color_ray_length.a;
 
         vec3 history_color;
         vec2 history_moments;
@@ -148,10 +146,7 @@ void main()
         bool success = reprojection(coord,
                                  depth,
                                  push_constants.gbuffer_mip,
-                                 ubo.cam_pos.xyz,
                                  ubo.view_projection_inv,
-                                 ubo.prev_view_projection,
-                                 ray_length,
                                  gbufferB,
                                  gbufferC,
                                  prev_gbufferB,
@@ -200,8 +195,8 @@ void main()
     imageStore(output_image, coord, output_radiance);
 
     if (depth != 0 && 
-        roughness > MIRROR_REFLECTIONS_ROUGHNESS_THRESHOLD &&
-        roughness < DIFFUSE_REFLECTIONS_ROUGHNESS_THRESHOLD)
+        roughness >= MIRROR_REFLECTIONS_ROUGHNESS_THRESHOLD &&
+        roughness <= DIFFUSE_REFLECTIONS_ROUGHNESS_THRESHOLD)
     {
         shared_need_denoise = 1;
     }
