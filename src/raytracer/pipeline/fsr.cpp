@@ -469,6 +469,9 @@ void FSR::update(const Scene &scene, VkImageView previous_result)
 
     // initialize uniform buffer data; this will only need to do once hadn't the viewport changed
     {
+        memset(&m_easu_buffer_data, 0, sizeof(FSRPassUniforms));
+        memset(&m_rcas_buffer_data, 0, sizeof(FSRPassUniforms));
+
 		FsrEasuCon(
 		    reinterpret_cast<AU1 *>(&m_easu_buffer_data.Const0),
 		    reinterpret_cast<AU1 *>(&m_easu_buffer_data.Const1),

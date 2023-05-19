@@ -573,7 +573,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 
 		//present(cmd_buffer, m_renderer.tonemap.tonemapped_image.vk_image);
 		present(cmd_buffer, m_renderer.fsr.upsampled_image.vk_image);
-		present(cmd_buffer, m_renderer.fsr.intermediate_image.vk_image);
+		//present(cmd_buffer, m_renderer.fsr.intermediate_image.vk_image);
 
 		{
 			VkImageMemoryBarrier image_barriers[] = {
