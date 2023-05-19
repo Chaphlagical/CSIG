@@ -28,7 +28,7 @@ static unsigned char g_ao_upsampling_comp_spv_data[] = {
 #include "ao_upsampling.comp.spv.h"
 };
 
-RayTracedAO::RayTracedAO(const Context &context, RayTracedScale scale) :
+RayTracedAO::RayTracedAO(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, RayTracedScale scale) :
     m_context(&context)
 {
 	float scale_divisor = powf(2.0f, float(scale));
@@ -209,52 +209,10 @@ RayTracedAO::RayTracedAO(const Context &context, RayTracedScale scale) :
 		// Create descriptor set layout
 		{
 			VkDescriptorSetLayoutBinding bindings[] = {
-			    // Global buffer
-			    {
-			        .binding         = 0,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-			        .descriptorCount = 1,
-			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-			    },
 			    // Raytraced image
 			    {
-			        .binding         = 1,
+			        .binding         = 0,
 			        .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-			        .descriptorCount = 1,
-			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-			    },
-			    // GBufferB
-			    {
-			        .binding         = 2,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .descriptorCount = 1,
-			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-			    },
-			    // Depth Stencil
-			    {
-			        .binding         = 3,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .descriptorCount = 1,
-			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-			    },
-			    // Sobol Sequence
-			    {
-			        .binding         = 4,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .descriptorCount = 1,
-			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-			    },
-			    // Scrambling Ranking Tile
-			    {
-			        .binding         = 5,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .descriptorCount = 1,
-			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-			    },
-			    // Top Levell Acceleration Structure
-			    {
-			        .binding         = 6,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
 			        .descriptorCount = 1,
 			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
 			    },
@@ -262,7 +220,7 @@ RayTracedAO::RayTracedAO(const Context &context, RayTracedScale scale) :
 			VkDescriptorSetLayoutCreateInfo create_info = {
 			    .sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 			    .flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
-			    .bindingCount = 7,
+			    .bindingCount = 1,
 			    .pBindings    = bindings,
 			};
 			vkCreateDescriptorSetLayout(m_context->vk_device, &create_info, nullptr, &m_raytraced.descriptor_set_layout);
@@ -272,21 +230,26 @@ RayTracedAO::RayTracedAO(const Context &context, RayTracedScale scale) :
 		{
 			VkDescriptorSetLayout descriptor_set_layouts[] = {
 			    m_raytraced.descriptor_set_layout,
-			    m_raytraced.descriptor_set_layout,
 			};
 
 			VkDescriptorSetAllocateInfo allocate_info = {
 			    .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
 			    .pNext              = nullptr,
 			    .descriptorPool     = m_context->vk_descriptor_pool,
-			    .descriptorSetCount = 2,
+			    .descriptorSetCount = 1,
 			    .pSetLayouts        = descriptor_set_layouts,
 			};
-			vkAllocateDescriptorSets(m_context->vk_device, &allocate_info, m_raytraced.descriptor_sets);
+			vkAllocateDescriptorSets(m_context->vk_device, &allocate_info, &m_raytraced.descriptor_set);
 		}
 
 		// Create pipeline layout
 		{
+			VkDescriptorSetLayout descriptor_set_layouts[] = {
+			    scene.descriptor.layout,
+			    gbuffer_pass.descriptor.layout,
+			    m_raytraced.descriptor_set_layout,
+			};
+
 			VkPushConstantRange range = {
 			    .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
 			    .offset     = 0,
@@ -294,8 +257,8 @@ RayTracedAO::RayTracedAO(const Context &context, RayTracedScale scale) :
 			};
 			VkPipelineLayoutCreateInfo create_info = {
 			    .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-			    .setLayoutCount         = 1,
-			    .pSetLayouts            = &m_raytraced.descriptor_set_layout,
+			    .setLayoutCount         = 3,
+			    .pSetLayouts            = descriptor_set_layouts,
 			    .pushConstantRangeCount = 1,
 			    .pPushConstantRanges    = &range,
 			};
@@ -338,100 +301,51 @@ RayTracedAO::RayTracedAO(const Context &context, RayTracedScale scale) :
 		// Create descriptor set layout
 		{
 			VkDescriptorSetLayoutBinding bindings[] = {
-			    // Global buffer
-			    {
-			        .binding         = 0,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-			        .descriptorCount = 1,
-			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-			    },
-			    // GBufferB
-			    {
-			        .binding         = 1,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .descriptorCount = 1,
-			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-			    },
-			    // GBufferC
-			    {
-			        .binding         = 2,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .descriptorCount = 1,
-			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-			    },
-			    // Depth Buffer
-			    {
-			        .binding         = 3,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .descriptorCount = 1,
-			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-			    },
-			    // Prev GBufferB
-			    {
-			        .binding         = 4,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .descriptorCount = 1,
-			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-			    },
-			    // Prev GBufferC
-			    {
-			        .binding         = 5,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .descriptorCount = 1,
-			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-			    },
-			    // Prev Depth Buffer
-			    {
-			        .binding         = 6,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .descriptorCount = 1,
-			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-			    },
 			    // Ray Traced Image
 			    {
-			        .binding         = 7,
+			        .binding         = 0,
 			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 			        .descriptorCount = 1,
 			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
 			    },
 			    // AO Image
 			    {
-			        .binding         = 8,
+			        .binding         = 1,
 			        .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
 			        .descriptorCount = 1,
 			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
 			    },
 			    // History Length Image
 			    {
-			        .binding         = 9,
+			        .binding         = 2,
 			        .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
 			        .descriptorCount = 1,
 			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
 			    },
 			    // Prev AO Image
 			    {
-			        .binding         = 10,
+			        .binding         = 3,
 			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 			        .descriptorCount = 1,
 			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
 			    },
 			    // Prev History Length Image
 			    {
-			        .binding         = 11,
+			        .binding         = 4,
 			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 			        .descriptorCount = 1,
 			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
 			    },
 			    // Denoise Tile Data
 			    {
-			        .binding         = 12,
+			        .binding         = 5,
 			        .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 			        .descriptorCount = 1,
 			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
 			    },
 			    // Denoise Tile Dispatch Argument
 			    {
-			        .binding         = 13,
+			        .binding         = 6,
 			        .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 			        .descriptorCount = 1,
 			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
@@ -439,8 +353,7 @@ RayTracedAO::RayTracedAO(const Context &context, RayTracedScale scale) :
 			};
 			VkDescriptorSetLayoutCreateInfo create_info = {
 			    .sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-			    .flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
-			    .bindingCount = 14,
+			    .bindingCount = 7,
 			    .pBindings    = bindings,
 			};
 			vkCreateDescriptorSetLayout(m_context->vk_device, &create_info, nullptr, &m_denoise.temporal_accumulation.descriptor_set_layout);
@@ -465,6 +378,11 @@ RayTracedAO::RayTracedAO(const Context &context, RayTracedScale scale) :
 
 		// Create pipeline layout
 		{
+			VkDescriptorSetLayout descriptor_set_layouts[] = {
+			    scene.descriptor.layout,
+			    gbuffer_pass.descriptor.layout,
+			    m_denoise.temporal_accumulation.descriptor_set_layout,
+			};
 			VkPushConstantRange range = {
 			    .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
 			    .offset     = 0,
@@ -472,8 +390,8 @@ RayTracedAO::RayTracedAO(const Context &context, RayTracedScale scale) :
 			};
 			VkPipelineLayoutCreateInfo create_info = {
 			    .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-			    .setLayoutCount         = 1,
-			    .pSetLayouts            = &m_denoise.temporal_accumulation.descriptor_set_layout,
+			    .setLayoutCount         = 3,
+			    .pSetLayouts            = descriptor_set_layouts,
 			    .pushConstantRangeCount = 1,
 			    .pPushConstantRanges    = &range,
 			};
@@ -537,30 +455,9 @@ RayTracedAO::RayTracedAO(const Context &context, RayTracedScale scale) :
 			        .descriptorCount = 1,
 			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
 			    },
-			    // GBuffer B
-			    {
-			        .binding         = 3,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .descriptorCount = 1,
-			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-			    },
-			    // GBuffer C
-			    {
-			        .binding         = 4,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .descriptorCount = 1,
-			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-			    },
-			    // Depth Buffer
-			    {
-			        .binding         = 5,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .descriptorCount = 1,
-			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-			    },
 			    // Denoise Tile Data
 			    {
-			        .binding         = 6,
+			        .binding         = 3,
 			        .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 			        .descriptorCount = 1,
 			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
@@ -569,7 +466,7 @@ RayTracedAO::RayTracedAO(const Context &context, RayTracedScale scale) :
 			VkDescriptorSetLayoutCreateInfo create_info = {
 			    .sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 			    .flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
-			    .bindingCount = 7,
+			    .bindingCount = 4,
 			    .pBindings    = bindings,
 			};
 			vkCreateDescriptorSetLayout(m_context->vk_device, &create_info, nullptr, &m_denoise.bilateral_blur.descriptor_set_layout);
@@ -595,6 +492,11 @@ RayTracedAO::RayTracedAO(const Context &context, RayTracedScale scale) :
 
 		// Create pipeline layout
 		{
+			VkDescriptorSetLayout descriptor_set_layouts[] = {
+			    scene.descriptor.layout,
+			    gbuffer_pass.descriptor.layout,
+			    m_denoise.bilateral_blur.descriptor_set_layout,
+			};
 			VkPushConstantRange range = {
 			    .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
 			    .offset     = 0,
@@ -602,8 +504,8 @@ RayTracedAO::RayTracedAO(const Context &context, RayTracedScale scale) :
 			};
 			VkPipelineLayoutCreateInfo create_info = {
 			    .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-			    .setLayoutCount         = 1,
-			    .pSetLayouts            = &m_denoise.bilateral_blur.descriptor_set_layout,
+			    .setLayoutCount         = 3,
+			    .pSetLayouts            = descriptor_set_layouts,
 			    .pushConstantRangeCount = 1,
 			    .pPushConstantRanges    = &range,
 			};
@@ -660,32 +562,11 @@ RayTracedAO::RayTracedAO(const Context &context, RayTracedScale scale) :
 			        .descriptorCount = 1,
 			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
 			    },
-			    // GBuffer B
-			    {
-			        .binding         = 2,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .descriptorCount = 1,
-			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-			    },
-			    // GBuffer C
-			    {
-			        .binding         = 3,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .descriptorCount = 1,
-			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-			    },
-			    // Depth Buffer
-			    {
-			        .binding         = 4,
-			        .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .descriptorCount = 1,
-			        .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
-			    },
 			};
 			VkDescriptorSetLayoutCreateInfo create_info = {
 			    .sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 			    .flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
-			    .bindingCount = 5,
+			    .bindingCount = 2,
 			    .pBindings    = bindings,
 			};
 			vkCreateDescriptorSetLayout(m_context->vk_device, &create_info, nullptr, &m_upsampling.descriptor_set_layout);
@@ -697,7 +578,6 @@ RayTracedAO::RayTracedAO(const Context &context, RayTracedScale scale) :
 			    m_upsampling.descriptor_set_layout,
 			    m_upsampling.descriptor_set_layout,
 			};
-
 			VkDescriptorSetAllocateInfo allocate_info = {
 			    .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
 			    .pNext              = nullptr,
@@ -710,6 +590,11 @@ RayTracedAO::RayTracedAO(const Context &context, RayTracedScale scale) :
 
 		// Create pipeline layout
 		{
+			VkDescriptorSetLayout descriptor_set_layouts[] = {
+			    scene.descriptor.layout,
+			    gbuffer_pass.descriptor.layout,
+			    m_upsampling.descriptor_set_layout,
+			};
 			VkPushConstantRange range = {
 			    .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
 			    .offset     = 0,
@@ -717,8 +602,8 @@ RayTracedAO::RayTracedAO(const Context &context, RayTracedScale scale) :
 			};
 			VkPipelineLayoutCreateInfo create_info = {
 			    .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-			    .setLayoutCount         = 1,
-			    .pSetLayouts            = &m_upsampling.descriptor_set_layout,
+			    .setLayoutCount         = 3,
+			    .pSetLayouts            = descriptor_set_layouts,
 			    .pushConstantRangeCount = 1,
 			    .pPushConstantRanges    = &range,
 			};
@@ -763,7 +648,7 @@ RayTracedAO::~RayTracedAO()
 	vkDestroyDescriptorSetLayout(m_context->vk_device, m_denoise.bilateral_blur.descriptor_set_layout, nullptr);
 	vkDestroyDescriptorSetLayout(m_context->vk_device, m_upsampling.descriptor_set_layout, nullptr);
 
-	vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 2, m_raytraced.descriptor_sets);
+	vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 1, &m_raytraced.descriptor_set);
 	vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 2, m_denoise.temporal_accumulation.descriptor_sets);
 	vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 2, m_denoise.bilateral_blur.descriptor_sets[0]);
 	vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 2, m_denoise.bilateral_blur.descriptor_sets[1]);
@@ -948,14 +833,8 @@ void RayTracedAO::init(VkCommandBuffer cmd_buffer)
 	    0, 0, nullptr, 1, &buffer_barrier, 8, image_barriers);
 }
 
-void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const GBufferPass &gbuffer_pass)
+void RayTracedAO::update(const Scene &scene, const GBufferPass &gbuffer_pass)
 {
-	VkDescriptorBufferInfo global_buffer_info = {
-	    .buffer = scene.global_buffer.vk_buffer,
-	    .offset = 0,
-	    .range  = sizeof(GlobalData),
-	};
-
 	VkDescriptorBufferInfo denoise_tile_buffer_info = {
 	    .buffer = denoise_tile_buffer.vk_buffer,
 	    .offset = 0,
@@ -1035,45 +914,6 @@ void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const 
 	    },
 	};
 
-	VkDescriptorImageInfo gbufferB_info[] = {
-	    {
-	        .sampler     = scene.nearest_sampler,
-	        .imageView   = gbuffer_pass.gbufferB_view[0],
-	        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-	    },
-	    {
-	        .sampler     = scene.nearest_sampler,
-	        .imageView   = gbuffer_pass.gbufferB_view[1],
-	        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-	    },
-	};
-
-	VkDescriptorImageInfo gbufferC_info[] = {
-	    {
-	        .sampler     = scene.nearest_sampler,
-	        .imageView   = gbuffer_pass.gbufferC_view[0],
-	        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-	    },
-	    {
-	        .sampler     = scene.nearest_sampler,
-	        .imageView   = gbuffer_pass.gbufferC_view[1],
-	        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-	    },
-	};
-
-	VkDescriptorImageInfo depth_stencil_info[] = {
-	    {
-	        .sampler     = scene.nearest_sampler,
-	        .imageView   = gbuffer_pass.depth_buffer_view[0],
-	        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-	    },
-	    {
-	        .sampler     = scene.nearest_sampler,
-	        .imageView   = gbuffer_pass.depth_buffer_view[1],
-	        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-	    },
-	};
-
 	VkDescriptorImageInfo bilateral_blur_image_info[2][2] = {
 	    {
 	        VkDescriptorImageInfo{
@@ -1105,110 +945,22 @@ void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const 
 	    .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
 	};
 
-	VkDescriptorImageInfo sobol_sequence_info = {
-	    .sampler     = scene.nearest_sampler,
-	    .imageView   = blue_noise.sobol_image_view,
-	    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-	};
-
-	VkDescriptorImageInfo scrambling_ranking_tile_info = {
-	    .sampler     = scene.nearest_sampler,
-	    .imageView   = blue_noise.scrambling_ranking_image_views[BLUE_NOISE_1SPP],
-	    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-	};
-
-	VkWriteDescriptorSetAccelerationStructureKHR as_write = {
-	    .sType                      = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR,
-	    .accelerationStructureCount = 1,
-	    .pAccelerationStructures    = &scene.tlas.vk_as,
-	};
-
 	// Raytraced
 	{
-		for (uint32_t i = 0; i < 2; i++)
-		{
-			VkWriteDescriptorSet writes[] = {
-			    {
-			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			        .dstSet           = m_raytraced.descriptor_sets[i],
-			        .dstBinding       = 0,
-			        .dstArrayElement  = 0,
-			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-			        .pImageInfo       = nullptr,
-			        .pBufferInfo      = &global_buffer_info,
-			        .pTexelBufferView = nullptr,
-			    },
-			    {
-			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			        .dstSet           = m_raytraced.descriptor_sets[i],
-			        .dstBinding       = 1,
-			        .dstArrayElement  = 0,
-			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-			        .pImageInfo       = &raytraced_image_info[0],
-			        .pBufferInfo      = nullptr,
-			        .pTexelBufferView = nullptr,
-			    },
-			    {
-			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			        .dstSet           = m_raytraced.descriptor_sets[i],
-			        .dstBinding       = 2,
-			        .dstArrayElement  = 0,
-			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .pImageInfo       = &gbufferB_info[i],
-			        .pBufferInfo      = nullptr,
-			        .pTexelBufferView = nullptr,
-			    },
-			    {
-			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			        .dstSet           = m_raytraced.descriptor_sets[i],
-			        .dstBinding       = 3,
-			        .dstArrayElement  = 0,
-			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .pImageInfo       = &depth_stencil_info[i],
-			        .pBufferInfo      = nullptr,
-			        .pTexelBufferView = nullptr,
-			    },
-			    {
-			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			        .dstSet           = m_raytraced.descriptor_sets[i],
-			        .dstBinding       = 4,
-			        .dstArrayElement  = 0,
-			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .pImageInfo       = &sobol_sequence_info,
-			        .pBufferInfo      = nullptr,
-			        .pTexelBufferView = nullptr,
-			    },
-			    {
-			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			        .dstSet           = m_raytraced.descriptor_sets[i],
-			        .dstBinding       = 5,
-			        .dstArrayElement  = 0,
-			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .pImageInfo       = &scrambling_ranking_tile_info,
-			        .pBufferInfo      = nullptr,
-			        .pTexelBufferView = nullptr,
-			    },
-			    {
-			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			        .pNext            = &as_write,
-			        .dstSet           = m_raytraced.descriptor_sets[i],
-			        .dstBinding       = 6,
-			        .dstArrayElement  = 0,
-			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
-			        .pImageInfo       = nullptr,
-			        .pBufferInfo      = nullptr,
-			        .pTexelBufferView = nullptr,
-			    },
-			};
-			vkUpdateDescriptorSets(m_context->vk_device, 7, writes, 0, nullptr);
-		}
+		VkWriteDescriptorSet writes[] = {
+		    {
+		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		        .dstSet           = m_raytraced.descriptor_set,
+		        .dstBinding       = 0,
+		        .dstArrayElement  = 0,
+		        .descriptorCount  = 1,
+		        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+		        .pImageInfo       = &raytraced_image_info[0],
+		        .pBufferInfo      = nullptr,
+		        .pTexelBufferView = nullptr,
+		    },
+		};
+		vkUpdateDescriptorSets(m_context->vk_device, 1, writes, 0, nullptr);
 	}
 
 	// Temporal accumulation
@@ -1216,95 +968,10 @@ void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const 
 		for (uint32_t i = 0; i < 2; i++)
 		{
 			VkWriteDescriptorSet writes[] = {
-			    // Binding = 0: Global Buffer
 			    {
 			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 			        .dstSet           = m_denoise.temporal_accumulation.descriptor_sets[i],
 			        .dstBinding       = 0,
-			        .dstArrayElement  = 0,
-			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-			        .pImageInfo       = nullptr,
-			        .pBufferInfo      = &global_buffer_info,
-			        .pTexelBufferView = nullptr,
-			    },
-			    // Binding = 1: GBufferB
-			    {
-			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			        .dstSet           = m_denoise.temporal_accumulation.descriptor_sets[i],
-			        .dstBinding       = 1,
-			        .dstArrayElement  = 0,
-			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .pImageInfo       = &gbufferB_info[i],
-			        .pBufferInfo      = nullptr,
-			        .pTexelBufferView = nullptr,
-			    },
-			    // Binding = 2: GBufferC
-			    {
-			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			        .dstSet           = m_denoise.temporal_accumulation.descriptor_sets[i],
-			        .dstBinding       = 2,
-			        .dstArrayElement  = 0,
-			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .pImageInfo       = &gbufferC_info[i],
-			        .pBufferInfo      = nullptr,
-			        .pTexelBufferView = nullptr,
-			    },
-			    // Binding = 3: Depth Buffer
-			    {
-			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			        .dstSet           = m_denoise.temporal_accumulation.descriptor_sets[i],
-			        .dstBinding       = 3,
-			        .dstArrayElement  = 0,
-			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .pImageInfo       = &depth_stencil_info[i],
-			        .pBufferInfo      = nullptr,
-			        .pTexelBufferView = nullptr,
-			    },
-			    // Binding = 4: Prev GBufferB
-			    {
-			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			        .dstSet           = m_denoise.temporal_accumulation.descriptor_sets[i],
-			        .dstBinding       = 4,
-			        .dstArrayElement  = 0,
-			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .pImageInfo       = &gbufferB_info[!i],
-			        .pBufferInfo      = nullptr,
-			        .pTexelBufferView = nullptr,
-			    },
-			    // Binding = 5: Prev GBufferC
-			    {
-			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			        .dstSet           = m_denoise.temporal_accumulation.descriptor_sets[i],
-			        .dstBinding       = 5,
-			        .dstArrayElement  = 0,
-			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .pImageInfo       = &gbufferC_info[!i],
-			        .pBufferInfo      = nullptr,
-			        .pTexelBufferView = nullptr,
-			    },
-			    // Binding = 6: Prev Depth Buffer
-			    {
-			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			        .dstSet           = m_denoise.temporal_accumulation.descriptor_sets[i],
-			        .dstBinding       = 6,
-			        .dstArrayElement  = 0,
-			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .pImageInfo       = &depth_stencil_info[!i],
-			        .pBufferInfo      = nullptr,
-			        .pTexelBufferView = nullptr,
-			    },
-			    // Binding = 7: Ray Traced Image
-			    {
-			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			        .dstSet           = m_denoise.temporal_accumulation.descriptor_sets[i],
-			        .dstBinding       = 7,
 			        .dstArrayElement  = 0,
 			        .descriptorCount  = 1,
 			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -1312,11 +979,10 @@ void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const 
 			        .pBufferInfo      = nullptr,
 			        .pTexelBufferView = nullptr,
 			    },
-			    // Binding = 8: AO Image
 			    {
 			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 			        .dstSet           = m_denoise.temporal_accumulation.descriptor_sets[i],
-			        .dstBinding       = 8,
+			        .dstBinding       = 1,
 			        .dstArrayElement  = 0,
 			        .descriptorCount  = 1,
 			        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
@@ -1324,11 +990,10 @@ void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const 
 			        .pBufferInfo      = nullptr,
 			        .pTexelBufferView = nullptr,
 			    },
-			    // Binding = 9: History Length Image
 			    {
 			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 			        .dstSet           = m_denoise.temporal_accumulation.descriptor_sets[i],
-			        .dstBinding       = 9,
+			        .dstBinding       = 2,
 			        .dstArrayElement  = 0,
 			        .descriptorCount  = 1,
 			        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
@@ -1336,11 +1001,10 @@ void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const 
 			        .pBufferInfo      = nullptr,
 			        .pTexelBufferView = nullptr,
 			    },
-			    // Binding = 10: Prev AO Image
 			    {
 			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 			        .dstSet           = m_denoise.temporal_accumulation.descriptor_sets[i],
-			        .dstBinding       = 10,
+			        .dstBinding       = 3,
 			        .dstArrayElement  = 0,
 			        .descriptorCount  = 1,
 			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -1348,11 +1012,10 @@ void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const 
 			        .pBufferInfo      = nullptr,
 			        .pTexelBufferView = nullptr,
 			    },
-			    // Binding = 11: Prev History Length Image
 			    {
 			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 			        .dstSet           = m_denoise.temporal_accumulation.descriptor_sets[i],
-			        .dstBinding       = 11,
+			        .dstBinding       = 4,
 			        .dstArrayElement  = 0,
 			        .descriptorCount  = 1,
 			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -1360,11 +1023,10 @@ void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const 
 			        .pBufferInfo      = nullptr,
 			        .pTexelBufferView = nullptr,
 			    },
-			    // Binding = 12: Denoise tile buffer
 			    {
 			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 			        .dstSet           = m_denoise.temporal_accumulation.descriptor_sets[i],
-			        .dstBinding       = 12,
+			        .dstBinding       = 5,
 			        .dstArrayElement  = 0,
 			        .descriptorCount  = 1,
 			        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -1372,11 +1034,10 @@ void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const 
 			        .pBufferInfo      = &denoise_tile_buffer_info,
 			        .pTexelBufferView = nullptr,
 			    },
-			    // Binding = 13: Denoise tile dispatch argument buffer
 			    {
 			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 			        .dstSet           = m_denoise.temporal_accumulation.descriptor_sets[i],
-			        .dstBinding       = 13,
+			        .dstBinding       = 6,
 			        .dstArrayElement  = 0,
 			        .descriptorCount  = 1,
 			        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -1385,7 +1046,7 @@ void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const 
 			        .pTexelBufferView = nullptr,
 			    },
 			};
-			vkUpdateDescriptorSets(m_context->vk_device, 14, writes, 0, nullptr);
+			vkUpdateDescriptorSets(m_context->vk_device, 7, writes, 0, nullptr);
 		}
 	}
 
@@ -1396,7 +1057,6 @@ void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const 
 			for (uint32_t j = 0; j < 2; j++)
 			{
 				VkWriteDescriptorSet writes[] = {
-				    // Binding = 0: Bilateral Blur
 				    {
 				        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 				        .dstSet           = m_denoise.bilateral_blur.descriptor_sets[i][j],
@@ -1408,7 +1068,6 @@ void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const 
 				        .pBufferInfo      = nullptr,
 				        .pTexelBufferView = nullptr,
 				    },
-				    // Binding = 1: AO Image
 				    {
 				        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 				        .dstSet           = m_denoise.bilateral_blur.descriptor_sets[i][j],
@@ -1420,7 +1079,6 @@ void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const 
 				        .pBufferInfo      = nullptr,
 				        .pTexelBufferView = nullptr,
 				    },
-				    // Binding = 2: History Length
 				    {
 				        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 				        .dstSet           = m_denoise.bilateral_blur.descriptor_sets[i][j],
@@ -1432,47 +1090,10 @@ void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const 
 				        .pBufferInfo      = nullptr,
 				        .pTexelBufferView = nullptr,
 				    },
-				    // Binding = 3: GBuffer B
 				    {
 				        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 				        .dstSet           = m_denoise.bilateral_blur.descriptor_sets[i][j],
 				        .dstBinding       = 3,
-				        .dstArrayElement  = 0,
-				        .descriptorCount  = 1,
-				        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				        .pImageInfo       = &gbufferB_info[i],
-				        .pBufferInfo      = nullptr,
-				        .pTexelBufferView = nullptr,
-				    },
-				    // Binding = 4: GBuffer C
-				    {
-				        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				        .dstSet           = m_denoise.bilateral_blur.descriptor_sets[i][j],
-				        .dstBinding       = 4,
-				        .dstArrayElement  = 0,
-				        .descriptorCount  = 1,
-				        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				        .pImageInfo       = &gbufferC_info[i],
-				        .pBufferInfo      = nullptr,
-				        .pTexelBufferView = nullptr,
-				    },
-				    // Binding = 5: Depth Buffer
-				    {
-				        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				        .dstSet           = m_denoise.bilateral_blur.descriptor_sets[i][j],
-				        .dstBinding       = 5,
-				        .dstArrayElement  = 0,
-				        .descriptorCount  = 1,
-				        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				        .pImageInfo       = &depth_stencil_info[i],
-				        .pBufferInfo      = nullptr,
-				        .pTexelBufferView = nullptr,
-				    },
-				    // Binding = 6: Denoise tile buffer
-				    {
-				        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				        .dstSet           = m_denoise.bilateral_blur.descriptor_sets[i][j],
-				        .dstBinding       = 6,
 				        .dstArrayElement  = 0,
 				        .descriptorCount  = 1,
 				        .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -1481,7 +1102,7 @@ void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const 
 				        .pTexelBufferView = nullptr,
 				    },
 				};
-				vkUpdateDescriptorSets(m_context->vk_device, 7, writes, 0, nullptr);
+				vkUpdateDescriptorSets(m_context->vk_device, 4, writes, 0, nullptr);
 			}
 		}
 	}
@@ -1491,7 +1112,6 @@ void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const 
 		for (uint32_t i = 0; i < 2; i++)
 		{
 			VkWriteDescriptorSet writes[] = {
-			    // Binding = 0: Upsampling image
 			    {
 			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 			        .dstSet           = m_upsampling.descriptor_sets[i],
@@ -1503,7 +1123,6 @@ void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const 
 			        .pBufferInfo      = nullptr,
 			        .pTexelBufferView = nullptr,
 			    },
-			    // Binding = 1: Bilateral Image
 			    {
 			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 			        .dstSet           = m_upsampling.descriptor_sets[i],
@@ -1515,58 +1134,26 @@ void RayTracedAO::update(const Scene &scene, const BlueNoise &blue_noise, const 
 			        .pBufferInfo      = nullptr,
 			        .pTexelBufferView = nullptr,
 			    },
-			    // Binding = 2: GBuffer B
-			    {
-			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			        .dstSet           = m_upsampling.descriptor_sets[i],
-			        .dstBinding       = 2,
-			        .dstArrayElement  = 0,
-			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .pImageInfo       = &gbufferB_info[i],
-			        .pBufferInfo      = nullptr,
-			        .pTexelBufferView = nullptr,
-			    },
-			    // Binding = 3: GBuffer C
-			    {
-			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			        .dstSet           = m_upsampling.descriptor_sets[i],
-			        .dstBinding       = 3,
-			        .dstArrayElement  = 0,
-			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .pImageInfo       = &gbufferC_info[i],
-			        .pBufferInfo      = nullptr,
-			        .pTexelBufferView = nullptr,
-			    },
-			    // Binding = 4: Depth Buffer
-			    {
-			        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			        .dstSet           = m_upsampling.descriptor_sets[i],
-			        .dstBinding       = 4,
-			        .dstArrayElement  = 0,
-			        .descriptorCount  = 1,
-			        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			        .pImageInfo       = &depth_stencil_info[i],
-			        .pBufferInfo      = nullptr,
-			        .pTexelBufferView = nullptr,
-			    },
 			};
-			vkUpdateDescriptorSets(m_context->vk_device, 5, writes, 0, nullptr);
+			vkUpdateDescriptorSets(m_context->vk_device, 2, writes, 0, nullptr);
 		}
 	}
 }
 
-void RayTracedAO::draw(VkCommandBuffer cmd_buffer)
+void RayTracedAO::draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBufferPass &gbuffer_pass)
 {
 	// Ray Traced
 	m_context->begin_marker(cmd_buffer, "Ray Traced AO");
 	{
 		m_context->begin_marker(cmd_buffer, "Ray Traced");
 		{
+			VkDescriptorSet descriptor_sets[] = {
+			    scene.descriptor.set,
+			    gbuffer_pass.descriptor.sets[m_context->ping_pong],
+			    m_raytraced.descriptor_set,
+			};
 			m_raytraced.push_constant.gbuffer_mip = m_gbuffer_mip;
-
-			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_raytraced.pipeline_layout, 0, 1, &m_raytraced.descriptor_sets[m_context->ping_pong], 0, nullptr);
+			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_raytraced.pipeline_layout, 0, 3, descriptor_sets, 0, nullptr);
 			vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_raytraced.pipeline);
 			vkCmdPushConstants(cmd_buffer, m_raytraced.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_raytraced.push_constant), &m_raytraced.push_constant);
 			vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_width) / float(RAY_TRACE_NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(RAY_TRACE_NUM_THREADS_Y))), 1);
@@ -1602,8 +1189,13 @@ void RayTracedAO::draw(VkCommandBuffer cmd_buffer)
 
 		m_context->begin_marker(cmd_buffer, "Temporal Accumulation");
 		{
+			VkDescriptorSet descriptor_sets[] = {
+			    scene.descriptor.set,
+			    gbuffer_pass.descriptor.sets[m_context->ping_pong],
+			    m_denoise.temporal_accumulation.descriptor_sets[m_context->ping_pong],
+			};
 			m_denoise.temporal_accumulation.push_constant.gbuffer_mip = m_gbuffer_mip;
-			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_denoise.temporal_accumulation.pipeline_layout, 0, 1, &m_denoise.temporal_accumulation.descriptor_sets[m_context->ping_pong], 0, nullptr);
+			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_denoise.temporal_accumulation.pipeline_layout, 0, 3, descriptor_sets, 0, nullptr);
 			vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_denoise.temporal_accumulation.pipeline);
 			vkCmdPushConstants(cmd_buffer, m_denoise.temporal_accumulation.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_denoise.temporal_accumulation.push_constant), &m_denoise.temporal_accumulation.push_constant);
 			vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_width) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_Y))), 1);
@@ -1771,8 +1363,13 @@ void RayTracedAO::draw(VkCommandBuffer cmd_buffer)
 
 			m_context->begin_marker(cmd_buffer, "Vertical Blur");
 			{
+				VkDescriptorSet descriptor_sets[] = {
+				    scene.descriptor.set,
+				    gbuffer_pass.descriptor.sets[m_context->ping_pong],
+				    m_denoise.bilateral_blur.descriptor_sets[m_context->ping_pong][0],
+				};
 				m_denoise.bilateral_blur.push_constant.direction = glm::ivec2(1, 0);
-				vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_denoise.bilateral_blur.pipeline_layout, 0, 1, &m_denoise.bilateral_blur.descriptor_sets[m_context->ping_pong][0], 0, nullptr);
+				vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_denoise.bilateral_blur.pipeline_layout, 0, 3, descriptor_sets, 0, nullptr);
 				vkCmdPushConstants(cmd_buffer, m_denoise.bilateral_blur.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_denoise.bilateral_blur.push_constant), &m_denoise.bilateral_blur.push_constant);
 				vkCmdDispatchIndirect(cmd_buffer, denoise_tile_dispatch_args_buffer.vk_buffer, 0);
 			}
@@ -1805,8 +1402,13 @@ void RayTracedAO::draw(VkCommandBuffer cmd_buffer)
 			}
 			m_context->begin_marker(cmd_buffer, "Horizontal Blur");
 			{
+				VkDescriptorSet descriptor_sets[] = {
+				    scene.descriptor.set,
+				    gbuffer_pass.descriptor.sets[m_context->ping_pong],
+				    m_denoise.bilateral_blur.descriptor_sets[m_context->ping_pong][1],
+				};
 				m_denoise.bilateral_blur.push_constant.direction = glm::ivec2(0, 1);
-				vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_denoise.bilateral_blur.pipeline_layout, 0, 1, &m_denoise.bilateral_blur.descriptor_sets[m_context->ping_pong][1], 0, nullptr);
+				vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_denoise.bilateral_blur.pipeline_layout, 0, 3, descriptor_sets, 0, nullptr);
 				vkCmdPushConstants(cmd_buffer, m_denoise.bilateral_blur.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_denoise.bilateral_blur.push_constant), &m_denoise.bilateral_blur.push_constant);
 				vkCmdDispatchIndirect(cmd_buffer, denoise_tile_dispatch_args_buffer.vk_buffer, 0);
 			}
@@ -1860,8 +1462,13 @@ void RayTracedAO::draw(VkCommandBuffer cmd_buffer)
 
 		m_context->begin_marker(cmd_buffer, "Upsampling");
 		{
+			VkDescriptorSet descriptor_sets[] = {
+			    scene.descriptor.set,
+			    gbuffer_pass.descriptor.sets[m_context->ping_pong],
+			    m_upsampling.descriptor_sets[m_context->ping_pong],
+			};
 			m_upsampling.push_constant.gbuffer_mip = m_gbuffer_mip;
-			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_upsampling.pipeline_layout, 0, 1, &m_upsampling.descriptor_sets[m_context->ping_pong], 0, nullptr);
+			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_upsampling.pipeline_layout, 0, 3, descriptor_sets, 0, nullptr);
 			vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_upsampling.pipeline);
 			vkCmdPushConstants(cmd_buffer, m_upsampling.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_upsampling.push_constant), &m_upsampling.push_constant);
 			vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_context->extent.width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_context->extent.height) / float(NUM_THREADS_Y))), 1);

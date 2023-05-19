@@ -1,9 +1,14 @@
 #version 460
 
 #extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_ray_query : enable
+#extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_scalar_block_layout : enable
 #extension GL_EXT_shader_explicit_arithmetic_types : enable
+#extension GL_EXT_buffer_reference : enable
+#extension GL_EXT_buffer_reference2 : enable
 
+#include "scene.glsl"
 #include "gbuffer_data.glsl"
 #define REPROJECTION_SINGLE_COLOR_CHANNEL
 #include "reproject.glsl"
@@ -15,27 +20,16 @@
 
 layout (local_size_x = NUM_THREAD_X, local_size_y = NUM_THREAD_Y, local_size_z = 1) in;
 
-layout(binding = 0, scalar) uniform UBO
-{
-    GlobalData ubo;
-};
-
-layout(binding = 1) uniform sampler2D gbufferB;
-layout(binding = 2) uniform sampler2D gbufferC;
-layout(binding = 3) uniform sampler2D depth_buffer;
-layout(binding = 4) uniform sampler2D prev_gbufferB;
-layout(binding = 5) uniform sampler2D prev_gbufferC;
-layout(binding = 6) uniform sampler2D prev_depth_buffer;
-layout(binding = 7) uniform usampler2D raytraced_image;
-layout(binding = 8, r16f) uniform writeonly image2D ao_image;
-layout(binding = 9, r16f) uniform writeonly image2D history_length_image;
-layout(binding = 10) uniform sampler2D prev_ao_image;
-layout(binding = 11) uniform sampler2D prev_history_length_image;
-layout(binding = 12, std430) buffer DenoiseTileBuffer
+layout(set = 2, binding = 0) uniform usampler2D raytraced_image;
+layout(set = 2, binding = 1, r16f) uniform writeonly image2D ao_image;
+layout(set = 2, binding = 2, r16f) uniform writeonly image2D history_length_image;
+layout(set = 2, binding = 3) uniform sampler2D prev_ao_image;
+layout(set = 2, binding = 4) uniform sampler2D prev_history_length_image;
+layout(set = 2, binding = 5, std430) buffer DenoiseTileBuffer
 {
     ivec2 coord[];
 }denoise_tile_buffer;
-layout(binding = 13, std430) buffer DenoiseTileDispatchArgsBuffer
+layout(set = 2, binding = 6, std430) buffer DenoiseTileDispatchArgsBuffer
 {
     uint x;
     uint y;

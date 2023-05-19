@@ -33,10 +33,6 @@ struct RayTracedReflection
 	Texture     reprojection_moment_image[2];
 	VkImageView reprojection_moment_view[2];
 
-	// Reprojection previous image
-	Texture     reprojection_prev_image;
-	VkImageView reprojection_prev_view = VK_NULL_HANDLE;
-
 	// A-Trous image
 	Texture     a_trous_image[2];
 	VkImageView a_trous_view[2];
@@ -115,41 +111,23 @@ struct RayTracedReflection
 				int      step_size              = 1;
 				float    sigma_depth            = 1.0f;
 			} push_constants;
-			VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
-			VkPipeline            pipeline              = VK_NULL_HANDLE;
-			VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
-			VkDescriptorSet       descriptor_sets[2]    = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+			VkPipelineLayout      pipeline_layout             = VK_NULL_HANDLE;
+			VkPipeline            pipeline                    = VK_NULL_HANDLE;
+			VkDescriptorSetLayout descriptor_set_layout       = VK_NULL_HANDLE;
+			VkDescriptorSet       filter_reprojection_sets[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+			VkDescriptorSet       filter_atrous_sets[2]       = {VK_NULL_HANDLE, VK_NULL_HANDLE};
 		} a_trous;
 	} m_denoise;
 
 	struct
 	{
+		struct
+		{
+			int gbuffer_mip = 0;
+		} push_constants;
+		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
+		VkPipeline            pipeline              = VK_NULL_HANDLE;
+		VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
+		VkDescriptorSet       descriptor_set        = VK_NULL_HANDLE;
 	} m_upsampling;
-
-	/*struct
-	{
-	    struct
-	    {
-	    } push_constants;
-
-	    struct
-	    {
-	        VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
-	        VkPipeline            pipeline              = VK_NULL_HANDLE;
-	        VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
-	        VkDescriptorSet       descriptor_set        = VK_NULL_HANDLE;
-	    }atrous;
-	} m_denoise;
-
-	struct
-	{
-	    struct
-	    {
-	    } push_constants;
-
-	    VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
-	    VkPipeline            pipeline              = VK_NULL_HANDLE;
-	    VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
-	    VkDescriptorSet       descriptor_set        = VK_NULL_HANDLE;
-	} m_upsample;*/
 };

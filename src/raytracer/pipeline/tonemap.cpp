@@ -104,8 +104,7 @@ Tonemap::Tonemap(const Context &context) :
 			    .pSetLayouts        = descriptor_set_layouts,
 			};
 			vkAllocateDescriptorSets(m_context->vk_device, &allocate_info, m_pt_descriptor_sets);
-			allocate_info.descriptorSetCount = 1;
-			vkAllocateDescriptorSets(m_context->vk_device, &allocate_info, &m_hybrid_descriptor_set);
+			vkAllocateDescriptorSets(m_context->vk_device, &allocate_info, m_hybrid_descriptor_sets);
 		}
 
 		// Create pipeline layout
@@ -152,7 +151,7 @@ Tonemap::~Tonemap()
 	vkDestroyPipeline(m_context->vk_device, m_pipeline, nullptr);
 	vkDestroyDescriptorSetLayout(m_context->vk_device, m_descriptor_set_layout, nullptr);
 	vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 2, m_pt_descriptor_sets);
-	vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 1, &m_hybrid_descriptor_set);
+	vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 2, m_hybrid_descriptor_sets);
 	vkDestroyImageView(m_context->vk_device, tonemapped_image_view, nullptr);
 	vmaDestroyImage(m_context->vma_allocator, tonemapped_image.vk_image, tonemapped_image.vma_allocation);
 }
@@ -183,7 +182,7 @@ void Tonemap::init(VkCommandBuffer cmd_buffer)
 	    0, 0, nullptr, 0, nullptr, 1, &image_barrier);
 }
 
-void Tonemap::update(const Scene &scene, VkImageView pt_result[2], VkImageView hybrid_result)
+void Tonemap::update(const Scene &scene, VkImageView pt_result[2], VkImageView hybrid_result[2])
 {
 	VkDescriptorImageInfo pt_result_info[] = {
 	    {
@@ -198,10 +197,17 @@ void Tonemap::update(const Scene &scene, VkImageView pt_result[2], VkImageView h
 	    },
 	};
 
-	VkDescriptorImageInfo hybrid_result_info = {
-	    .sampler     = scene.linear_sampler,
-	    .imageView   = hybrid_result,
-	    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	VkDescriptorImageInfo hybrid_result_info[] = {
+	    {
+	        .sampler     = scene.linear_sampler,
+	        .imageView   = hybrid_result[0],
+	        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	    },
+	    {
+	        .sampler     = scene.linear_sampler,
+	        .imageView   = hybrid_result[1],
+	        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	    },
 	};
 
 	VkDescriptorImageInfo tonemap_info = {
@@ -239,11 +245,12 @@ void Tonemap::update(const Scene &scene, VkImageView pt_result[2], VkImageView h
 		vkUpdateDescriptorSets(m_context->vk_device, 2, writes, 0, nullptr);
 	}
 
+	for (uint32_t i = 0; i < 2; i++)
 	{
 		VkWriteDescriptorSet writes[] = {
 		    {
 		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-		        .dstSet           = m_hybrid_descriptor_set,
+		        .dstSet           = m_hybrid_descriptor_sets[i],
 		        .dstBinding       = 0,
 		        .dstArrayElement  = 0,
 		        .descriptorCount  = 1,
@@ -254,12 +261,12 @@ void Tonemap::update(const Scene &scene, VkImageView pt_result[2], VkImageView h
 		    },
 		    {
 		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-		        .dstSet           = m_hybrid_descriptor_set,
+		        .dstSet           = m_hybrid_descriptor_sets[i],
 		        .dstBinding       = 1,
 		        .dstArrayElement  = 0,
 		        .descriptorCount  = 1,
 		        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-		        .pImageInfo       = &hybrid_result_info,
+		        .pImageInfo       = &hybrid_result_info[i],
 		        .pBufferInfo      = nullptr,
 		        .pTexelBufferView = nullptr,
 		    },
@@ -278,7 +285,7 @@ void Tonemap::draw(VkCommandBuffer cmd_buffer)
 		}
 		else
 		{
-			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout, 0, 1, &m_hybrid_descriptor_set, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout, 0, 1, &m_hybrid_descriptor_sets[m_context->ping_pong], 0, nullptr);
 		}
 		vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline);
 		vkCmdPushConstants(cmd_buffer, m_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_push_constants), &m_push_constants);

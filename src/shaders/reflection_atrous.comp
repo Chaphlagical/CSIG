@@ -107,11 +107,11 @@ void main()
     {
         for (int xx = -push_constants.radius; xx <= push_constants.radius; xx++)
         {
-            const ivec2 p      = ipos + ivec2(xx, yy) * push_constants.step_size;
+            const ivec2 p = ipos + ivec2(xx, yy) * push_constants.step_size;
             const bool  inside = all(greaterThanEqual(p, ivec2(0, 0))) && all(lessThan(p, size));
             const float kernel = kernel_weights[abs(xx)] * kernel_weights[abs(yy)];
 
-            if (inside && (xx != 0 || yy != 0)) // skip center pixel, it is already accumulated
+            if (inside && (xx != 0 || yy != 0))
             {
                 const vec4  sample_color      = texelFetch(input_image, p, 0);
                 const float sample_color_luma = luminance(sample_color.rgb);
@@ -122,7 +122,6 @@ void main()
                 vec3  sample_normal = octohedral_to_direction(sample_gbuffer_B.xy);
                 float sample_depth  = sample_gbuffer_C.w;
 
-                // compute the edge-stopping functions
                 const float w = compute_edge_stopping_weight(center_depth,
                                                              sample_depth,
                                                              push_constants.sigma_depth,

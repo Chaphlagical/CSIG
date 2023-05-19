@@ -21,24 +21,43 @@ struct RayTracedDI
 	bool draw_ui();
 
   public:
-	// Temporal reservoir buffer
 	Buffer temporal_reservoir_buffer;
-
-	// Passthrough reservoir buffer
 	Buffer passthrough_reservoir_buffer;
-
-	// Spatial reservoir buffer
 	Buffer spatial_reservoir_buffer;
+	Buffer denoise_tile_data_buffer;
+	Buffer denoise_tile_dispatch_args_buffer;
+	Buffer copy_tile_data_buffer;
+	Buffer copy_tile_dispatch_args_buffer;
 
 	// Output image
 	Texture     output_image;
 	VkImageView output_view = VK_NULL_HANDLE;
+
+	// Reprojection output image
+	Texture     reprojection_output_image[2];
+	VkImageView reprojection_output_view[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+
+	// Reprojection moment image
+	Texture     reprojection_moment_image[2];
+	VkImageView reprojection_moment_view[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+
+	// A-Trous image
+	Texture     a_trous_image[2];
+	VkImageView a_trous_view[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+
+	// Upsampling image
+	Texture     upsampling_image;
+	VkImageView upsampling_view = VK_NULL_HANDLE;
 
   private:
 	const Context *m_context = nullptr;
 
 	bool m_spatial_reuse  = true;
 	bool m_temporal_reuse = true;
+
+	uint32_t m_width       = 0;
+	uint32_t m_height      = 0;
+	uint32_t m_gbuffer_mip = 0;
 
 	struct
 	{
@@ -85,4 +104,69 @@ struct RayTracedDI
 		VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
 		VkDescriptorSet       descriptor_set        = VK_NULL_HANDLE;
 	} m_composite_pass;
+
+	struct
+	{
+		struct
+		{
+			uint64_t denoise_tile_data_addr          = 0;
+			uint64_t denoise_tile_dispatch_args_addr = 0;
+			uint64_t copy_tile_data_addr             = 0;
+			uint64_t copy_tile_dispatch_args_addr    = 0;
+			int      gbuffer_mip                     = 0;
+			float    alpha                           = 0.01f;
+			float    moments_alpha                   = 0.2f;
+		} push_constants;
+
+		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
+		VkPipeline            pipeline              = VK_NULL_HANDLE;
+		VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
+		VkDescriptorSet       descriptor_sets[2]    = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+	} m_reprojection;
+
+	struct
+	{
+		struct
+		{
+			struct
+			{
+				uint64_t copy_tile_data_addr = 0;
+			} push_constants;
+			VkPipelineLayout      pipeline_layout           = VK_NULL_HANDLE;
+			VkPipeline            pipeline                  = VK_NULL_HANDLE;
+			VkDescriptorSetLayout descriptor_set_layout     = VK_NULL_HANDLE;
+			VkDescriptorSet       copy_reprojection_sets[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+			VkDescriptorSet       copy_atrous_sets[2]       = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+		} copy_tiles;
+		struct
+		{
+			struct
+			{
+				uint64_t denoise_tile_data_addr = 0;
+				int      gbuffer_mip            = 0;
+				float    phi_color              = 10.0f;
+				float    phi_normal             = 32.0f;
+				int      radius                 = 1;
+				int      step_size              = 1;
+				float    sigma_depth            = 1.0f;
+			} push_constants;
+			VkPipelineLayout      pipeline_layout             = VK_NULL_HANDLE;
+			VkPipeline            pipeline                    = VK_NULL_HANDLE;
+			VkDescriptorSetLayout descriptor_set_layout       = VK_NULL_HANDLE;
+			VkDescriptorSet       filter_reprojection_sets[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+			VkDescriptorSet       filter_atrous_sets[2]       = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+		} a_trous;
+	} m_denoise;
+
+	struct
+	{
+		struct
+		{
+			int gbuffer_mip = 0;
+		} push_constants;
+		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
+		VkPipeline            pipeline              = VK_NULL_HANDLE;
+		VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
+		VkDescriptorSet       descriptor_set        = VK_NULL_HANDLE;
+	} m_upsampling;
 };

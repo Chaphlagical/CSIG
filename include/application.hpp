@@ -2,11 +2,13 @@
 
 #include "render/common.hpp"
 #include "render/context.hpp"
+#include "render/pipeline/composite.hpp"
 #include "render/pipeline/gbuffer.hpp"
 #include "render/pipeline/pathtracing.hpp"
-#include "render/pipeline/raytraced_reflection.hpp"
-// #include "render/pipeline/raytraced_ao.hpp"
+#include "render/pipeline/raytraced_ao.hpp"
 #include "render/pipeline/raytraced_di.hpp"
+#include "render/pipeline/raytraced_reflection.hpp"
+#include "render/pipeline/taa.hpp"
 #include "render/pipeline/tonemap.hpp"
 #include "render/pipeline/ui/ui.hpp"
 #include "render/scene.hpp"
@@ -17,10 +19,13 @@ struct ApplicationConfig
 {
 	ContextConfig context_config;
 
-	// std::string scene_file = "assets/scenes/Deferred/Deferred.gltf";
-	//  std::string scene_file = "assets/scenes/test.glb";
-	std::string scene_file = "assets/scenes/conell_box.glb";
-	std::string hdr_file   = "assets/textures/hdr/BasketballCourt_3k.hdr";
+	 std::string scene_file = "assets/scenes/Deferred/Deferred.gltf";
+	//   std::string scene_file = "assets/scenes/Shadow/Shadow.gltf";
+	// std::string scene_file = "assets/scenes/GI/GI.gltf";
+	//std::string scene_file = "assets/scenes/pica_pica.glb";
+	// std::string scene_file = "assets/scenes/test.glb";
+	 //std::string scene_file = "assets/scenes/conell_box.glb";
+	std::string hdr_file = "assets/textures/hdr/BasketballCourt_3k.hdr";
 };
 
 class Application
@@ -56,9 +61,11 @@ class Application
 		PathTracing         path_tracing;
 		RayTracedDI         raytraced_di;
 		RayTracedReflection raytraced_reflection;
-		// RayTracedAO raytraced_ao;
+		RayTracedAO         raytraced_ao;
 		//  RayTracedGI raytraced_gi;
-		Tonemap tonemap;
+		Composite composite;
+		TAA       taa;
+		Tonemap   tonemap;
 	} m_renderer;
 
 	struct

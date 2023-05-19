@@ -1,11 +1,16 @@
 #version 460
 
 #extension GL_GOOGLE_include_directive : enable
-#extension GL_EXT_shader_explicit_arithmetic_types : enable
+#extension GL_EXT_ray_query : enable
+#extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
+#extension GL_EXT_buffer_reference : enable
+#extension GL_EXT_buffer_reference2 : enable
 
-#define USE_EDGE_STOPPING_NORMAL_WEIGHT
 #include "gbuffer_data.glsl"
+#include "scene.glsl"
+#define USE_EDGE_STOPPING_NORMAL_WEIGHT
 #include "edge_stopping.glsl"
 
 #define NUM_THREADS_X 8
@@ -13,11 +18,8 @@
 
 layout(local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z = 1) in;
 
-layout(binding = 0, r16f) uniform image2D upsample_image;
-layout(binding = 1) uniform sampler2D bilateral_image;
-layout(binding = 2) uniform sampler2D gbufferB;
-layout(binding = 3) uniform sampler2D gbufferC;
-layout(binding = 4) uniform sampler2D depth_buffer;
+layout(set = 2, binding = 0, r16f) uniform image2D upsample_image;
+layout(set = 2, binding = 1) uniform sampler2D bilateral_image;
 
 layout(push_constant) uniform PushConstants
 {

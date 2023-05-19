@@ -15,7 +15,7 @@ struct Tonemap
 
 	void init(VkCommandBuffer cmd_buffer);
 
-	void update(const Scene &scene, VkImageView pt_result[2], VkImageView hybrid_result);
+	void update(const Scene &scene, VkImageView pt_result[2], VkImageView hybrid_result[2]);
 
 	void draw(VkCommandBuffer cmd_buffer);
 
@@ -47,5 +47,5 @@ struct Tonemap
 	VkPipeline            m_pipeline              = VK_NULL_HANDLE;
 	VkDescriptorSetLayout m_descriptor_set_layout = VK_NULL_HANDLE;
 	VkDescriptorSet       m_pt_descriptor_sets[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
-	VkDescriptorSet       m_hybrid_descriptor_set = VK_NULL_HANDLE;
+	VkDescriptorSet       m_hybrid_descriptor_sets[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
 };

@@ -32,29 +32,23 @@ vec3 path_trace(vec2 frag_coord)
   	vec3 throughput = vec3(1.0);
 	Ray ray;
 	ShadeState sstate;
+	bool is_hit = get_primary_state(frag_coord, 0, sstate);
+	ray.origin = ubo.cam_pos.xyz;
+	ray.direction = normalize(sstate.position - ubo.cam_pos.xyz);
+	
 	for(uint trace_depth = 0; trace_depth < push_constants.max_depth; trace_depth++)
 	{
-		if(trace_depth == 0)
+		if(!is_hit)
 		{
-			if(get_primary_state(frag_coord, 0, sstate))
-			{
-				ray.origin = ubo.cam_pos.xyz;
-				ray.direction = normalize(sstate.position - ubo.cam_pos.xyz);
-				radiance += sstate.mat.emissive_factor * throughput;
-			}
-			else
-			{
-				ray.origin = ubo.cam_pos.xyz;
-				ray.direction = normalize(sstate.position - ubo.cam_pos.xyz);
-				radiance += textureLod(skybox, ray.direction, 0).rgb;
-				break;
-			}
+			radiance += throughput * textureLod(skybox, ray.direction, 0).rgb;
+			break;
 		}
+
+		radiance += sstate.mat.emissive_factor * throughput;
 
 		if(scene_data.emitter_count > 0)
 		{
 			LightSample ls = sample_light(sstate);
-			
 			Ray shadow_ray;
 			shadow_ray.origin = offset_ray(sstate.position, dot(ls.dir, sstate.ffnormal) > 0 ? sstate.ffnormal : -sstate.ffnormal);
 			shadow_ray.direction = ls.dir;
@@ -63,15 +57,14 @@ vec3 path_trace(vec2 frag_coord)
 				float bsdf_pdf;
 				vec3 f = eval_bsdf(sstate, -ray.direction, sstate.ffnormal, ls.dir, bsdf_pdf);
 				float mis_weight = max(0.0, power_heuristic(ls.pdf, bsdf_pdf));
-				radiance += throughput * mis_weight * f * ls.le;
+				radiance += throughput * mis_weight * f * ls.le * abs(dot(sstate.ffnormal, ls.dir)) / ls.pdf;
 			}
 		}
-
+		
 		BSDFSample bs = sample_bsdf(sstate, -ray.direction, prd.seed);
-
 		if(bs.pdf > 0.0)
 		{
-			throughput *= bs.f * abs(dot(bs.L, sstate.ffnormal)) / bs.pdf;
+			throughput *= bs.f * abs(dot(sstate.ffnormal, bs.L)) / bs.pdf;
 		}
 		else
 		{
@@ -79,8 +72,11 @@ vec3 path_trace(vec2 frag_coord)
 		}
 
 		float rrPcont = (trace_depth >= 3) ?
-					min(max(throughput.x, max(throughput.y, throughput.z)) * sstate.eta * sstate.eta + 0.001, 0.95) :
-					1.0;
+			min(max(throughput.x, max(throughput.y, throughput.z)) * sstate.eta * sstate.eta + 0.001, 0.95) :
+			1.0;
+
+		ray.direction = bs.L;
+		ray.origin = sstate.position + push_constants.bias * (dot(bs.L, sstate.ffnormal) > 0 ? sstate.ffnormal : -sstate.ffnormal);
 
 		if(rand(prd.seed) >= rrPcont)
 		{
@@ -89,26 +85,10 @@ vec3 path_trace(vec2 frag_coord)
 
 		throughput /= rrPcont;
 
-		ray.direction = bs.L;
-		ray.origin = sstate.position + push_constants.bias * (dot(bs.L, sstate.ffnormal) > 0 ? sstate.ffnormal : -sstate.ffnormal);
-
-		if(closest_hit(ray))
+		is_hit = closest_hit(ray);
+		if(is_hit)
 		{
 			sstate = get_shade_state(ray, prd);
-			Instance instance = get_instance(prd.instance_custom_index);
-			if(instance.emitter >= 0)
-			{
-				float dist_sq = dot(sstate.position - ray.origin, sstate.position - ray.origin);
-				float geo_term = abs(dot(bs.L, sstate.ffnormal)) / dist_sq;
-				float pdf_nee = emitter_pdf(instance.emitter + prd.primitive_id) / geo_term;
-				float mis_weight = max(0.0, power_heuristic(bs.pdf, pdf_nee));
-				radiance += throughput * mis_weight * sstate.mat.emissive_factor;
-			}
-		}
-		else
-		{
-			radiance += throughput * textureLod(skybox, ray.direction, 0).rgb; 
-			break;
 		}
 	}
 

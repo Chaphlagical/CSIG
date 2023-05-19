@@ -10,7 +10,7 @@
 #include "scene.glsl"
 #include "bxdf.glsl"
 #include "gbuffer_data.glsl"
-#define REPROJECTION_REFLECTIONS
+#define REPROJECTION_REFLECTION
 #define REPROJECTION_MOMENTS
 #include "reproject.glsl"
 
@@ -35,38 +35,18 @@ layout(set = 2, binding = 1, rgba16f) uniform writeonly image2D moments_image;
 layout(set = 2, binding = 2) uniform sampler2D input_image;
 layout(set = 2, binding = 3) uniform sampler2D history_output_image;
 layout(set = 2, binding = 4) uniform sampler2D history_moments_image;
-layout(set = 2, binding = 5, std430) buffer DenoiseTileDataBuffer
+
+layout(buffer_reference, scalar, buffer_reference_align = 4) buffer TileDataBuffer
 {
     ivec2 coord[];
-}denoise_tile_data_buffer;
-layout(set = 2, binding = 6, std430) buffer DenoiseTileDispatchArgsBuffer
+};
+
+layout(buffer_reference, scalar, buffer_reference_align = 4) buffer DispatchArgsBuffer
 {
     uint num_groups_x;
     uint num_groups_y;
     uint num_groups_z;
-}denoise_tile_dispatch_args_buffer;
-layout(set = 2, binding = 7, std430) buffer CopyTileDataBuffer
-{
-    ivec2 coord[];
-}copy_tile_data_buffer;
-layout(set = 2, binding = 8, std430) buffer CopyTileDispatchArgsBuffer
-{
-    uint num_groups_x;
-    uint num_groups_y;
-    uint num_groups_z;
-}copy_tile_dispatch_args_buffer;
-
-// layout(buffer_reference, scalar, buffer_reference_align = 4) buffer TileDataBuffer
-// {
-//     ivec2 coord[];
-// };
-
-// layout(buffer_reference, scalar, buffer_reference_align = 4) buffer DispatchArgsBuffer
-// {
-//     uint num_groups_x;
-//     uint num_groups_y;
-//     uint num_groups_z;
-// };
+};
 
 vec3 clip_aabb(vec3 aabb_min, vec3 aabb_max, vec3 history_sample)
 {
@@ -131,113 +111,114 @@ shared uint shared_need_denoise;
 void main()
 {
     shared_need_denoise = 0;
-    denoise_tile_dispatch_args_buffer.num_groups_x = 0;
-    denoise_tile_dispatch_args_buffer.num_groups_y = 1;
-    denoise_tile_dispatch_args_buffer.num_groups_z = 1;
-    copy_tile_dispatch_args_buffer.num_groups_x = 0;
-    copy_tile_dispatch_args_buffer.num_groups_y = 1;
-    copy_tile_dispatch_args_buffer.num_groups_z = 1;
+    if(gl_GlobalInvocationID.x == 0 && gl_GlobalInvocationID.y == 0)
+    {
+        DispatchArgsBuffer(push_constants.denoise_tile_dispatch_args_addr).num_groups_x = 0;
+        DispatchArgsBuffer(push_constants.denoise_tile_dispatch_args_addr).num_groups_y = 1;
+        DispatchArgsBuffer(push_constants.denoise_tile_dispatch_args_addr).num_groups_z = 1;
+        DispatchArgsBuffer(push_constants.copy_tile_dispatch_args_addr).num_groups_x = 0;
+        DispatchArgsBuffer(push_constants.copy_tile_dispatch_args_addr).num_groups_y = 1;
+        DispatchArgsBuffer(push_constants.copy_tile_dispatch_args_addr).num_groups_z = 1;
+    }
+
     barrier();
 
-    // const ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
-    // const ivec2 size = textureSize(gbufferA, push_constants.gbuffer_mip);
-    // const vec2 pixel_center = vec2(coord) + vec2(0.5);
-    // const vec2 tex_coord = pixel_center / vec2(size);
+    const ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    const ivec2 size = textureSize(gbufferA, push_constants.gbuffer_mip);
+    const vec2 pixel_center = vec2(coord) + vec2(0.5);
+    const vec2 tex_coord = pixel_center / vec2(size);
 
-    // const float depth = texelFetch(depth_buffer, coord, push_constants.gbuffer_mip).r;
-    // const float roughness = texelFetch(gbufferC, coord, push_constants.gbuffer_mip).r;
+    const float depth = texelFetch(depth_buffer, coord, push_constants.gbuffer_mip).r;
+    const float roughness = texelFetch(gbufferC, coord, push_constants.gbuffer_mip).r;
 
-    // vec4 output_radiance = vec4(0.0);
-    // vec4 output_moments  = vec4(0.0);
+    vec4 output_radiance = vec4(0.0);
+    vec4 output_moments  = vec4(0.0);
 
-    // if(depth != 0)
-    // {
-    //     vec4 color_ray_length = texelFetch(input_image, coord, 0);
-    //     vec3 color = color_ray_length.rgb;
-    //     const float ray_length = color_ray_length.a;
+    if(depth != 0)
+    {
+        vec4 color_ray_length = texelFetch(input_image, coord, 0);
+        vec3 color = color_ray_length.rgb;
+        const float ray_length = color_ray_length.a;
 
-    //     vec3 history_color;
-    //     vec2 history_moments;
-    //     float history_length;
+        vec3 history_color;
+        vec2 history_moments;
+        float history_length;
 
-    //     // reproject
-    //     bool success = reprojection(coord,
-    //                              depth,
-    //                              push_constants.gbuffer_mip,
-    //                              ubo.cam_pos.xyz,
-    //                              ubo.view_projection_inv,
-    //                              ubo.prev_view_projection,
-    //                              ray_length,
-    //                              gbufferB,
-    //                              gbufferC,
-    //                              prev_gbufferB,
-    //                              prev_gbufferC,
-    //                              prev_depth_buffer,
-    //                              history_output_image,
-    //                              history_moments_image,
-    //                              history_color,
-    //                              history_moments,
-    //                              history_length);
+        // reproject
+        bool success = reprojection(coord,
+                                 depth,
+                                 push_constants.gbuffer_mip,
+                                 ubo.cam_pos.xyz,
+                                 ubo.view_projection_inv,
+                                 ubo.prev_view_projection,
+                                 ray_length,
+                                 gbufferB,
+                                 gbufferC,
+                                 prev_gbufferB,
+                                 prev_gbufferC,
+                                 prev_depth_buffer,
+                                 history_output_image,
+                                 history_moments_image,
+                                 history_color,
+                                 history_moments,
+                                 history_length);
 
-    //     history_length = min(32.0, success ? history_length + 1.0 : 1.0);
+        history_length = min(32.0, success ? history_length + 1.0 : 1.0);
 
-    //     if(success)
-    //     {
-    //         vec3 std_dev;
-    //         vec3 mean;
+        if(success)
+        {
+            vec3 std_dev;
+            vec3 mean;
 
-    //         neighborhood_standard_deviation(coord, mean, std_dev);
+            neighborhood_standard_deviation(coord, mean, std_dev);
 
-    //         vec3 radiance_min = mean - std_dev;
-    //         vec3 radiance_max = mean + std_dev;
+            vec3 radiance_min = mean - std_dev;
+            vec3 radiance_max = mean + std_dev;
 
-    //         history_color.xyz = clip_aabb(radiance_min, radiance_max, history_color.xyz);
-    //     }
+            history_color.xyz = clip_aabb(radiance_min, radiance_max, history_color.xyz);
+        }
 
-    //     const float max_accumulated_frame = compute_max_accumulated_frame(history_length);
-    //     const float alpha = success ? max(push_constants.alpha, 1.0 / max_accumulated_frame) : 1.0;
-    //     const float alpha_moments = success ? max(push_constants.moments_alpha, 1.0 / max_accumulated_frame) : 1.0;
+        const float max_accumulated_frame = compute_max_accumulated_frame(history_length);
+        const float alpha = success ? max(push_constants.alpha, 1.0 / max_accumulated_frame) : 1.0;
+        const float alpha_moments = success ? max(push_constants.moments_alpha, 1.0 / max_accumulated_frame) : 1.0;
 
-    //     vec2 moments = vec2(0.0);
-    //     moments.r = luminance(color);
-    //     moments.g = moments.r * moments.r;
+        vec2 moments = vec2(0.0);
+        moments.r = luminance(color);
+        moments.g = moments.r * moments.r;
 
-    //     moments = mix(history_moments, moments, alpha_moments);
+        moments = mix(history_moments, moments, alpha_moments);
 
-    //     float variance = max(0.0, moments.g - moments.r * moments.r);
+        float variance = max(0.0, moments.g - moments.r * moments.r);
 
-    //     vec3 accumulated_color = mix(history_color, color, alpha);
+        vec3 accumulated_color = mix(history_color, color, alpha);
 
-    //     output_moments  = vec4(moments, history_length, 0.0f);
-    //     output_radiance = vec4(accumulated_color, variance);
-    // }
+        output_moments  = vec4(moments, history_length, 0.0);
+        output_radiance = vec4(accumulated_color, variance);
+    }
 
-    // imageStore(moments_image, coord, output_moments);
-    // imageStore(output_image, coord, output_radiance);
+    imageStore(moments_image, coord, output_moments);
+    imageStore(output_image, coord, output_radiance);
 
-    // if (depth != 0.0 && 
-    //     roughness >= MIRROR_REFLECTIONS_ROUGHNESS_THRESHOLD &&
-    //     roughness <= DIFFUSE_REFLECTIONS_ROUGHNESS_THRESHOLD)
-    // {
-    //     shared_need_denoise = 1;
-    // }
+    if (depth != 0 && 
+        roughness >= MIRROR_REFLECTIONS_ROUGHNESS_THRESHOLD &&
+        roughness <= DIFFUSE_REFLECTIONS_ROUGHNESS_THRESHOLD)
+    {
+        shared_need_denoise = 1;
+    }
 
-    // barrier();
+    barrier();
 
-    // if (gl_LocalInvocationIndex == 0)
-    // {
-    //     if(shared_need_denoise == 1)
-    //     {
-    //         uint idx = atomicAdd(DispatchArgsBuffer(push_constants.denoise_tile_dispatch_args_addr).num_groups_x, 1);
-    //         TileDataBuffer(push_constants.denoise_tile_data_addr).coord[idx] = coord;
-    //     }
-    //     else
-    //     {
-    //         uint idx = atomicAdd(DispatchArgsBuffer(push_constants.copy_tile_dispatch_args_addr).num_groups_x, 1);
-    //         TileDataBuffer(push_constants.copy_tile_data_addr).coord[idx] = coord;
-    //     }
-    // }
-
-    atomicAdd(denoise_tile_dispatch_args_buffer.num_groups_x, 1);
-    atomicAdd(copy_tile_dispatch_args_buffer.num_groups_x, 1);
+    if (gl_LocalInvocationIndex == 0)
+    {
+        if(shared_need_denoise == 1)
+        {
+            uint idx = atomicAdd(DispatchArgsBuffer(push_constants.denoise_tile_dispatch_args_addr).num_groups_x, 1);
+            TileDataBuffer(push_constants.denoise_tile_data_addr).coord[idx] = coord;
+        }
+        else
+        {
+            uint idx = atomicAdd(DispatchArgsBuffer(push_constants.copy_tile_dispatch_args_addr).num_groups_x, 1);
+            TileDataBuffer(push_constants.copy_tile_data_addr).coord[idx] = coord;
+        }
+    }
 }

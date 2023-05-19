@@ -96,6 +96,211 @@ RayTracedDI::RayTracedDI(const Context &context, const Scene &scene, const GBuff
 		vkCreateImageView(m_context->vk_device, &view_create_info, nullptr, &output_view);
 	}
 
+	// Create reprojection output image
+	for (uint32_t i = 0; i < 2; i++)
+	{
+		VkImageCreateInfo image_create_info = {
+		    .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		    .imageType     = VK_IMAGE_TYPE_2D,
+		    .format        = VK_FORMAT_R16G16B16A16_SFLOAT,
+		    .extent        = VkExtent3D{m_width, m_height, 1},
+		    .mipLevels     = 1,
+		    .arrayLayers   = 1,
+		    .samples       = VK_SAMPLE_COUNT_1_BIT,
+		    .tiling        = VK_IMAGE_TILING_OPTIMAL,
+		    .usage         = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+		    .sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
+		    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		};
+		VmaAllocationCreateInfo allocation_create_info = {
+		    .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+		};
+		vmaCreateImage(context.vma_allocator, &image_create_info, &allocation_create_info, &reprojection_output_image[i].vk_image, &reprojection_output_image[i].vma_allocation, nullptr);
+		VkImageViewCreateInfo view_create_info = {
+		    .sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		    .image            = reprojection_output_image[i].vk_image,
+		    .viewType         = VK_IMAGE_VIEW_TYPE_2D,
+		    .format           = VK_FORMAT_R16G16B16A16_SFLOAT,
+		    .components       = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
+		    .subresourceRange = {
+		        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		        .baseMipLevel   = 0,
+		        .levelCount     = 1,
+		        .baseArrayLayer = 0,
+		        .layerCount     = 1,
+		    },
+		};
+		vkCreateImageView(context.vk_device, &view_create_info, nullptr, &reprojection_output_view[i]);
+		m_context->set_object_name(VK_OBJECT_TYPE_IMAGE, (uint64_t) reprojection_output_image[i].vk_image, (std::string("DirectLight Reprojection Output Image - ") + std::to_string(i)).c_str());
+		m_context->set_object_name(VK_OBJECT_TYPE_IMAGE_VIEW, (uint64_t) reprojection_output_view[i], (std::string("DirectLight Reprojection Output Image View - ") + std::to_string(i)).c_str());
+	}
+
+	// Create reprojection moment image
+	for (uint32_t i = 0; i < 2; i++)
+	{
+		VkImageCreateInfo image_create_info = {
+		    .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		    .imageType     = VK_IMAGE_TYPE_2D,
+		    .format        = VK_FORMAT_R16G16B16A16_SFLOAT,
+		    .extent        = VkExtent3D{m_width, m_height, 1},
+		    .mipLevels     = 1,
+		    .arrayLayers   = 1,
+		    .samples       = VK_SAMPLE_COUNT_1_BIT,
+		    .tiling        = VK_IMAGE_TILING_OPTIMAL,
+		    .usage         = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+		    .sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
+		    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		};
+		VmaAllocationCreateInfo allocation_create_info = {
+		    .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+		};
+		vmaCreateImage(context.vma_allocator, &image_create_info, &allocation_create_info, &reprojection_moment_image[i].vk_image, &reprojection_moment_image[i].vma_allocation, nullptr);
+		VkImageViewCreateInfo view_create_info = {
+		    .sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		    .image            = reprojection_moment_image[i].vk_image,
+		    .viewType         = VK_IMAGE_VIEW_TYPE_2D,
+		    .format           = VK_FORMAT_R16G16B16A16_SFLOAT,
+		    .components       = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
+		    .subresourceRange = {
+		        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		        .baseMipLevel   = 0,
+		        .levelCount     = 1,
+		        .baseArrayLayer = 0,
+		        .layerCount     = 1,
+		    },
+		};
+		vkCreateImageView(context.vk_device, &view_create_info, nullptr, &reprojection_moment_view[i]);
+		m_context->set_object_name(VK_OBJECT_TYPE_IMAGE, (uint64_t) reprojection_moment_image[i].vk_image, (std::string("DirectLight Reprojection Moment Image - ") + std::to_string(i)).c_str());
+		m_context->set_object_name(VK_OBJECT_TYPE_IMAGE_VIEW, (uint64_t) reprojection_moment_view[i], (std::string("DirectLight Reprojection Moment Image View - ") + std::to_string(i)).c_str());
+	}
+
+	// Create A-trous image
+	for (uint32_t i = 0; i < 2; i++)
+	{
+		VkImageCreateInfo image_create_info = {
+		    .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		    .imageType     = VK_IMAGE_TYPE_2D,
+		    .format        = VK_FORMAT_R16G16B16A16_SFLOAT,
+		    .extent        = VkExtent3D{m_width, m_height, 1},
+		    .mipLevels     = 1,
+		    .arrayLayers   = 1,
+		    .samples       = VK_SAMPLE_COUNT_1_BIT,
+		    .tiling        = VK_IMAGE_TILING_OPTIMAL,
+		    .usage         = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+		    .sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
+		    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		};
+		VmaAllocationCreateInfo allocation_create_info = {
+		    .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+		};
+		vmaCreateImage(context.vma_allocator, &image_create_info, &allocation_create_info, &a_trous_image[i].vk_image, &a_trous_image[i].vma_allocation, nullptr);
+		VkImageViewCreateInfo view_create_info = {
+		    .sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		    .image            = a_trous_image[i].vk_image,
+		    .viewType         = VK_IMAGE_VIEW_TYPE_2D,
+		    .format           = VK_FORMAT_R16G16B16A16_SFLOAT,
+		    .components       = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
+		    .subresourceRange = {
+		        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		        .baseMipLevel   = 0,
+		        .levelCount     = 1,
+		        .baseArrayLayer = 0,
+		        .layerCount     = 1,
+		    },
+		};
+		vkCreateImageView(context.vk_device, &view_create_info, nullptr, &a_trous_view[i]);
+		m_context->set_object_name(VK_OBJECT_TYPE_IMAGE, (uint64_t) a_trous_image[i].vk_image, (std::string("DirectLight A-Trous Image - ") + std::to_string(i)).c_str());
+		m_context->set_object_name(VK_OBJECT_TYPE_IMAGE_VIEW, (uint64_t) a_trous_view[i], (std::string("DirectLight A-Trous View - ") + std::to_string(i)).c_str());
+	}
+
+	// Create upsampling output image
+	{
+		VkImageCreateInfo image_create_info = {
+		    .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		    .imageType     = VK_IMAGE_TYPE_2D,
+		    .format        = VK_FORMAT_R16G16B16A16_SFLOAT,
+		    .extent        = VkExtent3D{m_context->extent.width, m_context->extent.height, 1},
+		    .mipLevels     = 1,
+		    .arrayLayers   = 1,
+		    .samples       = VK_SAMPLE_COUNT_1_BIT,
+		    .tiling        = VK_IMAGE_TILING_OPTIMAL,
+		    .usage         = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		    .sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
+		    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		};
+		VmaAllocationCreateInfo allocation_create_info = {
+		    .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+		};
+		vmaCreateImage(context.vma_allocator, &image_create_info, &allocation_create_info, &upsampling_image.vk_image, &upsampling_image.vma_allocation, nullptr);
+		VkImageViewCreateInfo view_create_info = {
+		    .sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		    .image            = upsampling_image.vk_image,
+		    .viewType         = VK_IMAGE_VIEW_TYPE_2D,
+		    .format           = VK_FORMAT_R16G16B16A16_SFLOAT,
+		    .components       = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
+		    .subresourceRange = {
+		        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		        .baseMipLevel   = 0,
+		        .levelCount     = 1,
+		        .baseArrayLayer = 0,
+		        .layerCount     = 1,
+		    },
+		};
+		vkCreateImageView(context.vk_device, &view_create_info, nullptr, &upsampling_view);
+		m_context->set_object_name(VK_OBJECT_TYPE_IMAGE, (uint64_t) upsampling_image.vk_image, "DirectLight Upsampling Output Image");
+		m_context->set_object_name(VK_OBJECT_TYPE_IMAGE_VIEW, (uint64_t) upsampling_view, "DirectLight Upsampling Output View");
+	}
+
+	// Create tile data buffer
+	{
+		VkBufferCreateInfo buffer_create_info = {
+		    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		    .size        = sizeof(glm::ivec2) * static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))) * static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))),
+		    .usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+		    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		};
+		VmaAllocationCreateInfo allocation_create_info = {
+		    .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+		};
+		VmaAllocationInfo allocation_info = {};
+		vmaCreateBuffer(context.vma_allocator, &buffer_create_info, &allocation_create_info, &denoise_tile_data_buffer.vk_buffer, &denoise_tile_data_buffer.vma_allocation, &allocation_info);
+		vmaCreateBuffer(context.vma_allocator, &buffer_create_info, &allocation_create_info, &copy_tile_data_buffer.vk_buffer, &copy_tile_data_buffer.vma_allocation, &allocation_info);
+		VkBufferDeviceAddressInfoKHR buffer_device_address_info = {
+		    .sType  = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+		    .buffer = denoise_tile_data_buffer.vk_buffer,
+		};
+		denoise_tile_data_buffer.device_address = vkGetBufferDeviceAddress(context.vk_device, &buffer_device_address_info);
+		buffer_device_address_info.buffer       = copy_tile_data_buffer.vk_buffer;
+		copy_tile_data_buffer.device_address    = vkGetBufferDeviceAddress(context.vk_device, &buffer_device_address_info);
+		m_context->set_object_name(VK_OBJECT_TYPE_BUFFER, (uint64_t) denoise_tile_data_buffer.vk_buffer, "Denoise Tile Data Buffer");
+		m_context->set_object_name(VK_OBJECT_TYPE_BUFFER, (uint64_t) copy_tile_data_buffer.vk_buffer, "Copy Tile Data Buffer");
+	}
+
+	// Create tile dispatch args buffer
+	{
+		VkBufferCreateInfo buffer_create_info = {
+		    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		    .size        = sizeof(int32_t) * 3,
+		    .usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+		    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		};
+		VmaAllocationCreateInfo allocation_create_info = {
+		    .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+		};
+		VmaAllocationInfo allocation_info = {};
+		vmaCreateBuffer(context.vma_allocator, &buffer_create_info, &allocation_create_info, &denoise_tile_dispatch_args_buffer.vk_buffer, &denoise_tile_dispatch_args_buffer.vma_allocation, &allocation_info);
+		vmaCreateBuffer(context.vma_allocator, &buffer_create_info, &allocation_create_info, &copy_tile_dispatch_args_buffer.vk_buffer, &copy_tile_dispatch_args_buffer.vma_allocation, &allocation_info);
+		VkBufferDeviceAddressInfoKHR buffer_device_address_info = {
+		    .sType  = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+		    .buffer = denoise_tile_dispatch_args_buffer.vk_buffer,
+		};
+		denoise_tile_dispatch_args_buffer.device_address = vkGetBufferDeviceAddress(context.vk_device, &buffer_device_address_info);
+		buffer_device_address_info.buffer                = copy_tile_dispatch_args_buffer.vk_buffer;
+		copy_tile_dispatch_args_buffer.device_address    = vkGetBufferDeviceAddress(context.vk_device, &buffer_device_address_info);
+		m_context->set_object_name(VK_OBJECT_TYPE_BUFFER, (uint64_t) denoise_tile_dispatch_args_buffer.vk_buffer, "Denoise Tile Dispatch Args Buffer");
+		m_context->set_object_name(VK_OBJECT_TYPE_BUFFER, (uint64_t) copy_tile_dispatch_args_buffer.vk_buffer, "Copy Tile Dispatch Args Buffer");
+	}
+
 	// Create temporal pass
 	{
 		// Create shader module

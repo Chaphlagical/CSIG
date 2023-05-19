@@ -102,11 +102,11 @@ bool reprojection(
     in ivec2 frag_coord,
     in float depth,
     in int g_buffer_mip,
-#ifdef REPROJECTION_REFLECTIONS
+#ifdef REPROJECTION_REFLECTION
     in vec3 cam_pos,
 #endif
     in mat4 view_projection_inv,
-#ifdef REPROJECTION_REFLECTIONS
+#ifdef REPROJECTION_REFLECTION
     in mat4 prev_view_proj,
     in float ray_length,
 #endif
@@ -145,19 +145,18 @@ bool reprojection(
 
 #ifdef REPROJECTION_REFLECTION
     const float curvature = gbufferC_data.g;
-    const vec2 vec2 history_tex_coord = tex_coord + current_motion;
+    const vec2 history_tex_coord = tex_coord + current_motion;
     const vec2 reprojected_coord = compute_history_coord(frag_coord, 
-                                                         ivec2(image_dim), 
+                                                         ivec2(image_size), 
                                                          depth, 
                                                          current_motion, 
                                                          curvature, 
                                                          ray_length, 
                                                          cam_pos, 
-                                                         view_proj_inverse, 
+                                                         view_projection_inv, 
                                                          prev_view_proj);
     const ivec2 history_coord = ivec2(reprojected_coord);                                                      
     const vec2  history_coord_floor = reprojected_coord;             
-// TODO
 #else
     const ivec2 history_coord = ivec2(vec2(frag_coord) + current_motion.xy * image_size + vec2(0.5));
     const vec2 history_coord_floor = floor(vec2(frag_coord.xy)) + current_motion.xy * image_size;

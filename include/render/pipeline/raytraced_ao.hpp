@@ -8,15 +8,15 @@
 class RayTracedAO
 {
   public:
-	RayTracedAO(const Context &context, RayTracedScale scale = RayTracedScale::Half_Res);
+	RayTracedAO(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, RayTracedScale scale = RayTracedScale::Half_Res);
 
 	~RayTracedAO();
 
 	void init(VkCommandBuffer cmd_buffer);
 
-	void update(const Scene &scene, const BlueNoise &blue_noise, const GBufferPass &gbuffer_pass);
+	void update(const Scene &scene, const GBufferPass &gbuffer_pass);
 
-	void draw(VkCommandBuffer cmd_buffer);
+	void draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBufferPass &gbuffer_pass);
 
 	bool draw_ui();
 
@@ -66,7 +66,7 @@ class RayTracedAO
 		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
 		VkPipeline            pipeline              = VK_NULL_HANDLE;
 		VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
-		VkDescriptorSet       descriptor_sets[2];
+		VkDescriptorSet       descriptor_set;
 	} m_raytraced;
 
 	struct

@@ -69,11 +69,11 @@ vec3 indirect_lighting(ShadeState sstate, vec3 wo, vec3 wi)
     }
     irradiance = max(vec3(0), irradiance) * InvPI;
     vec3 diffuse = irradiance * sstate.mat.base_color.rgb;
-    radiance += Kd * diffuse;
     vec3 prefiltered_color = textureLod(prefilter_map, wi, sstate.mat.roughness_factor * PREFILTER_MIP_LEVELS).rgb;
-    vec2 brdf = textureLod(ggx_preintegration, vec2(1.0 - clamp(abs(dot(wo, sstate.ffnormal)), 0.0, 1.0), sstate.mat.roughness_factor), 0).rg;
+    vec2 brdf = textureLod(ggx_preintegration, vec2(clamp(abs(dot(wo, sstate.ffnormal)), 0.0, 1.0), sstate.mat.roughness_factor), 0).rg;
     vec3 specular = prefiltered_color * (F * brdf.x + brdf.y);
-    radiance += specular;
+
+    radiance = 0.5 * Kd * diffuse + 0.5 * specular;
 
     return radiance;
 }
@@ -86,6 +86,9 @@ vec3 direct_lighting(ShadeState sstate, vec3 wo)
     for(uint i = 0; i < light_samples; i++)
     {
         LightSample ls = sample_light(sstate);
+        Ray shadow_ray;
+        shadow_ray.origin = offset_ray(sstate.position, dot(ls.dir, sstate.ffnormal) > 0 ? sstate.ffnormal : -sstate.ffnormal);
+        shadow_ray.direction = ls.dir;
         if(ls.pdf > 0)
         {
             float bsdf_pdf;
@@ -94,10 +97,14 @@ vec3 direct_lighting(ShadeState sstate, vec3 wo)
             sample_count += 1;
         }
     }
-    return radiance / float(sample_count);
+    if(sample_count > 0)
+    {
+        radiance /= float(sample_count);
+    }
+    return any(isnan(radiance)) ? vec3(0) : radiance;
 }
 
-vec3 trace_reflection(Ray reflection_ray, vec3 wo, ShadeState sstate)
+vec3 trace_reflection(Ray reflection_ray, vec3 wo, ShadeState sstate, out float ray_length)
 {
     vec3 radiance = vec3(0);
     if(closest_hit(reflection_ray))
@@ -108,11 +115,13 @@ vec3 trace_reflection(Ray reflection_ray, vec3 wo, ShadeState sstate)
         radiance += direct_lighting(reflection_sstate, -reflection_ray.direction);
         vec3 H = importance_sample_GTR2(reflection_sstate.mat.roughness_factor, rand(prd.seed), rand(prd.seed));
         H = reflection_sstate.tangent * H.x + reflection_sstate.bitangent * H.y + reflection_sstate.ffnormal * H.z;
-        radiance += indirect_lighting(reflection_sstate, -reflection_ray.direction, normalize(reflect(reflection_ray.direction, H)));
+        // radiance += indirect_lighting(reflection_sstate, -reflection_ray.direction, normalize(reflect(reflection_ray.direction, H)));
+        ray_length = prd.hit_t;
     }
     else
     {
         radiance += indirect_lighting(sstate, wo, reflection_ray.direction);
+        ray_length = -1.0;
     }
     return radiance;
 }
@@ -133,15 +142,16 @@ void main()
     if(get_primary_state(vec2(coord) + vec2(0.5), push_constants.gbuffer_mip, sstate))
     {
         vec3 wo = normalize(ubo.cam_pos.xyz - sstate.position);
+        float ray_length = -1.0;
         Ray ray;
         {
             if(sstate.mat.roughness_factor <= MIRROR_REFLECTIONS_ROUGHNESS_THRESHOLD)
             {
                 ray.direction = reflect(-wo, sstate.ffnormal);
                 ray.origin =  sstate.position + 0.01 * (dot(ray.direction, sstate.ffnormal) > 0 ? sstate.ffnormal : -sstate.ffnormal);
-                radiance += trace_reflection(ray, wo, sstate);
+                radiance += trace_reflection(ray, wo, sstate, ray_length);
             }
-            else if(sstate.mat.roughness_factor > DIFFUSE_REFLECTIONS_ROUGHNESS_THRESHOLD)
+            if(sstate.mat.roughness_factor > DIFFUSE_REFLECTIONS_ROUGHNESS_THRESHOLD)
             {
                 // Sample DDGI
             }
@@ -151,14 +161,14 @@ void main()
                 H = normalize(sstate.tangent * H.x + sstate.bitangent * H.y + sstate.ffnormal * H.z);
                 ray.direction = normalize(reflect(-wo, H));
 		        ray.origin = sstate.position + 0.01 * (dot(ray.direction, sstate.ffnormal) > 0 ? sstate.ffnormal : -sstate.ffnormal);
-                radiance += trace_reflection(ray, wo, sstate);
+                radiance += trace_reflection(ray, wo, sstate, ray_length);
             }
         }
-        
-        imageStore(raytrace_image, coord, vec4(radiance, 1));
+        vec3 clamped_color = min(radiance, vec3(0.7));
+        imageStore(raytrace_image, coord, vec4(clamped_color, ray_length));
     }
     else
     {
-        imageStore(raytrace_image, coord, vec4(textureLod(skybox, normalize(sstate.position - ubo.cam_pos.xyz), 0).rgb, 1.0));
+        imageStore(raytrace_image, coord, vec4(0, 0, 0, -1.0));
     }
 }

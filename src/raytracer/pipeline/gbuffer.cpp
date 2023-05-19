@@ -809,12 +809,12 @@ void GBufferPass::update(const Scene &scene)
 
 	VkDescriptorImageInfo gbufferB_info[] = {
 	    {
-	        .sampler     = scene.linear_sampler,
+	        .sampler     = scene.nearest_sampler,
 	        .imageView   = gbufferB_view[0],
 	        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 	    },
 	    {
-	        .sampler     = scene.linear_sampler,
+	        .sampler     = scene.nearest_sampler,
 	        .imageView   = gbufferB_view[1],
 	        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 	    },
