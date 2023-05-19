@@ -67,3 +67,9 @@ struct LUT
   private:
 	const Context *m_context = nullptr;
 };
+
+// create all kinds of buffer
+Buffer create_vulkan_buffer(const Context &context, VkBufferUsageFlags usage, void *data, size_t size);
+
+// copy to all kinds of vulkan buffer
+void copy_to_vulkan_buffer(const Context& context, Buffer &target_buffer, void *data, size_t size);

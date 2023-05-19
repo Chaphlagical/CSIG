@@ -6,6 +6,7 @@
 #include <cmath>
 #include <string>
 #include <vector>
+#include <cassert>
 
 std::pair<Texture, VkImageView> load_texture(const Context &context, const std::string &filename)
 {
@@ -418,4 +419,136 @@ LUT::~LUT()
 	vmaDestroyImage(m_context->vma_allocator, ggx_image.vk_image, ggx_image.vma_allocation);
 	vkDestroyDescriptorSetLayout(m_context->vk_device, descriptor.layout, nullptr);
 	vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 1, &descriptor.set);
+}
+
+Buffer create_vulkan_buffer(const Context &context, VkBufferUsageFlags usage, void *data, size_t size)
+{
+	Buffer result;
+	{
+		VkBufferCreateInfo buffer_create_info = {
+		    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		    .size        = size,
+		    .usage       = usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+		    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		};
+		VmaAllocationCreateInfo allocation_create_info = {
+		    .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+		};
+		VmaAllocationInfo allocation_info = {};
+		vmaCreateBuffer(context.vma_allocator, &buffer_create_info, &allocation_create_info, &result.vk_buffer, &result.vma_allocation, &allocation_info);
+		if (usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
+		{
+			VkBufferDeviceAddressInfoKHR buffer_device_address_info = {
+			    .sType  = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+			    .buffer = result.vk_buffer,
+			};
+			result.device_address = vkGetBufferDeviceAddress(context.vk_device, &buffer_device_address_info);
+		}
+	}
+
+	if (data) {
+		copy_to_vulkan_buffer(context, result, data, size);
+	} else {
+		// TODO: check behaviour
+		assert(false);
+	}
+
+	return result;
+}
+
+// copy to buffer from staging buffer
+void copy_to_vulkan_buffer(const Context& context, Buffer &target_buffer, void *data, size_t size)
+{
+	assert(data != nullptr && size > 0);
+
+	Buffer staging_buffer;
+	{
+		VkBufferCreateInfo buffer_create_info = {
+		    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		    .size        = size,
+		    .usage       = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		};
+		VmaAllocationCreateInfo allocation_create_info = {
+		    .usage = VMA_MEMORY_USAGE_CPU_TO_GPU};
+		VmaAllocationInfo allocation_info = {};
+		vmaCreateBuffer(
+			context.vma_allocator, &buffer_create_info, &allocation_create_info,
+			&staging_buffer.vk_buffer, &staging_buffer.vma_allocation, &allocation_info
+		);
+	}
+
+
+	uint8_t *mapped_data = nullptr;
+	vmaMapMemory(context.vma_allocator, staging_buffer.vma_allocation, reinterpret_cast<void **>(&mapped_data));
+	std::memcpy(mapped_data, data, size);
+	vmaUnmapMemory(context.vma_allocator, staging_buffer.vma_allocation);
+	vmaFlushAllocation(context.vma_allocator, staging_buffer.vma_allocation, 0, size);
+	mapped_data = nullptr;
+	
+	// Allocate command buffer
+	VkCommandBuffer cmd_buffer = VK_NULL_HANDLE;
+	{
+		VkCommandBufferAllocateInfo allocate_info =
+		    {
+		        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+		        .commandPool        = context.graphics_cmd_pool,
+		        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+		        .commandBufferCount = 1,
+		    };
+		vkAllocateCommandBuffers(context.vk_device, &allocate_info, &cmd_buffer);
+	}
+
+	// Create fence
+	VkFence fence = VK_NULL_HANDLE;
+	{
+		VkFenceCreateInfo create_info = {
+		    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+		    .flags = 0,
+		};
+		vkCreateFence(context.vk_device, &create_info, nullptr, &fence);
+	}
+
+	VkCommandBufferBeginInfo begin_info = {
+	    .sType            = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+	    .flags            = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+	    .pInheritanceInfo = nullptr,
+	};
+
+	vkBeginCommandBuffer(cmd_buffer, &begin_info);
+
+	{
+		VkBufferCopy copy_info = {
+		    .srcOffset = 0,
+		    .dstOffset = 0,
+		    .size      = size,
+		};
+		vkCmdCopyBuffer(cmd_buffer, staging_buffer.vk_buffer, target_buffer.vk_buffer, 1, &copy_info);
+	}
+
+	vkEndCommandBuffer(cmd_buffer);
+
+	// Submit command buffer
+	{
+		VkSubmitInfo submit_info = {
+		    .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		    .waitSemaphoreCount   = 0,
+		    .pWaitSemaphores      = nullptr,
+		    .pWaitDstStageMask    = 0,
+		    .commandBufferCount   = 1,
+		    .pCommandBuffers      = &cmd_buffer,
+		    .signalSemaphoreCount = 0,
+		    .pSignalSemaphores    = nullptr,
+		};
+		vkQueueSubmit(context.graphics_queue, 1, &submit_info, fence);
+	}
+
+	// Wait
+	vkWaitForFences(context.vk_device, 1, &fence, VK_TRUE, UINT64_MAX);
+	vkResetFences(context.vk_device, 1, &fence);
+
+	// Release resource
+	vkDestroyFence(context.vk_device, fence, nullptr);
+	vkFreeCommandBuffers(context.vk_device, context.graphics_cmd_pool, 1, &cmd_buffer);
+	vmaDestroyBuffer(context.vma_allocator, staging_buffer.vk_buffer, staging_buffer.vma_allocation);
 }

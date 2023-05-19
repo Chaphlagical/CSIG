@@ -1,5 +1,6 @@
 #pragma once
 
+#include "render/common.hpp"
 #include "render/context.hpp"
 #define CPP
 #include "common_data.hpp"

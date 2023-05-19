@@ -1,4 +1,5 @@
 #include "render/pipeline/fsr.hpp"
+#include "render/common.hpp"
 
 #define A_CPU
 #include "ffx_a.h"
@@ -209,7 +210,6 @@ FSR::FSR(const Context &context) :
 
             vmaCreateBuffer(context.vma_allocator, &buffer_create_info, &allocation_create_info, &m_fsr_params_buffer.vk_buffer, &m_fsr_params_buffer.vma_allocation, &allocation_info);
             m_context->set_object_name(VK_OBJECT_TYPE_BUFFER, (uint64_t) m_fsr_params_buffer.vk_buffer, "FSR easu and rcas parameter Buffer");
-            
         }
     }
 
@@ -485,17 +485,17 @@ void FSR::update(const Scene &scene, VkImageView previous_result)
         // fsr sample: (hdr && !pState->bUseRcas) ? 1 : 0;
 		m_easu_buffer_data.Sample[0] = (m_isHDR && !m_useRCAS) ? 1 : 0;
 
-        // TODO: initiate a transfer to uniform buffer
-
         FsrRcasCon(reinterpret_cast<AU1 *>(&m_rcas_buffer_data.Const0), m_rcasAttenuation);
         // hdr ? 1 : 0
 		m_rcas_buffer_data.Sample[0] = (m_isHDR ? 1 : 0);
 
-        // TODO: initiate a transfer to uniform buffer
+        // initiate a transfer to uniform buffer
+		std::vector<char> paddedData(pad_uniform_buffer_size(*m_context, sizeof(FSRPassUniforms)) * 2);
+		std::memcpy(paddedData.data(), &m_easu_buffer_data, sizeof(FSRPassUniforms));
+		std::memcpy(paddedData.data() + pad_uniform_buffer_size(*m_context, sizeof(FSRPassUniforms)), &m_rcas_buffer_data, sizeof(FSRPassUniforms));
+
+        copy_to_vulkan_buffer(*m_context, m_fsr_params_buffer, paddedData.data(), paddedData.size());
     }
-
-
-
 }
 
 void FSR::draw(VkCommandBuffer cmd_buffer)
@@ -514,6 +514,33 @@ void FSR::draw(VkCommandBuffer cmd_buffer)
 	}
 	m_context->end_marker(cmd_buffer);
 
+    {
+		VkImageMemoryBarrier image_barriers[] = {
+		    {
+		        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		        .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+		        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+		        .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+		        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		        .image               = intermediate_image.vk_image,
+		        .subresourceRange    = VkImageSubresourceRange{
+		               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		               .baseMipLevel   = 0,
+		               .levelCount     = 1,
+		               .baseArrayLayer = 0,
+		               .layerCount     = 1,
+                },
+		    },
+		};
+		vkCmdPipelineBarrier(
+		    cmd_buffer,
+		    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+		    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+		    0, 0, nullptr, 0, nullptr, 1, image_barriers);
+	}
+
 	m_context->begin_marker(cmd_buffer, "FSR RCAS");
 	{
 		vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout, 0, 1, &m_rcas_descriptor_set, 0, nullptr);
@@ -526,8 +553,4 @@ void FSR::draw(VkCommandBuffer cmd_buffer)
 bool FSR::draw_ui()
 {
     return false;
-}
-
-void FSR::set_pathtracing(bool enable)
-{
 }

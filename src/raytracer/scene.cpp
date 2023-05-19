@@ -438,124 +438,6 @@ inline uint32_t load_texture(const Context &context, const std::string &filename
 	return texture_map.at(gltf_texture);
 }
 
-inline Buffer create_buffer(const Context &context, VkBufferUsageFlags usage, void *data, size_t size)
-{
-	Buffer result;
-	{
-		VkBufferCreateInfo buffer_create_info = {
-		    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		    .size        = size,
-		    .usage       = usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-		    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-		};
-		VmaAllocationCreateInfo allocation_create_info = {
-		    .usage = VMA_MEMORY_USAGE_GPU_ONLY,
-		};
-		VmaAllocationInfo allocation_info = {};
-		vmaCreateBuffer(context.vma_allocator, &buffer_create_info, &allocation_create_info, &result.vk_buffer, &result.vma_allocation, &allocation_info);
-		if (usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
-		{
-			VkBufferDeviceAddressInfoKHR buffer_device_address_info = {
-			    .sType  = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-			    .buffer = result.vk_buffer,
-			};
-			result.device_address = vkGetBufferDeviceAddress(context.vk_device, &buffer_device_address_info);
-		}
-	}
-
-	Buffer staging_buffer;
-	{
-		VkBufferCreateInfo buffer_create_info = {
-		    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		    .size        = size,
-		    .usage       = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-		    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-		};
-		VmaAllocationCreateInfo allocation_create_info = {
-		    .usage = VMA_MEMORY_USAGE_CPU_TO_GPU};
-		VmaAllocationInfo allocation_info = {};
-		vmaCreateBuffer(context.vma_allocator, &buffer_create_info, &allocation_create_info, &staging_buffer.vk_buffer, &staging_buffer.vma_allocation, &allocation_info);
-	}
-
-	if (data)
-	{
-		uint8_t *mapped_data = nullptr;
-		vmaMapMemory(context.vma_allocator, staging_buffer.vma_allocation, reinterpret_cast<void **>(&mapped_data));
-		std::memcpy(mapped_data, data, size);
-		vmaUnmapMemory(context.vma_allocator, staging_buffer.vma_allocation);
-		vmaFlushAllocation(context.vma_allocator, staging_buffer.vma_allocation, 0, size);
-		mapped_data = nullptr;
-	}
-
-	// Allocate command buffer
-	VkCommandBuffer cmd_buffer = VK_NULL_HANDLE;
-	{
-		VkCommandBufferAllocateInfo allocate_info =
-		    {
-		        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-		        .commandPool        = context.graphics_cmd_pool,
-		        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-		        .commandBufferCount = 1,
-		    };
-		vkAllocateCommandBuffers(context.vk_device, &allocate_info, &cmd_buffer);
-	}
-
-	// Create fence
-	VkFence fence = VK_NULL_HANDLE;
-	{
-		VkFenceCreateInfo create_info = {
-		    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		    .flags = 0,
-		};
-		vkCreateFence(context.vk_device, &create_info, nullptr, &fence);
-	}
-
-	VkCommandBufferBeginInfo begin_info = {
-	    .sType            = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-	    .flags            = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-	    .pInheritanceInfo = nullptr,
-	};
-
-	vkBeginCommandBuffer(cmd_buffer, &begin_info);
-
-	{
-		VkBufferCopy copy_info = {
-		    .srcOffset = 0,
-		    .dstOffset = 0,
-		    .size      = size,
-		};
-		vkCmdCopyBuffer(cmd_buffer, staging_buffer.vk_buffer, result.vk_buffer, 1, &copy_info);
-	}
-
-	vkEndCommandBuffer(cmd_buffer);
-
-	// Submit command buffer
-	{
-		VkSubmitInfo submit_info = {
-		    .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-		    .waitSemaphoreCount   = 0,
-		    .pWaitSemaphores      = nullptr,
-		    .pWaitDstStageMask    = 0,
-		    .commandBufferCount   = 1,
-		    .pCommandBuffers      = &cmd_buffer,
-		    .signalSemaphoreCount = 0,
-		    .pSignalSemaphores    = nullptr,
-		};
-		vkQueueSubmit(context.graphics_queue, 1, &submit_info, fence);
-	}
-
-	// Wait
-	vkWaitForFences(context.vk_device, 1, &fence, VK_TRUE, UINT64_MAX);
-	vkResetFences(context.vk_device, 1, &fence);
-
-	// Release resource
-	vkDestroyFence(context.vk_device, fence, nullptr);
-	vkFreeCommandBuffers(context.vk_device, context.graphics_cmd_pool, 1, &cmd_buffer);
-	vmaDestroyBuffer(context.vma_allocator, staging_buffer.vk_buffer, staging_buffer.vma_allocation);
-
-	return result;
-}
-
 inline AccelerationStructure create_acceleration_structure(const Context &context, VkAccelerationStructureTypeKHR type, VkAccelerationStructureBuildSizesInfoKHR build_size_info)
 {
 	AccelerationStructure as                 = {};
@@ -893,7 +775,7 @@ void Scene::load_scene(const std::string &filename)
 
 		// Create material buffer
 		{
-			material_buffer                 = create_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, materials.data(), materials.size() * sizeof(Material));
+			material_buffer                 = create_vulkan_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, materials.data(), materials.size() * sizeof(Material));
 			scene_info.material_count       = static_cast<uint32_t>(materials.size());
 			scene_info.material_buffer_addr = material_buffer.device_address;
 		}
@@ -976,8 +858,8 @@ void Scene::load_scene(const std::string &filename)
 		scene_info.indices_count  = static_cast<uint32_t>(indices.size());
 		scene_info.mesh_count     = static_cast<uint32_t>(meshes.size());
 
-		vertex_buffer = create_buffer(*m_context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, vertices.data(), vertices.size() * sizeof(Vertex));
-		index_buffer  = create_buffer(*m_context, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, indices.data(), indices.size() * sizeof(uint32_t));
+		vertex_buffer = create_vulkan_buffer(*m_context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, vertices.data(), vertices.size() * sizeof(Vertex));
+		index_buffer  = create_vulkan_buffer(*m_context, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, indices.data(), indices.size() * sizeof(uint32_t));
 
 		scene_info.vertex_buffer_addr = vertex_buffer.device_address;
 		scene_info.index_buffer_addr  = index_buffer.device_address;
@@ -1013,7 +895,7 @@ void Scene::load_scene(const std::string &filename)
 			std::vector<AliasTable> mesh_alias_table = create_alias_table_buffer(*m_context, mesh_probs, total_weight);
 			alias_table.insert(alias_table.end(), std::make_move_iterator(mesh_alias_table.begin()), std::make_move_iterator(mesh_alias_table.end()));
 		}
-		mesh_alias_table_buffer                 = create_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, alias_table.data(), alias_table.size() * sizeof(AliasTable));
+		mesh_alias_table_buffer                 = create_vulkan_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, alias_table.data(), alias_table.size() * sizeof(AliasTable));
 		scene_info.mesh_alias_table_buffer_addr = mesh_alias_table_buffer.device_address;
 	}
 
@@ -1094,7 +976,7 @@ void Scene::load_scene(const std::string &filename)
 
 		// Build emitter buffer
 		{
-			emitter_buffer                 = create_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, emitters.data(), std::max(emitters.size(), 1ull) * sizeof(Emitter));
+			emitter_buffer                 = create_vulkan_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, emitters.data(), std::max(emitters.size(), 1ull) * sizeof(Emitter));
 			scene_info.emitter_count       = static_cast<uint32_t>(emitters.size());
 			scene_info.emitter_buffer_addr = emitter_buffer.device_address;
 		}
@@ -1115,7 +997,7 @@ void Scene::load_scene(const std::string &filename)
 			}
 
 			std::vector<AliasTable> alias_table        = create_alias_table_buffer(*m_context, emitter_probs, total_weight);
-			emitter_alias_table_buffer                 = create_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, alias_table.data(), std::max(alias_table.size(), 1ull) * sizeof(AliasTable));
+			emitter_alias_table_buffer                 = create_vulkan_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, alias_table.data(), std::max(alias_table.size(), 1ull) * sizeof(AliasTable));
 			scene_info.emitter_alias_table_buffer_addr = emitter_alias_table_buffer.device_address;
 		}
 
@@ -1157,7 +1039,7 @@ void Scene::load_scene(const std::string &filename)
 
 		// Create instance buffer
 		{
-			instance_buffer                 = create_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, instances.data(), instances.size() * sizeof(Instance));
+			instance_buffer                 = create_vulkan_buffer(*m_context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, instances.data(), instances.size() * sizeof(Instance));
 			scene_info.instance_buffer_addr = instance_buffer.device_address;
 		}
 	}
@@ -1291,7 +1173,7 @@ void Scene::load_scene(const std::string &filename)
 				vk_instances.emplace_back(vk_instance);
 			}
 
-			Buffer instance_buffer = create_buffer(*m_context, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT, vk_instances.data(), vk_instances.size() * sizeof(VkAccelerationStructureInstanceKHR));
+			Buffer instance_buffer = create_vulkan_buffer(*m_context, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT, vk_instances.data(), vk_instances.size() * sizeof(VkAccelerationStructureInstanceKHR));
 
 			VkAccelerationStructureGeometryKHR as_geometry = {
 			    .sType        = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,

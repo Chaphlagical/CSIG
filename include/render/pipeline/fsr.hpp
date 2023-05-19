@@ -22,8 +22,6 @@ struct FSR
 	void draw(VkCommandBuffer cmd_buffer);
 
 	bool draw_ui();
-
-	void set_pathtracing(bool enable);
 	
 	static inline VkExtent2D get_render_extent(float scaleFactor, VkExtent2D extent)
 	{
@@ -42,12 +40,10 @@ struct FSR
 
   private:
 	const Context *m_context = nullptr;
-
-	bool m_is_pathtracing = false;
 	
 	// TODO: parse this from context config
 	bool  m_useRCAS         = true;
-	float m_rcasAttenuation = 1.0f;
+	float m_rcasAttenuation = 0.25f;
 	bool  m_isHDR           = true;
 	
 	struct FSRPassUniforms
