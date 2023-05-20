@@ -532,6 +532,33 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			    0, 0, nullptr, 0, nullptr, 1, image_barriers);
 		}
 
+		{
+			VkImageMemoryBarrier image_barriers[] = {
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+			        .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
+			        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = m_renderer.tonemap.tonemapped_image.vk_image,
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = 1,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
+			};
+			vkCmdPipelineBarrier(
+			    cmd_buffer,
+			    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    0, 0, nullptr, 0, nullptr, 1, image_barriers);
+		}
+
 		m_renderer.tonemap.draw(cmd_buffer);
 
 		{
@@ -641,6 +668,33 @@ void Application::render(VkCommandBuffer cmd_buffer)
 	}
 	else
 	{
+		{
+			VkImageMemoryBarrier image_barriers[] = {
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+			        .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = m_renderer.tonemap.tonemapped_image.vk_image,
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = 1,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
+			};
+			vkCmdPipelineBarrier(
+			    cmd_buffer,
+			    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    0, 0, nullptr, 0, nullptr, 1, image_barriers);
+		}
+
 		m_renderer.tonemap.draw(cmd_buffer);
 
 		{
@@ -708,23 +762,6 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			               .layerCount     = 1,
                     },
 			    },
-			    {
-			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-			        .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
-			        .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
-			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.tonemap.tonemapped_image.vk_image,
-			        .subresourceRange    = VkImageSubresourceRange{
-			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-			               .baseMipLevel   = 0,
-			               .levelCount     = 1,
-			               .baseArrayLayer = 0,
-			               .layerCount     = 1,
-                    },
-			    },
 			};
 			vkCmdPipelineBarrier(
 			    cmd_buffer,
@@ -772,29 +809,12 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			               .layerCount     = 1,
                     },
 			    },
-			    {
-			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-			        .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
-			        .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
-			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.tonemap.tonemapped_image.vk_image,
-			        .subresourceRange    = VkImageSubresourceRange{
-			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-			               .baseMipLevel   = 0,
-			               .levelCount     = 1,
-			               .baseArrayLayer = 0,
-			               .layerCount     = 1,
-                    },
-			    },
 			};
 			vkCmdPipelineBarrier(
 			    cmd_buffer,
 			    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
 			    VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
-			    0, 0, nullptr, 0, nullptr, 3, image_barriers);
+			    0, 0, nullptr, 0, nullptr, 2, image_barriers);
 		}
 	}
 

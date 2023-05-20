@@ -292,6 +292,7 @@ FSR::~FSR()
     vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 4, m_easu_descriptor_sets);
 	vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 1, &m_rcas_descriptor_set);
     vkDestroyImageView(m_context->vk_device, upsampled_image_view, nullptr);
+    vkDestroyImageView(m_context->vk_device, intermediate_image_view, nullptr);
     vkDestroySampler(m_context->vk_device, m_sampler, nullptr);
     vmaDestroyImage(m_context->vma_allocator, upsampled_image.vk_image, upsampled_image.vma_allocation);
     vmaDestroyImage(m_context->vma_allocator, intermediate_image.vk_image, intermediate_image.vma_allocation);
