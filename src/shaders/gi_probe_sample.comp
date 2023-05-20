@@ -182,6 +182,11 @@ void main()
     const vec2 pixel_center = vec2(current_coord) + vec2(0.5);
     const vec2 tex_coord = pixel_center / vec2(size);
 
+    if(current_coord.x >= size.x || current_coord.y >= size.y)
+    {
+        return;
+    }
+
     float depth = texelFetch(depth_buffer, current_coord, push_constants.gbuffer_mip).r;
 
     if (depth == 1.0)

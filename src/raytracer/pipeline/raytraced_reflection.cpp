@@ -1911,7 +1911,7 @@ void RayTracedReflection::draw(VkCommandBuffer cmd_buffer, const Scene &scene, c
 			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_upsampling.pipeline_layout, 0, 3, descriptors, 0, nullptr);
 			vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_upsampling.pipeline);
 			vkCmdPushConstants(cmd_buffer, m_upsampling.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_upsampling.push_constants), &m_upsampling.push_constants);
-			vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_context->extent.width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_context->extent.height) / float(NUM_THREADS_Y))), 1);
+			vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_context->renderExtent.width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_context->renderExtent.height) / float(NUM_THREADS_Y))), 1);
 		}
 		m_context->end_marker(cmd_buffer);
 

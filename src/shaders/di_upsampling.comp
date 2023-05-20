@@ -42,6 +42,11 @@ void main()
     const vec2 pixel_center = vec2(coord) + vec2(0.5);
     const vec2 tex_coord = pixel_center / vec2(size);
 
+    if(coord.x >= size.x || coord.y >= size.y)
+    {
+        return;
+    }
+
     if(size == tex_size)
     {
         imageStore(output_image, coord, texelFetch(input_image, coord, 0));

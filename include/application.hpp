@@ -26,7 +26,7 @@ struct ApplicationConfig
 	// std::string scene_file = "assets/scenes/GI/GI.gltf";
 	// std::string scene_file = "assets/scenes/pica_pica.glb";
 	 //std::string scene_file = "assets/scenes/test.glb";
-	std::string scene_file = "assets/scenes/conell_box.glb";
+	std::string scene_file = "assets/scenes/conell_box_.glb";
 	std::string hdr_file   = "assets/textures/hdr/BasketballCourt_3k.hdr";
 };
 

@@ -44,8 +44,8 @@ RayTracedGI::RayTracedGI(const Context &context, const Scene &scene, const GBuff
 {
 	float scale_divisor = std::powf(2.0f, float(scale));
 
-	m_width  = m_context->extent.width / static_cast<uint32_t>(scale_divisor);
-	m_height = m_context->extent.height / static_cast<uint32_t>(scale_divisor);
+	m_width  = m_context->renderExtent.width / static_cast<uint32_t>(scale_divisor);
+	m_height = m_context->renderExtent.height / static_cast<uint32_t>(scale_divisor);
 
 	m_gbuffer_mip = static_cast<uint32_t>(scale);
 

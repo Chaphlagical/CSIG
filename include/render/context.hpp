@@ -22,7 +22,7 @@ struct ContextConfig
 	// Quality, 1.5f
 	// Balanced, 1.7f
 	// Performance, 2.0f
-	float FSRScaleFactor = 1.5f;
+	float FSRScaleFactor = 1.7f;
 };
 
 struct Texture

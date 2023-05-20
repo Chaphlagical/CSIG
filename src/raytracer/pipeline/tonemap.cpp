@@ -291,8 +291,8 @@ void Tonemap::draw(VkCommandBuffer cmd_buffer)
 		vkCmdPushConstants(cmd_buffer, m_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_push_constants), &m_push_constants);
 		vkCmdDispatch(
 			cmd_buffer,
-		    static_cast<uint32_t>(ceil(float(m_context->extent.width) / float(NUM_THREADS_X))),
-		    static_cast<uint32_t>(ceil(float(m_context->extent.height) / float(NUM_THREADS_Y))),
+		    static_cast<uint32_t>(ceil(float(m_context->renderExtent.width) / float(NUM_THREADS_X))),
+		    static_cast<uint32_t>(ceil(float(m_context->renderExtent.height) / float(NUM_THREADS_Y))),
 			1
 		);
 	}

@@ -128,6 +128,11 @@ void main()
 	const ivec2 size = textureSize(prev_ao_image, 0);
 	const ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
 
+	if(coord.x >= size.x || coord.y >= size.y)
+    {
+        return;
+    }
+
 	populate_cache();
 	float mean = neighborhood_mean(coord);
 

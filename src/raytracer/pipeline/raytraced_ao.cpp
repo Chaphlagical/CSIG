@@ -33,8 +33,8 @@ RayTracedAO::RayTracedAO(const Context &context, const Scene &scene, const GBuff
 {
 	float scale_divisor = powf(2.0f, float(scale));
 
-	m_width  = static_cast<uint32_t>(static_cast<float>(context.extent.width) / scale_divisor);
-	m_height = static_cast<uint32_t>(static_cast<float>(context.extent.height) / scale_divisor);
+	m_width  = static_cast<uint32_t>(static_cast<float>(context.renderExtent.width) / scale_divisor);
+	m_height = static_cast<uint32_t>(static_cast<float>(context.renderExtent.height) / scale_divisor);
 
 	m_gbuffer_mip = static_cast<uint32_t>(scale);
 
@@ -131,7 +131,7 @@ RayTracedAO::RayTracedAO(const Context &context, const Scene &scene, const GBuff
 		    .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 		    .imageType     = VK_IMAGE_TYPE_2D,
 		    .format        = VK_FORMAT_R32_SFLOAT,
-		    .extent        = VkExtent3D{m_context->extent.width, m_context->extent.height, 1},
+		    .extent        = VkExtent3D{m_context->renderExtent.width, m_context->renderExtent.height, 1},
 		    .mipLevels     = 1,
 		    .arrayLayers   = 1,
 		    .samples       = VK_SAMPLE_COUNT_1_BIT,
@@ -1471,7 +1471,7 @@ void RayTracedAO::draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBu
 			vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_upsampling.pipeline_layout, 0, 3, descriptor_sets, 0, nullptr);
 			vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_upsampling.pipeline);
 			vkCmdPushConstants(cmd_buffer, m_upsampling.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_upsampling.push_constant), &m_upsampling.push_constant);
-			vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_context->extent.width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_context->extent.height) / float(NUM_THREADS_Y))), 1);
+			vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(float(m_context->renderExtent.width) / float(NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_context->renderExtent.height) / float(NUM_THREADS_Y))), 1);
 		}
 		m_context->end_marker(cmd_buffer);
 		{

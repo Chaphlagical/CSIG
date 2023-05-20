@@ -128,6 +128,11 @@ void main()
     const vec2 pixel_center = vec2(coord) + vec2(0.5);
     const vec2 tex_coord = pixel_center / vec2(size);
 
+    if(coord.x >= size.x || coord.y >= size.y)
+    {
+        return;
+    }
+
     const float depth = texelFetch(depth_buffer, coord, push_constants.gbuffer_mip).r;
     const float roughness = texelFetch(gbufferC, coord, push_constants.gbuffer_mip).r;
 

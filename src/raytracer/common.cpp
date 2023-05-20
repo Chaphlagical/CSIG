@@ -450,7 +450,6 @@ Buffer create_vulkan_buffer(const Context &context, VkBufferUsageFlags usage, vo
 		copy_to_vulkan_buffer(context, result, data, size);
 	} else {
 		// TODO: check behaviour
-		assert(false);
 	}
 
 	return result;
