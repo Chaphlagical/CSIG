@@ -30,7 +30,7 @@ FSR::FSR(const Context &context) :
         VkImageCreateInfo image_create_info = {
             .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .imageType     = VK_IMAGE_TYPE_2D,
-            .format        = VK_FORMAT_R8G8B8A8_UNORM,
+            .format        = VK_FORMAT_R16G16B16A16_UNORM,
             .extent        = VkExtent3D{m_context->extent.width, m_context->extent.height, 1},
             .mipLevels     = 1,
             .arrayLayers   = 1,
@@ -48,7 +48,7 @@ FSR::FSR(const Context &context) :
             .sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
             .image            = upsampled_image.vk_image,
             .viewType         = VK_IMAGE_VIEW_TYPE_2D,
-            .format           = VK_FORMAT_R8G8B8A8_UNORM,
+            .format           = VK_FORMAT_R16G16B16A16_UNORM,
             .components       = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
             .subresourceRange = {
                 .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
@@ -68,7 +68,7 @@ FSR::FSR(const Context &context) :
         VkImageCreateInfo image_create_info = {
             .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .imageType     = VK_IMAGE_TYPE_2D,
-            .format        = VK_FORMAT_R8G8B8A8_UNORM,
+            .format        = VK_FORMAT_R16G16B16A16_UNORM,
             .extent        = VkExtent3D{m_context->extent.width, m_context->extent.height, 1},
             .mipLevels     = 1,
             .arrayLayers   = 1,
@@ -86,7 +86,7 @@ FSR::FSR(const Context &context) :
             .sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
             .image            = intermediate_image.vk_image,
             .viewType         = VK_IMAGE_VIEW_TYPE_2D,
-            .format           = VK_FORMAT_R8G8B8A8_UNORM,
+            .format           = VK_FORMAT_R16G16B16A16_UNORM,
             .components       = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
             .subresourceRange = {
                 .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
@@ -169,7 +169,9 @@ FSR::FSR(const Context &context) :
         {
             VkDescriptorSetLayout descriptor_set_layouts[] = {
                 m_descriptor_set_layout,
-                m_descriptor_set_layout,
+	            m_descriptor_set_layout,
+	            m_descriptor_set_layout,
+	            m_descriptor_set_layout,
             };
 
             VkDescriptorSetAllocateInfo allocate_info = {
@@ -179,8 +181,9 @@ FSR::FSR(const Context &context) :
                 .descriptorSetCount = 1,
                 .pSetLayouts        = descriptor_set_layouts,
             };
-            vkAllocateDescriptorSets(m_context->vk_device, &allocate_info, &m_easu_descriptor_set);
 	        vkAllocateDescriptorSets(m_context->vk_device, &allocate_info, &m_rcas_descriptor_set);
+	        allocate_info.descriptorSetCount = 4;
+	        vkAllocateDescriptorSets(m_context->vk_device, &allocate_info, m_easu_descriptor_sets);
         }
 
         // Create pipeline layout
@@ -252,11 +255,11 @@ FSR::FSR(const Context &context) :
         VkShaderModule rcasShader = VK_NULL_HANDLE;
         if (context.FsrFp16Enabled)
         {
-		    rcasShader = build_shader_module(context, sizeof(g_fsr1_fp16_easu), reinterpret_cast<uint32_t *>(g_fsr1_fp16_easu));
+		    rcasShader = build_shader_module(context, sizeof(g_fsr1_fp16_rcas), reinterpret_cast<uint32_t *>(g_fsr1_fp16_rcas));
         }
         else
         {
-		    rcasShader = build_shader_module(context, sizeof(g_fsr1_fp32_easu), reinterpret_cast<uint32_t *>(g_fsr1_fp32_easu));
+		    rcasShader = build_shader_module(context, sizeof(g_fsr1_fp32_rcas), reinterpret_cast<uint32_t *>(g_fsr1_fp32_rcas));
         }
 
         // Create pipeline
@@ -286,12 +289,13 @@ FSR::~FSR()
     vkDestroyPipeline(m_context->vk_device, m_pipeline_easu, nullptr);
     vkDestroyPipeline(m_context->vk_device, m_pipeline_rcas, nullptr);
     vkDestroyDescriptorSetLayout(m_context->vk_device, m_descriptor_set_layout, nullptr);
-    vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 1, &m_easu_descriptor_set);
+    vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 4, m_easu_descriptor_sets);
 	vkFreeDescriptorSets(m_context->vk_device, m_context->vk_descriptor_pool, 1, &m_rcas_descriptor_set);
     vkDestroyImageView(m_context->vk_device, upsampled_image_view, nullptr);
     vkDestroySampler(m_context->vk_device, m_sampler, nullptr);
     vmaDestroyImage(m_context->vma_allocator, upsampled_image.vk_image, upsampled_image.vma_allocation);
     vmaDestroyImage(m_context->vma_allocator, intermediate_image.vk_image, intermediate_image.vma_allocation);
+	vmaDestroyBuffer(m_context->vma_allocator, m_fsr_params_buffer.vk_buffer, m_fsr_params_buffer.vma_allocation);
 }
 
 void FSR::init(VkCommandBuffer cmd_buffer)
@@ -343,10 +347,13 @@ void FSR::init(VkCommandBuffer cmd_buffer)
         0, 0, nullptr, 0, nullptr, 1, &image_barrier_intermediate);
 }
 
-void FSR::update(const Scene &scene, VkImageView previous_result)
+void FSR::update(const Scene &scene, VkImageView pt_result[2], VkImageView hybrid_result[2])
 {
 	// easu descriptors
-	{
+	for (int i = 0; i < 4; i++)
+    {
+		VkImageView previous_result = (i >= 2) ? hybrid_result[i - 2] : pt_result[i];
+
 		VkDescriptorImageInfo previous_result_info = {
             .sampler     = VK_NULL_HANDLE,
 	        .imageView   = previous_result,
@@ -368,7 +375,7 @@ void FSR::update(const Scene &scene, VkImageView previous_result)
         VkWriteDescriptorSet writes[] = {
 		    {
 		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-		        .dstSet           = m_easu_descriptor_set,
+		        .dstSet           = m_easu_descriptor_sets[i],
 		        .dstBinding       = 0,
 		        .dstArrayElement  = 0,
 		        .descriptorCount  = 1,
@@ -380,7 +387,7 @@ void FSR::update(const Scene &scene, VkImageView previous_result)
             // Input for easu
 		    {
 		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-		        .dstSet           = m_easu_descriptor_set,
+		        .dstSet           = m_easu_descriptor_sets[i],
 		        .dstBinding       = 1,
 		        .dstArrayElement  = 0,
 		        .descriptorCount  = 1,
@@ -392,7 +399,7 @@ void FSR::update(const Scene &scene, VkImageView previous_result)
             // Output for easu
 		    {
 		        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-		        .dstSet           = m_easu_descriptor_set,
+		        .dstSet           = m_easu_descriptor_sets[i],
 		        .dstBinding       = 2,
 		        .dstArrayElement  = 0,
 		        .descriptorCount  = 1,
@@ -509,9 +516,61 @@ void FSR::draw(VkCommandBuffer cmd_buffer)
 	int dispatchX = (m_context->extent.width + (threadGroupWorkRegionDim - 1)) / threadGroupWorkRegionDim;
 	int dispatchY = (m_context->extent.height + (threadGroupWorkRegionDim - 1)) / threadGroupWorkRegionDim;
 
+    {
+		VkImageMemoryBarrier image_barriers[] = {
+		    {
+		        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+		        .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+		        .oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
+		        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		        .image               = intermediate_image.vk_image,
+		        .subresourceRange    = VkImageSubresourceRange{
+		               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		               .baseMipLevel   = 0,
+		               .levelCount     = 1,
+		               .baseArrayLayer = 0,
+		               .layerCount     = 1,
+                },
+		    },
+		    {
+		        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+		        .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+		        .oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
+		        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		        .image               = upsampled_image.vk_image,
+		        .subresourceRange    = VkImageSubresourceRange{
+		               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		               .baseMipLevel   = 0,
+		               .levelCount     = 1,
+		               .baseArrayLayer = 0,
+		               .layerCount     = 1,
+                },
+		    },
+		};
+		vkCmdPipelineBarrier(
+		    cmd_buffer,
+		    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+		    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+		    0, 0, nullptr, 0, nullptr, 2, image_barriers);
+	}
+
 	m_context->begin_marker(cmd_buffer, "FSR EASU");
 	{
-		vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout, 0, 1, &m_easu_descriptor_set, 0, nullptr);
+        // pt0, pt1, hybrid0, hybrid1
+		int input_set_id = 0;
+		if (!m_is_pathtracing)
+			input_set_id += 2;
+
+        if (m_context->ping_pong)
+			input_set_id += 1;
+
+		vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout, 0, 1, &m_easu_descriptor_sets[input_set_id], 0, nullptr);
 		vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_easu);
 		vkCmdDispatch(cmd_buffer, dispatchX, dispatchY, 1);
 	}
@@ -523,8 +582,8 @@ void FSR::draw(VkCommandBuffer cmd_buffer)
 		        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 		        .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
 		        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-		        .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
-		        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+		        .oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
+		        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		        .image               = intermediate_image.vk_image,
@@ -556,4 +615,9 @@ void FSR::draw(VkCommandBuffer cmd_buffer)
 bool FSR::draw_ui()
 {
     return false;
+}
+
+void FSR::set_pathtracing(bool enable)
+{
+	m_is_pathtracing = enable;
 }

@@ -513,6 +513,7 @@ Context::Context(const ContextConfig &config)
 
 			ENABLE_DEVICE_FEATURE(physical_device_features.features, physical_device_features_enable.features, multiViewport);
 			ENABLE_DEVICE_FEATURE(physical_device_features.features, physical_device_features_enable.features, shaderInt64);
+			ENABLE_DEVICE_FEATURE(physical_device_vulkan12_features, physical_device_vulkan12_features_enable, shaderFloat16);     // for fsr
 			ENABLE_DEVICE_FEATURE(physical_device_vulkan12_features, physical_device_vulkan12_features_enable, descriptorIndexing);
 			ENABLE_DEVICE_FEATURE(physical_device_vulkan12_features, physical_device_vulkan12_features_enable, bufferDeviceAddress);
 			ENABLE_DEVICE_FEATURE(physical_device_vulkan12_features, physical_device_vulkan12_features_enable, runtimeDescriptorArray);

@@ -276,6 +276,7 @@ void Application::update_ui()
 		ImGui::Text("Frames: %.d", m_num_frames);
 		if (ImGui::Combo("Mode", reinterpret_cast<int32_t *>(&m_render_mode), render_modes, 2))
 		{
+			m_renderer.fsr.set_pathtracing(m_render_mode == RenderMode::PathTracing);
 			m_renderer.tonemap.set_pathtracing(m_render_mode == RenderMode::PathTracing);
 		}
 		bool ui_update = false;
@@ -400,7 +401,13 @@ void Application::update(VkCommandBuffer cmd_buffer)
 		m_renderer.raytraced_gi.update(m_scene);
 		m_renderer.composite.update(m_scene, m_renderer.raytraced_di.upsampling_view, m_renderer.raytraced_reflection.upsampling_view, m_renderer.raytraced_ao.upsampled_ao_image_view, m_renderer.raytraced_gi.sample_probe_grid_view);
 		m_renderer.taa.update(m_scene, m_renderer.gbuffer_pass, m_renderer.composite.output_view);
-		m_renderer.tonemap.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, m_renderer.taa.output_view);
+		m_renderer.fsr.update(m_scene, m_renderer.path_tracing.path_tracing_image_view, m_renderer.taa.output_view);
+
+		VkImageView paddedImageView[4];
+		for (int i = 0; i < 4; i++) {
+			paddedImageView[i] = m_renderer.fsr.upsampled_image_view;
+		}
+		m_renderer.tonemap.update(m_scene, paddedImageView, &paddedImageView[2]);
 	}
 
 	// Copy to device
@@ -496,6 +503,8 @@ void Application::render(VkCommandBuffer cmd_buffer)
 
 	if (m_render_mode == RenderMode::PathTracing)
 	{
+		// present -> transfer dst; this is used for blitting
+		// and we do this in advance
 		{
 			VkImageMemoryBarrier image_barriers[] = {
 			    {
@@ -523,7 +532,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			    0, 0, nullptr, 0, nullptr, 1, image_barriers);
 		}
 
-		m_renderer.tonemap.draw(cmd_buffer);
+		m_renderer.fsr.draw(cmd_buffer);
 
 		{
 			VkImageMemoryBarrier image_barriers[] = {
@@ -535,7 +544,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.tonemap.tonemapped_image.vk_image,
+			        .image               = m_renderer.fsr.upsampled_image.vk_image,
 			        .subresourceRange    = VkImageSubresourceRange{
 			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 			               .baseMipLevel   = 0,
@@ -552,7 +561,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			    0, 0, nullptr, 0, nullptr, 1, image_barriers);
 		}
 
-		m_renderer.fsr.draw(cmd_buffer);
+		m_renderer.tonemap.draw(cmd_buffer);
 
 		{
 			VkImageMemoryBarrier image_barriers[] = {
@@ -564,7 +573,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			        .image               = m_renderer.fsr.intermediate_image.vk_image,
+			        .image               = m_renderer.tonemap.tonemapped_image.vk_image,
 			        .subresourceRange    = VkImageSubresourceRange{
 			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 			               .baseMipLevel   = 0,
@@ -581,8 +590,8 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			    0, 0, nullptr, 0, nullptr, 1, image_barriers);
 		}
 
-		//present(cmd_buffer, m_renderer.tonemap.tonemapped_image.vk_image);
-		present(cmd_buffer, m_renderer.fsr.upsampled_image.vk_image);
+		present(cmd_buffer, m_renderer.tonemap.tonemapped_image.vk_image);
+		// present(cmd_buffer, m_renderer.fsr.upsampled_image.vk_image);
 		//present(cmd_buffer, m_renderer.fsr.intermediate_image.vk_image);
 
 		{
@@ -632,6 +641,35 @@ void Application::render(VkCommandBuffer cmd_buffer)
 	}
 	else
 	{
+		m_renderer.fsr.draw(cmd_buffer);
+
+		{
+			VkImageMemoryBarrier image_barriers[] = {
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+			        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
+			        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = m_renderer.fsr.upsampled_image.vk_image,
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = 1,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
+			};
+			vkCmdPipelineBarrier(
+			    cmd_buffer,
+			    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			    0, 0, nullptr, 0, nullptr, 1, image_barriers);
+		}
+
 		m_renderer.tonemap.draw(cmd_buffer);
 
 		{
@@ -679,7 +717,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 		}
 		//m_renderer.raytraced_gi.visualize_probe(cmd_buffer, m_renderer.tonemap.tonemapped_image_view, m_renderer.gbuffer_pass.depth_buffer_view[0], m_scene,m_renderer.gbuffer_pass);
 
-		//present(cmd_buffer, m_renderer.tonemap.tonemapped_image.vk_image);
+		present(cmd_buffer, m_renderer.tonemap.tonemapped_image.vk_image);
 
 		{
 			VkImageMemoryBarrier image_barriers[] = {
@@ -717,7 +755,23 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			               .layerCount     = 1,
                     },
 			    },
-
+			    {
+			        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			        .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+			        .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+			        .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			        .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+			        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			        .image               = m_renderer.fsr.upsampled_image.vk_image,
+			        .subresourceRange    = VkImageSubresourceRange{
+			               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			               .baseMipLevel   = 0,
+			               .levelCount     = 1,
+			               .baseArrayLayer = 0,
+			               .layerCount     = 1,
+                    },
+			    },
 			};
 			vkCmdPipelineBarrier(
 			    cmd_buffer,

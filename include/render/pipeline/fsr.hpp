@@ -17,11 +17,14 @@ struct FSR
 
 	void init(VkCommandBuffer cmd_buffer);
 
-	void update(const Scene &scene, VkImageView previous_result);
+	// void update(const Scene &scene, VkImageView previous_result);
+	void update(const Scene &scene, VkImageView pt_result[2], VkImageView hybrid_result[2]);
 
 	void draw(VkCommandBuffer cmd_buffer);
 
 	bool draw_ui();
+
+	void set_pathtracing(bool enable);
 	
 	static inline VkExtent2D get_render_extent(float scaleFactor, VkExtent2D extent)
 	{
@@ -41,6 +44,8 @@ struct FSR
   private:
 	const Context *m_context = nullptr;
 	
+	bool m_is_pathtracing = false;
+
 	// TODO: parse this from context config
 	bool  m_useRCAS         = true;
 	float m_rcasAttenuation = 0.25f;
@@ -65,7 +70,8 @@ struct FSR
 	VkDescriptorSetLayout m_descriptor_set_layout     = VK_NULL_HANDLE;
 	
 	// prev -(easu)-> intermediate image
-	VkDescriptorSet       m_easu_descriptor_set = VK_NULL_HANDLE;
+	// pt for the first two; hybrid for the second two; use ping-pong mechainism to switch in between
+	VkDescriptorSet       m_easu_descriptor_sets[4];
 	
 	// intermediate image -(rcas)-> final image (that is, upsampled_image)
 	VkDescriptorSet       m_rcas_descriptor_set = VK_NULL_HANDLE;
