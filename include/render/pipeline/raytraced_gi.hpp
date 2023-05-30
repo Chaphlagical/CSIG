@@ -122,7 +122,7 @@ struct RayTracedGI
 		struct
 		{
 			bool       visibility_test               = true;
-			float      probe_distance                = 0.8f;
+			float      probe_distance                = 0.6f;
 			float      recursive_energy_preservation = 0.85f;
 			uint32_t   irradiance_oct_size           = 8;
 			uint32_t   depth_oct_size                = 16;

@@ -49,7 +49,7 @@ struct FSR
 	// TODO: parse this from context config
 	bool  m_useRCAS         = true;
 	float m_rcasAttenuation = 0.25f;
-	bool  m_isHDR           = true;
+	bool  m_isHDR           = false;
 	
 	struct FSRPassUniforms
 	{

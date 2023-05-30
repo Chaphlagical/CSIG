@@ -145,7 +145,7 @@ void main()
             if(sstate.mat.roughness_factor <= MIRROR_REFLECTIONS_ROUGHNESS_THRESHOLD)
             {
                 ray.direction = reflect(-wo, sstate.ffnormal);
-                ray.origin =  sstate.position + 0.01 * (dot(ray.direction, sstate.ffnormal) > 0 ? sstate.ffnormal : -sstate.ffnormal);
+                ray.origin =  sstate.position + 0.1 * (dot(ray.direction, sstate.ffnormal) > 0 ? sstate.ffnormal : -sstate.ffnormal);
                 radiance += trace_reflection(ray, wo, sstate, ray_length);
             }
             if(sstate.mat.roughness_factor > DIFFUSE_REFLECTIONS_ROUGHNESS_THRESHOLD)

@@ -97,6 +97,10 @@ void main()
         {
             radiance = texelFetch(reflection_lighting, coord, 0).rgb;
         }
+        else if(push_constants.mode == 4)
+        {
+            radiance = texelFetch(direct_lighting, coord, 0).rgb;
+        }
     }
     else
     {

@@ -31,7 +31,7 @@ struct Composite
 
 	struct
 	{
-		int32_t display_mode = 0;	// 0 - composite result, 1 - AO, 2 - GI, 3 - Reflection
+		int32_t display_mode = 0;	// 0 - composite result, 1 - AO, 2 - GI, 3 - Reflection, 4 - DI
 	} m_push_constants;
 
 	VkPipelineLayout      m_pipeline_layout       = VK_NULL_HANDLE;

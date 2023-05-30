@@ -33,7 +33,6 @@ vec3 eval_L(uint light_id, ShadeState sstate)
     vec3 wo = normalize(ubo.cam_pos.xyz - sstate.position);
     float bsdf_pdf;
     vec3 f = eval_bsdf(sstate, wo, sstate.ffnormal, ls.dir, bsdf_pdf);
-    float geo_term = abs(dot(ls.norm, -ls.dir)) * abs(dot(sstate.ffnormal, ls.dir)) / (ls.dist * ls.dist);
     return ls.le * f * abs(dot(sstate.ffnormal, ls.dir));
 }
 

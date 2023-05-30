@@ -28,5 +28,20 @@ xmake -y
 
 ## 示例：
 
-RTAO：
+Path Tracing
 
+![caustic_pt](screenshot/caustic_pt.png)
+
+![deferred_pt](screenshot/deferred_pt.png)
+
+![GI_pt](screenshot/GI_pt.png)
+
+![PBR_pt](screenshot/PBR_pt.png)
+
+![shadow_pt](screenshot/shadow_pt.png)
+
+Hybrid Rendering
+
+![deferred_hybrid](screenshot/deferred_hybrid.png)
+
+![GI_hybrid](screenshot/GI_hybrid.png)

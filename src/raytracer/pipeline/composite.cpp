@@ -382,9 +382,10 @@ bool Composite::draw_ui()
 		const char *const mode[] = {"Result",
 		                            "AO",
 		                            "GI",
-		                            "Reflection"};
+		                            "Reflection",
+		                            "DI"};
 
-		update = ImGui::Combo("Mode", &m_push_constants.display_mode, mode, 4);
+		update = ImGui::Combo("Mode", &m_push_constants.display_mode, mode, 5);
 		ImGui::TreePop();
 	}
 	return update;

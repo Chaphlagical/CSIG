@@ -1,6 +1,8 @@
 #include "render/pipeline/fsr.hpp"
 #include "render/common.hpp"
 
+#include "imgui.h"
+
 #define A_CPU
 #include "ffx_a.h"
 #include "ffx_fsr1.h"
@@ -583,7 +585,7 @@ void FSR::draw(VkCommandBuffer cmd_buffer)
 		        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 		        .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
 		        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-		        .oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
+		        .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
 		        .newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 		        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
@@ -615,7 +617,17 @@ void FSR::draw(VkCommandBuffer cmd_buffer)
 
 bool FSR::draw_ui()
 {
-    return false;
+    bool update = false;
+    if (ImGui::TreeNode("FSR"))
+    {
+		ImGui::Text("Upscaled factor: %.2f", (float) m_context->extent.height / m_context->renderExtent.height);
+		ImGui::Text("-> Render resolution: (%d, %d)", m_context->renderExtent.width, m_context->renderExtent.height);
+		ImGui::Text("-> Display resolution: (%d, %d)", m_context->extent.width, m_context->extent.height);
+		ImGui::Text("RCAS attentuation: %f", m_rcasAttenuation);
+		ImGui::TreePop();
+    }
+
+    return update;
 }
 
 void FSR::set_pathtracing(bool enable)
