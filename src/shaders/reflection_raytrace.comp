@@ -130,11 +130,6 @@ void main()
     const vec2 pixel_center = vec2(coord) + vec2(0.5);
     const vec2 tex_coord = pixel_center / vec2(size);
 
-    if(coord.x >= size.x || coord.y >= size.y)
-    {
-        return;
-    }
-
 	prd.seed = tea(size.x * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x, uint(ubo.cam_pos.w));
 
     vec3 radiance = vec3(0);

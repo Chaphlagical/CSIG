@@ -2652,6 +2652,8 @@ void Scene::load_envmap(const std::string &filename)
 
 void Scene::update_descriptor()
 {
+	vkDeviceWaitIdle(m_context->vk_device);
+
 	VkDescriptorBufferInfo global_buffer_info = {
 	    .buffer = global_buffer.vk_buffer,
 	    .offset = 0,

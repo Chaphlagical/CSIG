@@ -31,13 +31,7 @@ struct Composite
 
 	struct
 	{
-		float brightness = 1.f;
-		float contrast   = 1.f;
-		float saturation = 1.f;
-		float vignette   = 0.f;
-		float avg_lum    = 1.f;
-		float y_white    = 0.5f;
-		float key        = 0.5f;
+		int32_t display_mode = 0;	// 0 - composite result, 1 - AO, 2 - GI, 3 - Reflection
 	} m_push_constants;
 
 	VkPipelineLayout      m_pipeline_layout       = VK_NULL_HANDLE;

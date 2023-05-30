@@ -4,8 +4,10 @@
 #include <GLFW/glfw3.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <imgui.h>
+#include <nfd.h>
 
 #include <vector>
+#include <filesystem>
 
 #define HALTON_SAMPLES 16
 
@@ -274,6 +276,31 @@ void Application::update_ui()
 		ImGui::Text("CSIG 2023 RayTracer");
 		ImGui::Text("FPS: %.f", ImGui::GetIO().Framerate);
 		ImGui::Text("Frames: %.d", m_num_frames);
+
+		if (ImGui::Button("Open Scene"))
+		{
+			char *path = nullptr;
+			if (NFD_OpenDialog("gltf,glb", std::filesystem::current_path().string().c_str(), &path) == NFD_OKAY)
+			{
+				m_scene.load_scene(path);
+				m_scene.update_descriptor();
+				m_update = true;
+			}
+		}
+
+		ImGui::SameLine();
+
+		if (ImGui::Button("Open HDRI"))
+		{
+			char *path = nullptr;
+			if (NFD_OpenDialog("hdr", std::filesystem::current_path().string().c_str(), &path) == NFD_OKAY)
+			{
+				m_scene.load_envmap(path);
+				m_scene.update_descriptor();
+				m_update = true;
+			}
+		}
+
 		if (ImGui::Combo("Mode", reinterpret_cast<int32_t *>(&m_render_mode), render_modes, 2))
 		{
 			m_renderer.fsr.set_pathtracing(m_render_mode == RenderMode::PathTracing);
@@ -287,6 +314,7 @@ void Application::update_ui()
 				ui_update |= m_renderer.raytraced_ao.draw_ui();
 				ui_update |= m_renderer.raytraced_reflection.draw_ui();
 				ui_update |= m_renderer.raytraced_gi.draw_ui();
+				ui_update |= m_renderer.composite.draw_ui();
 				break;
 			case RenderMode::PathTracing:
 				ui_update |= m_renderer.path_tracing.draw_ui();
@@ -486,7 +514,6 @@ void Application::render(VkCommandBuffer cmd_buffer)
 	switch (m_render_mode)
 	{
 		case RenderMode::Hybrid:
-			// m_renderer.raytraced_ao.draw(cmd_buffer);
 			m_renderer.raytraced_di.draw(cmd_buffer, m_scene, m_renderer.gbuffer_pass);
 			m_renderer.raytraced_ao.draw(cmd_buffer, m_scene, m_renderer.gbuffer_pass);
 			m_renderer.raytraced_gi.draw(cmd_buffer, m_scene, m_renderer.gbuffer_pass);
@@ -617,9 +644,7 @@ void Application::render(VkCommandBuffer cmd_buffer)
 			    0, 0, nullptr, 0, nullptr, 1, image_barriers);
 		}
 
-		// present(cmd_buffer, m_renderer.tonemap.tonemapped_image.vk_image);
 		present(cmd_buffer, m_renderer.fsr.upsampled_image.vk_image);
-		//present(cmd_buffer, m_renderer.fsr.intermediate_image.vk_image);
 
 		{
 			VkImageMemoryBarrier image_barriers[] = {

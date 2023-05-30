@@ -67,11 +67,6 @@ void main()
     const ivec2 size = textureSize(gbufferA, push_constants.gbuffer_mip);
     const vec2 pixel_center = vec2(coord) + vec2(0.5);
     const vec2 tex_coord = pixel_center / vec2(size);
-    
-    if(coord.x >= size.x || coord.y >= size.y)
-    {
-        return;
-    }
 
     const ivec2 ipos = TileDataBuffer(push_constants.denoise_tile_data_addr).coord[gl_WorkGroupID.x] + ivec2(gl_LocalInvocationID.xy);
 

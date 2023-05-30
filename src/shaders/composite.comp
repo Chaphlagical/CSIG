@@ -25,6 +25,11 @@ layout(set = 3, binding = 2) uniform sampler2D reflection_lighting;
 layout(set = 3, binding = 3) uniform sampler2D ao_image;
 layout(set = 3, binding = 4) uniform sampler2D gi_image;
 
+layout(push_constant) uniform PushConstants
+{
+    int mode;
+}push_constants;
+
 vec3 fresnel_schlick_roughness(float cos_theta, vec3 F0, float roughness)
 {
     return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(max(1.0 - cos_theta, 0.0), 5.0);
@@ -72,14 +77,33 @@ void main()
     Ray ray;
     ray.origin = ubo.cam_pos.xyz;
 	ray.direction = normalize(sstate.position - ubo.cam_pos.xyz);
+
     if(is_hit)
     {
-        radiance += texelFetch(direct_lighting, coord, 0).rgb;
-        radiance += indirect_lighting(sstate, ray, coord);
+        if(push_constants.mode == 0)
+        {
+            radiance += texelFetch(direct_lighting, coord, 0).rgb;
+            radiance += indirect_lighting(sstate, ray, coord);
+        }
+        else if(push_constants.mode == 1)
+        {
+            radiance = vec3(texelFetch(ao_image, coord, 0).r);
+        }
+        else if(push_constants.mode == 2)
+        {
+            radiance = texelFetch(gi_image, coord, 0).rgb;
+        }
+        else if(push_constants.mode == 3)
+        {
+            radiance = texelFetch(reflection_lighting, coord, 0).rgb;
+        }
     }
     else
     {
-        radiance += textureLod(skybox, ray.direction, 0).rgb;
+        if(push_constants.mode == 0)
+        {
+            radiance += textureLod(skybox, ray.direction, 0).rgb;
+        }
     }
     imageStore(output_image, coord, vec4(radiance, 1.0));
 }

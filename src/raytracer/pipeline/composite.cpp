@@ -1,5 +1,7 @@
 #include "render/pipeline/composite.hpp"
 
+#include <imgui.h>
+
 #define NUM_THREADS_X 8
 #define NUM_THREADS_Y 8
 
@@ -374,5 +376,16 @@ void Composite::draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBuff
 
 bool Composite::draw_ui()
 {
-	return false;
+	bool update = false;
+	if (ImGui::TreeNode("Composite"))
+	{
+		const char *const mode[] = {"Result",
+		                            "AO",
+		                            "GI",
+		                            "Reflection"};
+
+		update = ImGui::Combo("Mode", &m_push_constants.display_mode, mode, 4);
+		ImGui::TreePop();
+	}
+	return update;
 }
