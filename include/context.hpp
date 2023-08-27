@@ -75,12 +75,14 @@ struct BarrierBuilder
 struct CommandBufferRecorder
 {
 	VkCommandBuffer cmd_buffer;
-	const Context*        context;
+	const Context  *context;
+
+	bool compute;
 
 	std::vector<VkRenderingAttachmentInfo>   color_attachments;
 	std::optional<VkRenderingAttachmentInfo> depth_stencil_attachment;
 
-	explicit CommandBufferRecorder(const Context& context, VkCommandBuffer cmd_buffer);
+	explicit CommandBufferRecorder(const Context &context, bool compute);
 
 	CommandBufferRecorder &begin();
 
@@ -128,7 +130,7 @@ struct CommandBufferRecorder
 	    VkPipelineLayout   pipeline_layout,
 	    VkShaderStageFlags stages,
 	    void              *data,
-	    size_t             size);
+	    uint32_t           size);
 
 	CommandBufferRecorder &copy_buffer_to_image(
 	    VkBuffer                        buffer,
@@ -189,9 +191,25 @@ struct CommandBufferRecorder
 	              .layerCount     = 1,
         });
 
+	CommandBufferRecorder &build_acceleration_structure(
+	    const VkAccelerationStructureBuildGeometryInfoKHR &geometry_info,
+	    const VkAccelerationStructureBuildRangeInfoKHR    *range_info);
+
+	CommandBufferRecorder &execute(std::function<void(VkCommandBuffer)> &&func);
+
 	BarrierBuilder insert_barrier();
 
+	CommandBufferRecorder &generate_mipmap(VkImage image, uint32_t width, uint32_t height, uint32_t mip_level);
+
 	void flush(bool compute = false);
+
+	CommandBufferRecorder &submit(
+	    const std::vector<VkSemaphore>          &signal_semaphores = {},
+	    const std::vector<VkSemaphore>          &wait_semaphores   = {},
+	    const std::vector<VkPipelineStageFlags> &wait_stages       = {},
+	    VkFence                                  signal_fence      = VK_NULL_HANDLE);
+
+	CommandBufferRecorder &present(const std::vector<VkSemaphore> &wait_semaphores);
 
 	template <typename T>
 	CommandBufferRecorder &push_constants(VkPipelineLayout pipeline_layout, VkShaderStageFlags stages, T data)
@@ -305,11 +323,6 @@ struct Context
 	std::array<VkImage, 3>     swapchain_images      = {VK_NULL_HANDLE};
 	std::array<VkImageView, 3> swapchain_image_views = {VK_NULL_HANDLE};
 
-	VkSemaphore render_complete  = VK_NULL_HANDLE;
-	VkSemaphore present_complete = VK_NULL_HANDLE;
-
-	std::array<VkFence, 3> fences = {VK_NULL_HANDLE};
-
 	VkExtent2D extent      = {};
 	uint32_t   image_index = 0;
 	bool       ping_pong   = false;
@@ -318,59 +331,61 @@ struct Context
 
 	VkSampler default_sampler = VK_NULL_HANDLE;
 
-	explicit Context(uint32_t width, uint32_t height);
+	explicit Context(uint32_t width = 0, uint32_t height = 0);
 
 	~Context();
 
 	CommandBufferRecorder record_command(bool compute = false) const;
 
-	Buffer create_buffer(const std::string &name, size_t size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage) const;
+	VkSemaphore create_semaphore(const std::string &name) const;
 
-	Buffer create_buffer(const std::string &name, void *data, size_t size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage) const;
+	VkFence create_fence(const std::string &name) const;
 
-	template <typename T>
-	Buffer create_buffer(const std::string &name, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage) const
-	{
-		return create_buffer(name, sizeof(T), buffer_usage, memory_usage);
-	}
+	Buffer create_buffer(
+	    const std::string &name,
+	    size_t             size,
+	    VkBufferUsageFlags buffer_usage,
+	    VmaMemoryUsage     memory_usage) const;
 
-	template <typename T>
-	Buffer create_buffer(const std::string &name, const T &data, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage) const
-	{
-		return create_buffer(name, (void *) &data, sizeof(data), buffer_usage, memory_usage);
-	}
+	std::pair<AccelerationStructure, Buffer> create_acceleration_structure(
+	    const std::string                              &name,
+	    VkAccelerationStructureTypeKHR                  type,
+	    const VkAccelerationStructureGeometryKHR       &geometry,
+	    const VkAccelerationStructureBuildRangeInfoKHR &range) const;
 
-	template <typename T>
-	Buffer create_buffer(const std::string &name, const std::vector<T> &data, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage) const
-	{
-		return create_buffer(name, (void *) data.data(), sizeof(T) * data.size(), buffer_usage, memory_usage);
-	}
+	void buffer_copy_to_device(
+	    const Buffer &buffer,
+	    void         *data,
+	    size_t        size,
+	    bool          staging = false) const;
 
-	std::pair<AccelerationStructure, Buffer> create_acceleration_structure(const std::string &name, VkAccelerationStructureTypeKHR type, const VkAccelerationStructureGeometryKHR &geometry, const VkAccelerationStructureBuildRangeInfoKHR &range) const;
+	void buffer_copy_to_host(
+	    void         *data,
+	    size_t        size,
+	    const Buffer &buffer,
+	    bool          staging = false) const;
 
-	void buffer_copy_to_device(void *data, size_t size, const Buffer &buffer, bool staging = false) const;
+	Texture load_texture_2d(
+	    const std::string &filename,
+	    bool               mipmap = true) const;
 
-	template <typename T>
-	void buffer_copy_to_device(const T &data, const Buffer &buffer, bool staging = false) const
-	{
-		buffer_copy_to_device(&data, sizeof(data), buffer, staging);
-	}
+	// Texture load_texture_cube(const std::string &filename, bool mipmap = false) const;
 
-	template <typename T>
-	void buffer_copy_to_device(const std::vector<T> &data, const Buffer &buffer, bool staging = false) const
-	{
-		buffer_copy_to_device((void *) data.data(), sizeof(T) * data.size(), buffer, staging);
-	}
+	Texture create_texture_2d(
+	    const std::string &name,
+	    uint32_t           width,
+	    uint32_t           height,
+	    VkFormat           format,
+	    VkImageUsageFlags  usage,
+	    bool               mipmap = false) const;
 
-	void buffer_copy_to_host(void *data, size_t size, const Buffer &buffer, bool staging = false) const;
-
-	Texture load_texture_2d(const std::string &filename, bool mipmap = false) const;
-
-	Texture load_texture_cube(const std::string &filename, bool mipmap = false) const;
-
-	Texture create_texture_2d(const std::string &name, uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, bool mipmap = false) const;
-
-	Texture create_texture_2d_array(const std::string &name, uint32_t width, uint32_t height, uint32_t layer, VkFormat format, VkImageUsageFlags usage) const;
+	Texture create_texture_2d_array(
+	    const std::string &name,
+	    uint32_t           width,
+	    uint32_t           height,
+	    uint32_t           layer,
+	    VkFormat           format,
+	    VkImageUsageFlags  usage) const;
 
 	VkImageView create_texture_view(
 	    const std::string             &name,
@@ -385,32 +400,55 @@ struct Context
 	        .layerCount     = 1,
 	    }) const;
 
-	VkShaderModule load_spirv_shader(const uint32_t *spirv_code, size_t size) const;
+	VkShaderModule load_spirv_shader(
+	    const uint32_t *spirv_code,
+	    size_t          size) const;
 
-	VkShaderModule load_hlsl_shader(const std::string &path, VkShaderStageFlagBits stage, const std::string &entry_point = "main", const std::unordered_map<std::string, std::string> &macros = {}) const;
-
-	VkShaderModule load_glsl_shader(const std::string &path, VkShaderStageFlagBits stage, const std::string &entry_point = "main", const std::unordered_map<std::string, std::string> &macros = {}) const;
+	VkShaderModule load_slang_shader(
+	    const std::string                                  &path,
+	    VkShaderStageFlagBits                               stage,
+	    const std::string                                  &entry_point = "main",
+	    const std::unordered_map<std::string, std::string> &macros      = {}) const;
 
 	DescriptorLayoutBuilder create_descriptor_layout() const;
 
-	VkDescriptorSet allocate_descriptor_set(const std::vector<VkDescriptorSetLayout> &layouts) const;
+	VkDescriptorSet allocate_descriptor_set(
+	    const std::vector<VkDescriptorSetLayout> &layouts) const;
 
-	VkPipelineLayout create_pipeline_layout(const std::vector<VkDescriptorSetLayout> &layouts, VkShaderStageFlags stages = VK_SHADER_STAGE_ALL, uint32_t push_data_size = 0) const;
+	VkPipelineLayout create_pipeline_layout(
+	    const std::vector<VkDescriptorSetLayout> &layouts,
+	    VkShaderStageFlags                        stages         = VK_SHADER_STAGE_ALL,
+	    uint32_t                                  push_data_size = 0) const;
 
-	VkPipeline create_compute_pipeline(VkShaderModule shader, VkPipelineLayout layout) const;
+	VkPipeline create_compute_pipeline(
+	    VkShaderModule   shader,
+	    VkPipelineLayout layout) const;
 
-	VkPipeline create_compute_pipeline(const std::string &shader_path, VkPipelineLayout layout, const std::string &entry_point = "main", const std::unordered_map<std::string, std::string> &macros = {}) const;
+	VkPipeline create_compute_pipeline(
+	    const std::string                                  &shader_path,
+	    VkPipelineLayout                                    layout,
+	    const std::string                                  &entry_point = "main",
+	    const std::unordered_map<std::string, std::string> &macros      = {}) const;
 
-	VkPipeline create_compute_pipeline(const uint32_t *spirv_code, size_t size, VkPipelineLayout layout) const;
+	VkPipeline create_compute_pipeline(
+	    const uint32_t  *spirv_code,
+	    size_t           size,
+	    VkPipelineLayout layout) const;
 
 	GraphicsPipelineBuilder create_graphics_pipeline(VkPipelineLayout layout) const;
 
 	DescriptorUpdateBuilder update_descriptor() const;
 
-	void present(VkCommandBuffer cmd_buffer, VkImage image, VkExtent2D extent = {0, 0}) const;
+	void wait(VkFence fence) const;
 
-	template <typename T>
-	const Context &destroy(T data) const;
+	void wait() const;
+
+	void acquire_next_image(VkSemaphore semaphore);
+
+	void blit_back_buffer(
+	    VkCommandBuffer cmd_buffer,
+	    VkImage         image,
+	    VkExtent2D      extent = {0, 0}) const;
 
 	template <uint32_t N>
 	std::array<VkDescriptorSet, N> allocate_descriptor_sets(const std::vector<VkDescriptorSetLayout> &layouts) const
@@ -425,6 +463,20 @@ struct Context
         };
 		vkAllocateDescriptorSets(vk_device, &allocate_info, descriptor_sets.data());
 		return descriptor_sets;
+	}
+
+	template <typename T>
+	const Context &destroy(T &data) const;
+
+	template <typename T>
+	const Context &destroy(std::vector<T> &data) const
+	{
+		for (auto &x : data)
+		{
+			destroy(x);
+		}
+		data.clear();
+		return *this;
 	}
 
   private:
