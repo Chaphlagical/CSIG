@@ -4,43 +4,17 @@
 
 struct Scene
 {
-	struct
-	{
-		VkDescriptorSetLayout layout = VK_NULL_HANDLE;
-		VkDescriptorSet       set    = VK_NULL_HANDLE;
-	} descriptor;
+	Scene(const Context &context);
 
-	AccelerationStructure              tlas;
-	std::vector<AccelerationStructure> blas;
+	~Scene();
 
-	struct
-	{
-		Buffer instance;
-		Buffer emitter;
-		Buffer material;
-		Buffer vertex;
-		Buffer index;
-		Buffer indirect_draw;
-		Buffer global;
-		Buffer emitter_alias_table;
-		Buffer mesh_alias_table;
-		Buffer scene;
-	} buffer;
+	void load_scene(const std::string &filename);
 
-	std::vector<Texture>     textures;
-	std::vector<VkImageView> texture_views;
+	void load_envmap(const std::string &filename);
 
-	struct
-	{
-		Texture texture;
-		Texture irradiance_sh;
-		Texture prefilter_map;
+	void update_view(CommandBufferRecorder &recorder);
 
-		VkImageView texture_view       = VK_NULL_HANDLE;
-		VkImageView irradiance_sh_view = VK_NULL_HANDLE;
-		VkImageView prefilter_map_view = VK_NULL_HANDLE;
-	} envmap;
-
+  public:
 	struct
 	{
 		uint32_t  vertices_count = 0;
@@ -53,13 +27,60 @@ struct Scene
 		uint32_t  mesh_count     = 0;
 	} scene_info;
 
-	Scene(const Context &context);
+	struct
+	{
+		glm::mat4 view_inv                 = glm::mat4(1.f);
+		glm::mat4 projection_inv           = glm::mat4(1.f);
+		glm::mat4 view_projection_inv      = glm::mat4(1.f);
+		glm::mat4 view_projection          = glm::mat4(1.f);
+		glm::mat4 prev_view                = glm::mat4(1.f);
+		glm::mat4 prev_projection          = glm::mat4(1.f);
+		glm::mat4 prev_view_projection     = glm::mat4(1.f);
+		glm::mat4 prev_view_projection_inv = glm::mat4(1.f);
+		glm::vec4 cam_pos                  = glm::vec4(0.f);        // xyz - position, w - num_frames
+		glm::vec4 prev_cam_pos             = glm::vec4(0.f);        // xyz - position, w - padding
+		glm::vec4 jitter                   = glm::vec4(0.f);
+	} view_info;
 
-	~Scene();
+	struct
+	{
+		VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+		VkDescriptorSet       set    = VK_NULL_HANDLE;
+	} descriptor;
 
-	void load_scene(const std::string &filename);
+  public:
+	AccelerationStructure              tlas;
+	std::vector<AccelerationStructure> blas;
 
-	void load_envmap(const std::string &filename);
+	struct
+	{
+		Buffer instance;
+		Buffer emitter;
+		Buffer material;
+		Buffer vertex;
+		Buffer index;
+		Buffer indirect_draw;
+		Buffer view;
+		Buffer emitter_alias_table;
+		Buffer mesh_alias_table;
+		Buffer scene;
+	} buffer;
+
+	std::vector<Texture>     textures;
+	std::vector<VkImageView> texture_views;
+
+	std::vector<VkSampler> samplers;
+
+	struct
+	{
+		Texture texture;
+		Texture irradiance_sh;
+		Texture prefilter_map;
+
+		VkImageView texture_view       = VK_NULL_HANDLE;
+		VkImageView irradiance_sh_view = VK_NULL_HANDLE;
+		VkImageView prefilter_map_view = VK_NULL_HANDLE;
+	} envmap;
 
   private:
 	void destroy_scene();

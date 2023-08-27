@@ -163,11 +163,46 @@ inline std::vector<AliasTable> build_alias_table(std::vector<float> &probs, floa
 Scene::Scene(const Context &context) :
     m_context(&context)
 {
+	buffer.view = m_context->create_buffer("View Buffer", sizeof(view_info), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	m_context->buffer_copy_to_device(buffer.view, &view_info, sizeof(view_info));
+
+	descriptor.layout = m_context->create_descriptor_layout()
+	                        // TLAS
+	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        // Instance Buffer
+	                        .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        // Emitter Buffer
+	                        .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        // Material Buffer
+	                        .add_descriptor_binding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        // Vertex Buffer
+	                        .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        // Index Buffer
+	                        .add_descriptor_binding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        // Indirect Draw Buffer
+	                        .add_descriptor_binding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        // View Buffer
+	                        .add_descriptor_binding(7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        // Emitter Alias Table Buffer
+	                        .add_descriptor_binding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        // Mesh Alias Table Buffer
+	                        .add_descriptor_binding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        // Scene Buffer
+	                        .add_descriptor_binding(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        // Textures
+	                        .add_descriptor_binding(11, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        // Samplers
+	                        .add_descriptor_binding(12, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        .create();
+
+	descriptor.set = m_context->allocate_descriptor_set({descriptor.layout});
 }
 
 Scene::~Scene()
 {
 	m_context->wait();
+	m_context->destroy(descriptor.layout)
+	    .destroy(descriptor.set);
 	destroy_scene();
 }
 
@@ -662,66 +697,66 @@ void Scene::load_scene(const std::string &filename)
 
 			// Build top level acceleration structure
 			{
-			    std::vector<VkAccelerationStructureInstanceKHR> vk_instances;
-			    vk_instances.reserve(instances.size());
-			    for (uint32_t instance_id = 0; instance_id < instances.size(); instance_id++)
-			    {
-			        const auto &instance  = instances[instance_id];
-			        auto        transform = glm::mat3x4(glm::transpose(instance.transform));
+				std::vector<VkAccelerationStructureInstanceKHR> vk_instances;
+				vk_instances.reserve(instances.size());
+				for (uint32_t instance_id = 0; instance_id < instances.size(); instance_id++)
+				{
+					const auto &instance  = instances[instance_id];
+					auto        transform = glm::mat3x4(glm::transpose(instance.transform));
 
-			        VkTransformMatrixKHR transform_matrix = {};
-			        std::memcpy(&transform_matrix, &transform, sizeof(VkTransformMatrixKHR));
+					VkTransformMatrixKHR transform_matrix = {};
+					std::memcpy(&transform_matrix, &transform, sizeof(VkTransformMatrixKHR));
 
-			        VkAccelerationStructureInstanceKHR vk_instance = {
-			            .transform                              = transform_matrix,
-			            .instanceCustomIndex                    = instance_id,
-			            .mask                                   = 0xFF,
-			            .instanceShaderBindingTableRecordOffset = 0,
-			            .flags                                  = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR,
-			            .accelerationStructureReference         = blas.at(instance.mesh).device_address,
-			        };
+					VkAccelerationStructureInstanceKHR vk_instance = {
+					    .transform                              = transform_matrix,
+					    .instanceCustomIndex                    = instance_id,
+					    .mask                                   = 0xFF,
+					    .instanceShaderBindingTableRecordOffset = 0,
+					    .flags                                  = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR,
+					    .accelerationStructureReference         = blas.at(instance.mesh).device_address,
+					};
 
-			        const Material &material = materials[instance.material];
+					const Material &material = materials[instance.material];
 
-			        if (material.alpha_mode == 0 ||
-			            (material.base_color.w == 1.f &&
-			             material.base_color_texture == ~0u))
-			        {
-			            vk_instance.flags |= VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;
-			        }
+					if (material.alpha_mode == 0 ||
+					    (material.base_color.w == 1.f &&
+					     material.base_color_texture == ~0u))
+					{
+						vk_instance.flags |= VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;
+					}
 
-			        if (material.double_sided == 1)
-			        {
-			            vk_instance.flags |= VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-			        }
+					if (material.double_sided == 1)
+					{
+						vk_instance.flags |= VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+					}
 
-			        vk_instances.emplace_back(vk_instance);
-			    }
+					vk_instances.emplace_back(vk_instance);
+				}
 
-				Buffer instance_buffer = m_context->create_buffer("Instance Stratch Buffer", vk_instances.size() * sizeof(VkAccelerationStructureInstanceKHR), VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-				m_context->buffer_copy_to_device(instance_buffer, vk_instances.data(), vk_instances.size() * sizeof(VkAccelerationStructureInstanceKHR), true);
+				Buffer instance_buffer = m_context->create_buffer("Instance Stratch Buffer", vk_instances.size() * sizeof(VkAccelerationStructureInstanceKHR) + 16, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+				m_context->buffer_copy_to_device(instance_buffer, vk_instances.data(), vk_instances.size() * sizeof(VkAccelerationStructureInstanceKHR), true, 16 - instance_buffer.device_address % 16);
 
-			    VkAccelerationStructureGeometryKHR as_geometry = {
-			        .sType        = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
-			        .geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR,
-			        .geometry     = {
-			                .instances = {
-			                    .sType           = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR,
-			                    .arrayOfPointers = VK_FALSE,
-			                    .data            = instance_buffer.device_address,
-			            },
-			        },
-			        .flags = 0,
-			    };
+				VkAccelerationStructureGeometryKHR as_geometry = {
+				    .sType        = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+				    .geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR,
+				    .geometry     = {
+				            .instances = {
+				                .sType           = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR,
+				                .arrayOfPointers = VK_FALSE,
+				                .data            = instance_buffer.device_address + (16 - instance_buffer.device_address % 16),
+                        },
+                    },
+				    .flags = 0,
+				};
 
-			    VkAccelerationStructureBuildRangeInfoKHR range_info = {
-			        .primitiveCount = static_cast<uint32_t>(vk_instances.size()),
-			    };
+				VkAccelerationStructureBuildRangeInfoKHR range_info = {
+				    .primitiveCount = static_cast<uint32_t>(vk_instances.size()),
+				};
 
 				Buffer scratch_buffer;
 				std::tie(tlas, scratch_buffer) = m_context->create_acceleration_structure("TLAS", VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR, as_geometry, range_info);
-			    scratch_buffers.push_back(instance_buffer);
-			    scratch_buffers.push_back(scratch_buffer);
+				scratch_buffers.push_back(instance_buffer);
+				scratch_buffers.push_back(scratch_buffer);
 			}
 
 			m_context->destroy(scratch_buffers);
@@ -736,6 +771,23 @@ void Scene::load_envmap(const std::string &filename)
 {
 }
 
+void Scene::update_view(CommandBufferRecorder &recorder)
+{
+	recorder.begin_marker("Update View Buffer")
+	    .insert_barrier()
+	    .add_buffer_barrier(
+	        buffer.view.vk_buffer,
+	        VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT)
+	    .insert()
+	    .update_buffer(buffer.view.vk_buffer, &view_info, sizeof(view_info))
+	    .insert_barrier()
+	    .add_buffer_barrier(
+	        buffer.view.vk_buffer,
+	        VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+	    .insert()
+	    .end_marker();
+}
+
 void Scene::destroy_scene()
 {
 	m_context->destroy(blas)
@@ -746,7 +798,7 @@ void Scene::destroy_scene()
 	    .destroy(buffer.vertex)
 	    .destroy(buffer.index)
 	    .destroy(buffer.indirect_draw)
-	    .destroy(buffer.global)
+	    .destroy(buffer.view)
 	    .destroy(buffer.emitter_alias_table)
 	    .destroy(buffer.mesh_alias_table)
 	    .destroy(buffer.scene)

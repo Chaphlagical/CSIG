@@ -1,6 +1,7 @@
 #pragma once
 
 #include "context.hpp"
+#include "pipeline/gbuffer.hpp"
 #include "pipeline/ui.hpp"
 #include "scene.hpp"
 
@@ -16,6 +17,7 @@ class Application
   private:
 	void begin_render();
 	void end_render();
+	void update_view();
 	void update(CommandBufferRecorder &recorder);
 	void render(CommandBufferRecorder &recorder);
 	void update_ui();
@@ -34,8 +36,38 @@ class Application
 
 	std::vector<VkFence> m_fences;
 
+	std::vector<glm::vec2> m_jitter_samples;
+
+	glm::vec2 m_current_jitter = glm::vec2(0.f);
+	glm::vec2 m_prev_jitter    = glm::vec2(0.f);
+
+	bool m_update = true;
+	bool m_enable_ui = true;
+
 	struct
 	{
-		UIPass ui_pass;
+		glm::vec3 position = glm::vec3(0.f);
+		float     yaw      = 0.f;
+		float     pitch    = 0.f;
+		float     sensity  = 0.1f;
+		float     speed    = 1.f;
+		glm::vec3 velocity = glm::vec3(0.f);
+
+		glm::mat4 view          = glm::mat4(1.f);
+		glm::mat4 proj          = glm::mat4(1.f);
+		glm::mat4 view_proj     = glm::mat4(1.f);
+		glm::mat4 view_proj_inv = glm::mat4(1.f);
+
+		glm::vec3 prev_position      = glm::vec3(0.f);
+		glm::mat4 prev_view          = glm::mat4(1.f);
+		glm::mat4 prev_proj          = glm::mat4(1.f);
+		glm::mat4 prev_view_proj     = glm::mat4(1.f);
+		glm::mat4 prev_view_proj_inv = glm::mat4(1.f);
+	} m_camera;
+
+	struct
+	{
+		UIPass      ui_pass;
+		GBufferPass gbuffer_pass;
 	} m_renderer;
 };

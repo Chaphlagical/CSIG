@@ -2,14 +2,49 @@
 
 #include <GLFW/glfw3.h>
 
+#include <glm/gtc/matrix_transform.hpp>
+
 #include <imgui.h>
 #include <spdlog/fmt/fmt.h>
 
+#define HALTON_SAMPLES 16
+
+inline bool is_key_pressed(GLFWwindow *window, uint32_t keycode)
+{
+	auto state = glfwGetKey(window, keycode);
+	return state == GLFW_PRESS || state == GLFW_REPEAT;
+}
+
+inline float halton_sequence(int32_t base, int32_t index)
+{
+	float result = 0;
+	float f      = 1;
+	while (index > 0)
+	{
+		f /= base;
+		result += f * (index % base);
+		index = (int32_t) floor((float) index / (float) base);
+	}
+
+	return result;
+}
+
+inline glm::vec3 smooth_step(const glm::vec3 &v1, const glm::vec3 &v2, float t)
+{
+	t = glm::clamp(t, 0.f, 1.f);
+	t = t * t * (3.f - 2.f * t);
+
+	glm::vec3 v = glm::mix(v1, v2, t);
+
+	return v;
+}
+
 Application::Application() :
+    m_scene{m_context},
     m_renderer{
         .ui_pass{m_context},
-    },
-    m_scene{m_context}
+        .gbuffer_pass{m_context, m_scene},
+    }
 {
 	for (uint32_t i = 0; i < 3; i++)
 	{
@@ -24,8 +59,21 @@ Application::Application() :
 		m_fences.push_back(m_context.create_fence(fmt::format("Fence #{}", i)));
 	}
 
+	for (int32_t i = 1; i <= HALTON_SAMPLES; i++)
+	{
+		m_jitter_samples.push_back(glm::vec2((2.f * halton_sequence(2, i) - 1.f), (2.f * halton_sequence(3, i) - 1.f)));
+	}
+
 	m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\default.glb)");
 	// m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\Deferred\Deferred.gltf)");
+
+	m_context.record_command()
+	    .begin()
+	    .execute([&](CommandBufferRecorder &recorder) { m_renderer.gbuffer_pass.init(recorder); })
+	    .end()
+	    .flush();
+
+	m_context.wait();
 }
 
 Application::~Application()
@@ -80,18 +128,146 @@ void Application::end_render()
 	    .present({m_render_complete});
 }
 
+void Application::update_view()
+{
+	static bool hide_cursor = false;
+	if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
+	{
+		static double cursor_xpos, cursor_ypos;
+		if (!hide_cursor)
+		{
+			hide_cursor = true;
+			glfwGetCursorPos(m_context.window, &cursor_xpos, &cursor_ypos);
+		}
+		ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+
+		double current_xpos, current_ypos;
+		glfwGetCursorPos(m_context.window, &current_xpos, &current_ypos);
+		glm::vec2 delta_pos = {
+		    static_cast<float>(current_xpos - cursor_xpos),
+		    static_cast<float>(current_ypos - cursor_ypos),
+		};
+		glfwSetCursorPos(m_context.window, cursor_xpos, cursor_ypos);
+
+		m_camera.yaw += delta_pos.x * m_camera.sensity;
+		m_camera.pitch -= delta_pos.y * m_camera.sensity;
+		m_camera.pitch = glm::clamp(m_camera.pitch, -98.f, 98.f);
+
+		glm::vec3 front = glm::vec3(1.0f);
+
+		front.x = cos(glm::radians(m_camera.pitch)) * cos(glm::radians(m_camera.yaw));
+		front.y = sin(glm::radians(m_camera.pitch));
+		front.z = cos(glm::radians(m_camera.pitch)) * sin(glm::radians(m_camera.yaw));
+		front   = glm::normalize(front);
+
+		glm::vec3 right = glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f)));
+		glm::vec3 up    = glm::normalize(glm::cross(right, front));
+
+		glm::vec3 direction = glm::vec3(0.f);
+		if (is_key_pressed(m_context.window, GLFW_KEY_W))
+		{
+			direction += front;
+		}
+		if (is_key_pressed(m_context.window, GLFW_KEY_S))
+		{
+			direction -= front;
+		}
+		if (is_key_pressed(m_context.window, GLFW_KEY_A))
+		{
+			direction -= right;
+		}
+		if (is_key_pressed(m_context.window, GLFW_KEY_D))
+		{
+			direction += right;
+		}
+		if (is_key_pressed(m_context.window, GLFW_KEY_Q))
+		{
+			direction += up;
+		}
+		if (is_key_pressed(m_context.window, GLFW_KEY_E))
+		{
+			direction -= up;
+		}
+
+		m_camera.speed += 0.1f * ImGui::GetIO().MouseWheel;
+		m_camera.velocity = smooth_step(m_camera.velocity, direction * m_camera.speed, 0.6f);
+		m_camera.position += ImGui::GetIO().DeltaTime * m_camera.velocity;
+
+		m_camera.view = glm::lookAt(m_camera.position, m_camera.position + front, up);
+		// Reversed Z
+		m_camera.proj =
+		    glm::mat4(1, 0, 0, 0,
+		              0, 1, 0, 0,
+		              0, 0, -1, 0,
+		              0, 0, 1, 1) *
+		    glm::perspective(glm::radians(60.f), static_cast<float>(m_context.render_extent.width) / static_cast<float>(m_context.render_extent.height), 0.01f, 1000.f);
+	}
+	else
+	{
+		m_camera.velocity = glm::vec3(0.f);
+		m_prev_jitter     = m_current_jitter;
+		glm::vec2 halton  = m_jitter_samples[m_num_frames % m_jitter_samples.size()];
+		m_current_jitter  = glm::vec2(halton.x / float(m_context.render_extent.width), halton.y / float(m_context.render_extent.height));
+
+		hide_cursor = false;
+	}
+
+	{
+		glm::mat4 jitter_proj  = glm::translate(glm::mat4(1.0f), glm::vec3(m_current_jitter, 0.0f)) * m_camera.proj;
+		m_camera.view_proj     = jitter_proj * m_camera.view;
+		m_camera.view_proj_inv = glm::inverse(m_camera.view_proj);
+
+		m_scene.view_info = {
+		    .view_inv                 = glm::inverse(m_camera.view),
+		    .projection_inv           = glm::inverse(jitter_proj),
+		    .view_projection_inv      = m_camera.view_proj_inv,
+		    .view_projection          = m_camera.view_proj,
+		    .prev_view                = m_camera.prev_view,
+		    .prev_projection          = m_camera.prev_proj,
+		    .prev_view_projection     = m_camera.prev_view_proj,
+		    .prev_view_projection_inv = m_camera.prev_view_proj_inv,
+		    .cam_pos                  = glm::vec4(m_camera.position, static_cast<float>(m_num_frames)),
+		    .prev_cam_pos             = glm::vec4(m_camera.prev_position, 0.f),
+		    .jitter                   = glm::vec4(m_current_jitter, m_prev_jitter),
+		};
+
+		m_camera.prev_view_proj     = m_camera.view_proj;
+		m_camera.prev_view_proj_inv = m_camera.view_proj_inv;
+		m_camera.prev_view          = m_camera.view;
+		m_camera.prev_proj          = m_camera.proj;
+	}
+}
+
 void Application::update(CommandBufferRecorder &recorder)
 {
+	if (m_update)
+	{
+		m_context.wait();
+	}
+
+	update_view();
+	m_scene.update_view(recorder);
 }
 
 void Application::render(CommandBufferRecorder &recorder)
 {
+	m_renderer.gbuffer_pass.draw(recorder, m_scene);
 	m_renderer.ui_pass.render(recorder, m_current_frame);
 }
 
 void Application::update_ui()
 {
 	m_renderer.ui_pass.begin_frame();
-	ImGui::ShowDemoWindow();
+
+	if (ImGui::IsKeyPressed(ImGuiKey_G, false))
+	{
+		m_enable_ui = !m_enable_ui;
+	}
+
+	if (m_enable_ui)
+	{
+		ImGui::ShowDemoWindow();
+	}
+
 	m_renderer.ui_pass.end_frame();
 }

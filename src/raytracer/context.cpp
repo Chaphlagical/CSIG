@@ -487,6 +487,12 @@ CommandBufferRecorder &CommandBufferRecorder::draw_indexed(uint32_t index_count,
 	return *this;
 }
 
+CommandBufferRecorder &CommandBufferRecorder::draw_indexed_indirect(VkBuffer indirect_buffer, uint32_t count, size_t offset, uint32_t stride)
+{
+	vkCmdDrawIndexedIndirect(cmd_buffer, indirect_buffer, offset, count, stride);
+	return *this;
+}
+
 CommandBufferRecorder &CommandBufferRecorder::fill_buffer(VkBuffer buffer, uint32_t data, size_t size, size_t offset)
 {
 	vkCmdFillBuffer(cmd_buffer, buffer, offset, size, data);
@@ -512,6 +518,12 @@ CommandBufferRecorder &CommandBufferRecorder::build_acceleration_structure(const
 CommandBufferRecorder &CommandBufferRecorder::execute(std::function<void(VkCommandBuffer)> &&func)
 {
 	func(cmd_buffer);
+	return *this;
+}
+
+CommandBufferRecorder &CommandBufferRecorder::execute(std::function<void(CommandBufferRecorder &)> &&func)
+{
+	func(*this);
 	return *this;
 }
 
@@ -654,7 +666,7 @@ CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uin
 	return *this;
 }
 
-void CommandBufferRecorder::flush(bool compute)
+void CommandBufferRecorder::flush()
 {
 	VkFence           fence       = VK_NULL_HANDLE;
 	VkFenceCreateInfo create_info = {
@@ -1207,7 +1219,7 @@ VkPipeline GraphicsPipelineBuilder::create()
 	return pipeline;
 }
 
-Context::Context(uint32_t width, uint32_t height)
+Context::Context(uint32_t width, uint32_t height, float upscale_factor)
 {
 	// Init window
 	{
@@ -1230,6 +1242,11 @@ Context::Context(uint32_t width, uint32_t height)
 			extent.width  = width;
 			extent.height = height;
 		}
+
+		render_extent = VkExtent2D{
+		    .width  = (uint32_t) ((float) extent.width * upscale_factor),
+		    .height = (uint32_t) ((float) extent.height * upscale_factor),
+		};
 
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
@@ -1943,13 +1960,13 @@ std::pair<AccelerationStructure, Buffer> Context::create_acceleration_structure(
 	    .begin()
 	    .build_acceleration_structure(build_geometry_info, as_build_range_infos)
 	    .end()
-	    .flush(true);
+	    .flush();
 
 	set_object_name(VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR, (uint64_t) acceleration_structure.vk_as, name.c_str());
 	return {acceleration_structure, scratch_buffer};
 }
 
-void Context::buffer_copy_to_device(const Buffer &buffer, void *data, size_t size, bool staging) const
+void Context::buffer_copy_to_device(const Buffer &buffer, void *data, size_t size, bool staging, size_t offset) const
 {
 	if (staging)
 	{
@@ -2011,7 +2028,7 @@ void Context::buffer_copy_to_device(const Buffer &buffer, void *data, size_t siz
 		{
 			VkBufferCopy copy_info = {
 			    .srcOffset = 0,
-			    .dstOffset = 0,
+			    .dstOffset = offset,
 			    .size      = size,
 			};
 			vkCmdCopyBuffer(cmd_buffer, staging_buffer.vk_buffer, buffer.vk_buffer, 1, &copy_info);
@@ -2306,10 +2323,16 @@ VkShaderModule Context::load_spirv_shader(const uint32_t *spirv_code, size_t siz
 
 VkShaderModule Context::load_slang_shader(const std::string &path, VkShaderStageFlagBits stage, const std::string &entry_point, const std::unordered_map<std::string, std::string> &macros) const
 {
-	size_t      hash_val   = std::hash<std::unordered_map<std::string, std::string>>{}(macros);
+	std::vector<uint32_t> spirv;
+
+#ifndef DEBUG
+	size_t hash_val = std::hash<std::unordered_map<std::string, std::string>>{}(macros);
+
+	glm::detail::hash_combine(hash_val, stage);
+	glm::detail::hash_combine(hash_val, std::hash<std::string>{}(entry_point));
+
 	std::string spirv_path = fmt::format("spirv/{}.{}.spv", path, hash_val);
 
-	std::vector<uint32_t> spirv;
 	if (std::filesystem::exists(spirv_path))
 	{
 		spdlog::info("Load SPV file from: {}", spirv_path);
@@ -2323,9 +2346,11 @@ VkShaderModule Context::load_slang_shader(const std::string &path, VkShaderStage
 		is.close();
 	}
 	else
+#endif
 	{
 		spdlog::info("Load Slang file from: {}", path);
 		spirv = ShaderCompiler::compile(path, stage, entry_point, macros);
+#ifndef DEBUG
 		if (!std::filesystem::exists("spirv"))
 		{
 			std::filesystem::create_directories("spirv");
@@ -2335,6 +2360,7 @@ VkShaderModule Context::load_slang_shader(const std::string &path, VkShaderStage
 		os.write(reinterpret_cast<char *>(spirv.data()), spirv.size() * sizeof(uint32_t));
 		os.flush();
 		os.close();
+#endif
 	}
 
 	return load_spirv_shader(spirv.data(), spirv.size());

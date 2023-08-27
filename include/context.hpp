@@ -174,6 +174,12 @@ struct CommandBufferRecorder
 	    int32_t  vertex_offset  = 0,
 	    uint32_t first_instance = 0);
 
+	CommandBufferRecorder &draw_indexed_indirect(
+	    VkBuffer indirect_buffer,
+	    uint32_t count,
+	    size_t   offset = 0,
+	    uint32_t stride = sizeof(VkDrawIndexedIndirectCommand));
+
 	CommandBufferRecorder &fill_buffer(
 	    VkBuffer buffer,
 	    uint32_t data   = 0,
@@ -197,11 +203,13 @@ struct CommandBufferRecorder
 
 	CommandBufferRecorder &execute(std::function<void(VkCommandBuffer)> &&func);
 
+	CommandBufferRecorder &execute(std::function<void(CommandBufferRecorder &)> &&func);
+
 	BarrierBuilder insert_barrier();
 
 	CommandBufferRecorder &generate_mipmap(VkImage image, uint32_t width, uint32_t height, uint32_t mip_level);
 
-	void flush(bool compute = false);
+	void flush();
 
 	CommandBufferRecorder &submit(
 	    const std::vector<VkSemaphore>          &signal_semaphores = {},
@@ -228,7 +236,7 @@ struct DescriptorLayoutBuilder
 
 	explicit DescriptorLayoutBuilder(const Context &context);
 
-	DescriptorLayoutBuilder &add_descriptor_binding(uint32_t binding, VkDescriptorType type, VkShaderStageFlags stage, uint32_t count);
+	DescriptorLayoutBuilder &add_descriptor_binding(uint32_t binding, VkDescriptorType type, VkShaderStageFlags stage, uint32_t count = 1);
 	DescriptorLayoutBuilder &add_descriptor_bindless_binding(uint32_t binding, VkDescriptorType type, VkShaderStageFlags stage, uint32_t count = 1024);
 
 	VkDescriptorSetLayout create();
@@ -323,15 +331,17 @@ struct Context
 	std::array<VkImage, 3>     swapchain_images      = {VK_NULL_HANDLE};
 	std::array<VkImageView, 3> swapchain_image_views = {VK_NULL_HANDLE};
 
-	VkExtent2D extent      = {};
-	uint32_t   image_index = 0;
-	bool       ping_pong   = false;
+	VkExtent2D extent        = {};
+	VkExtent2D render_extent = {};
+
+	uint32_t image_index = 0;
+	bool     ping_pong   = false;
 
 	VkPhysicalDeviceProperties physical_device_properties;
 
 	VkSampler default_sampler = VK_NULL_HANDLE;
 
-	explicit Context(uint32_t width = 0, uint32_t height = 0);
+	explicit Context(uint32_t width = 0, uint32_t height = 0, float upscale_factor = 1.f);
 
 	~Context();
 
@@ -357,7 +367,8 @@ struct Context
 	    const Buffer &buffer,
 	    void         *data,
 	    size_t        size,
-	    bool          staging = false) const;
+	    bool          staging = false,
+	    size_t        offset  = 0) const;
 
 	void buffer_copy_to_host(
 	    void         *data,

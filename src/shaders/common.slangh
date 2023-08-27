@@ -1,191 +1,98 @@
-// #ifndef COMMON_DATA_HPP
-// #define COMMON_DATA_HPP
+#ifndef COMMON_SLANGH
+#define COMMON_SLANGH
 
-// #ifdef CPP
-// #include <glm/glm.hpp>
-// using float4x4 = glm::mat4;
-// using float4 = glm::vec4;
-// using float3 = glm::vec3;
-// using float2 = glm::vec2;
-// using uint = uint32_t;
-// #else
-// const float PI            = 3.14159265358979323846;
-// const float InvPI         = 0.31830988618379067154;
-// const float Inv2PI        = 0.15915494309189533577;
-// const float Inv4PI        = 0.07957747154594766788;
-// const float PIOver2       = 1.57079632679489661923;
-// const float PIOver4       = 0.78539816339744830961;
-// const float Sqrt2         = 1.41421356237309504880;
-// const float ShadowEpsilon = 0.0001;
-// const float Epsilon       = 1e-7;
-// const float Infinity      = 1e32;
+struct Vertex
+{
+	float4 position; // xyz - position, w - texcoord u
+	float4 normal; // xyz - normal, w - texcoord v
+};
 
-// void coordinate_system(float3 N, out float3 Nt, out float3 Nb)
-// {
-//     Nt = normalize(((abs(N.z) > 0.99999f) ? float3(-N.x * N.y, 1.0f - N.y * N.y, -N.y * N.z) :
-// 	                                        float3(-N.x * N.z, -N.y * N.z, 1.0f - N.z * N.z)));
-// 	Nb = normalize(cross(Nt, N));
-// }
+struct Emitter
+{
+	float3 p0;
+	float3 p1;
+	float3 p2;
+	float3 n0;
+	float3 n1;
+	float3 n2;
+	float3 intensity;
+};
 
-// float luminance(float3 color)
-// {
-//     return dot(color, float3(0.212671, 0.715160, 0.072169));
-// }
-// #endif        // CPP
+struct Mesh
+{
+	uint vertices_offset;
+	uint vertices_count;
+	uint indices_offset;
+	uint indices_count;
+	uint material;
+	float area;
+};
 
-// struct ViewData
-// {
-//     float4x4 view_inv;
-//     float4x4 projection_inv;
-//     float4x4 view_projection_inv;
-//     float4x4 view_projection;
-//     float4x4 prev_view;
-//     float4x4 prev_projection;
-//     float4x4 prev_view_projection;
-//     float4x4 prev_view_projection_inv;
-//     float4 cam_pos;      // xyz - position, w - num_frames
-//     float4 prev_cam_pos; // xyz - position, w - padding
-//     float4 jitter;
-// };
+struct Material
+{
+	uint alpha_mode; // 0 - opaque, 1 - mask, 2 - blend
+	uint double_sided;
+	float cutoff;
+	float metallic_factor;
+	float roughness_factor;
+	float transmission_factor;
+	float clearcoat_factor;
+	float clearcoat_roughness_factor;
+	float4 base_color;
+	float3 emissive_factor;
+	int32_t base_color_texture;
+	int32_t normal_texture;
+	int32_t metallic_roughness_texture;
+	float2 padding;
+};
 
-// struct Vertex
-// {
-//     float4 position; // xyz - position, w - texcoord u
-//     float4 normal;   // xyz - normal, w - texcoord v
-// };
+struct Instance
+{
+    float4x4 transform;
+    float4x4 transform_inv;
+    uint vertices_offset;
+    uint vertices_count;
+    uint indices_offset;
+    uint indices_count;
+    uint mesh;
+    uint material;
+    int emitter;
+    float area;
+};
 
-// struct Instance
-// {
-//     float4x4 transform;
-//     float4x4 transform_inv;
+struct AliasTable
+{
+	float prob;         // The i's column's event i's prob
+	int   alias;        // The i's column's another event's idx
+	float ori_prob;
+	float alias_ori_prob;
+};
 
-//     uint vertices_offset;
-//     uint vertices_count;
-//     uint indices_offset;
-//     uint indices_count;
+enum SamplerType
+{
+    Point,
+    Linear,
+    Bilinear,
+};
 
-//     uint mesh;
-//     uint material;
-//     int emitter;
-//     float area;
-// };
+struct SceneBuffer
+{
+    [[vk::binding(0, 0)]] RaytracingAccelerationStructure tlas;
+    [[vk::binding(1, 0)]] ByteAddressBuffer instance;
+    [[vk::binding(2, 0)]] ByteAddressBuffer emitter;
+    [[vk::binding(3, 0)]] ByteAddressBuffer material;
+    [[vk::binding(4, 0)]] ByteAddressBuffer vertex;
+    [[vk::binding(5, 0)]] ByteAddressBuffer index;
+    [[vk::binding(6, 0)]] ByteAddressBuffer indirect_draw;
+    [[vk::binding(7, 0)]] ByteAddressBuffer view;
+    [[vk::binding(8, 0)]] ByteAddressBuffer emitter_alias_table;
+    [[vk::binding(9, 0)]] ByteAddressBuffer mesh_alias_table;
+    [[vk::binding(10, 0)]] ByteAddressBuffer scene;
+    [[vk::binding(11, 0)]] Texture2D textures[];
+    [[vk::binding(12, 0)]] SamplerState samplers[];
 
-// struct Emitter
-// {
-//     float data[24];
-// };
 
-// #ifdef CPP
-// inline Emitter pack_emitter(float3 p0, float3 p1, float3 p2, float3 n0, float3 n1, float3 n2, float3 intensity)
-// {
-//     Emitter emitter = {
-//         .data = {
-//             p0.x,
-//             p0.y,
-//             p0.z,
-//             p1.x,
-//             p1.y,
-//             p1.z,
-//             p2.x,
-//             p2.y,
-//             p2.z,
-//             n0.x,
-//             n0.y,
-//             n0.z,
-//             n1.x,
-//             n1.y,
-//             n1.z,
-//             n2.x,
-//             n2.y,
-//             n2.z,
-//             intensity.x,
-//             intensity.y,
-//             intensity.z,
-//         },
-//     };
 
-//     return emitter;
-// }
-// #endif // CPP
+};
 
-// #ifdef CPP
-// inline void unpack_emitter(Emitter emitter, float3 &p0, float3 &p1, float3 &p2, float3 &n0, float3 &n1, float3 &n2, float3 &intensity)
-// #else
-// void unpack_emitter(Emitter emitter, out float3 p0, out float3 p1, out float3 p2, out float3 n0, out float3 n1, out float3 n2, out float3 intensity)
-// #endif
-// {
-//     p0 = float3(emitter.data[0], emitter.data[1], emitter.data[2]);
-//     p1 = float3(emitter.data[3], emitter.data[4], emitter.data[5]);
-//     p2 = float3(emitter.data[6], emitter.data[7], emitter.data[8]);
-//     n0 = float3(emitter.data[9], emitter.data[10], emitter.data[11]);
-//     n1 = float3(emitter.data[12], emitter.data[13], emitter.data[14]);
-//     n2 = float3(emitter.data[15], emitter.data[16], emitter.data[17]);
-
-//     intensity = float3(emitter.data[18], emitter.data[19], emitter.data[20]);
-// }
-
-// struct Material
-// {
-//     uint alpha_mode; // 0 - opaque, 1 - mask, 2 - blend
-//     uint double_sided;
-//     float cutoff;
-//     float metallic_factor;
-//     float roughness_factor;
-//     float transmission_factor;
-//     float clearcoat_factor;
-//     float clearcoat_roughness_factor;
-//     float4 base_color;
-//     float3 emissive_factor;
-//     int base_color_texture;
-//     int normal_texture;
-//     int metallic_roughness_texture;
-//     float2 padding;
-
-// #ifdef CPP
-//     Material() :
-// 	    alpha_mode(0),
-//           double_sided(0),
-//           cutoff(0.f),
-//           metallic_factor(0.f),
-//           roughness_factor(0.f),
-//           transmission_factor(0.f),
-//           clearcoat_factor(0.f),
-//           clearcoat_roughness_factor(0.f),
-//           base_color(glm::float4(1.f)),
-//           emissive_factor(glm::float3(1.f)),
-//           base_color_texture(-1),
-//           normal_texture(-1),
-//           metallic_roughness_texture(-1)
-//     {
-//     }
-// #endif
-// };
-
-// struct SceneData
-// {
-//     uint vertices_count;
-//     uint indices_count;
-//     uint instance_count;
-//     uint material_count;
-//     float3 min_extent;
-//     uint emitter_count;
-//     float3 max_extent;
-//     uint mesh_count;
-//     uint64_t instance_buffer_addr;
-//     uint64_t emitter_buffer_addr;
-//     uint64_t material_buffer_addr;
-//     uint64_t vertex_buffer_addr;
-//     uint64_t index_buffer_addr;
-//     uint64_t emitter_alias_table_buffer_addr;
-//     uint64_t mesh_alias_table_buffer_addr;
-// };
-
-// struct AliasTable
-// {
-//     float prob; // The i's column's event i's prob
-//     int alias;  // The i's column's another event's idx
-//     float ori_prob;
-//     float alias_ori_prob;
-// };
-
-// #endif
+#endif
