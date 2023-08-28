@@ -3,8 +3,6 @@
 #include "gbuffer.slangh"
 #include "random.slangh"
 
-[[vk::binding(0, 2)]] RWTexture2D<uint> RayTracedImage;
-
 struct PushConstant
 {
     float ray_length;
@@ -12,6 +10,7 @@ struct PushConstant
 	int gbuffer_mip;
 };
 
+[[vk::binding(0, 2)]] RWTexture2D<uint> RayTracedImage;
 [[vk::push_constant]] ConstantBuffer<PushConstant> push_constant;
 
 float3 sample_cosine_lobe(float3 n, float2 rnd)

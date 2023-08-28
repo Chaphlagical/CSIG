@@ -89,10 +89,10 @@ struct RayTracedAO
 			int32_t    gbuffer_mip     = 0;
 		} push_constant;
 
-		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
-		VkPipeline            pipeline              = VK_NULL_HANDLE;
-		VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
-		VkDescriptorSet       descriptor_sets[2][2];
+		VkPipelineLayout                              pipeline_layout       = VK_NULL_HANDLE;
+		VkPipeline                                    pipeline              = VK_NULL_HANDLE;
+		VkDescriptorSetLayout                         descriptor_set_layout = VK_NULL_HANDLE;
+		std::array<std::array<VkDescriptorSet, 2>, 2> descriptor_sets;
 	} m_bilateral_blur;
 
 	struct
@@ -104,9 +104,9 @@ struct RayTracedAO
 			uint32_t debug       = 0;
 		} push_constant;
 
-		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
-		VkPipeline            pipeline              = VK_NULL_HANDLE;
-		VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
-		VkDescriptorSet       descriptor_sets[2];
+		VkPipelineLayout               pipeline_layout       = VK_NULL_HANDLE;
+		VkPipeline                     pipeline              = VK_NULL_HANDLE;
+		VkDescriptorSetLayout          descriptor_set_layout = VK_NULL_HANDLE;
+		std::array<VkDescriptorSet, 2> descriptor_sets;
 	} m_upsampling;
 };

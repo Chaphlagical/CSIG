@@ -1,3 +1,4 @@
+#include "common.slangh"
 #include "scene.slangh"
 #include "gbuffer.slangh"
 #define USE_EDGE_STOPPING_NORMAL_WEIGHT
@@ -9,10 +10,21 @@
 #define CACHE_SIZE_Y NUM_THREADS_Y * 2
 #define GAUSS_BLUR_DEVIATION 1.5
 
+struct PushConstant
+{
+    float4 z_buffer_params;
+    int2 direction;
+    int radius;
+    int gbuffer_mip;
+};
 
+[[vk::binding(0, 2)]] RWTexture2D<float> BilateralImage;
+[[vk::binding(1, 2)]] Texture2D<uint> AOImage;
+[[vk::binding(2, 2)]] Texture2D<float> HistoryLength;
+[[vk::binding(3, 2)]] StructuredBuffer<int2> DenoiseTileBuffer;
+[[vk::push_constant]] ConstantBuffer<PushConstant> push_constant;
 
-
-float linear_eye_depth(float z, vec4 z_buffer_params)
+float linear_eye_depth(float z, float4 z_buffer_params)
 {
     return 1.0 / (z_buffer_params.z * z + z_buffer_params.w);
 }
@@ -24,17 +36,17 @@ float gaussian_weight(float offset, float deviation)
     return weight;
 }
 
-float bilateral_blur(ivec2 coord)
+float bilateral_blur(int2 coord)
 {
-    const float deviation = float(push_constants.radius) / GAUSS_BLUR_DEVIATION;
+    const float deviation = float(push_constant.radius) / GAUSS_BLUR_DEVIATION;
     
-    float total_ao = texelFetch(ao_image, coord, 0).r;
+    float total_ao = AOImage.Load(int3(coord, 0)).r;
     float total_weight = 1.0;
 
-    float center_depth = linear_eye_depth(texelFetch(depth_buffer, coord, push_constants.gbuffer_mip).r, push_constants.z_buffer_params);
-    float3 center_normal = octohedral_to_direction(texelFetch(gbufferB, coord, push_constants.gbuffer_mip).rg);
+    float center_depth = linear_eye_depth(DepthBuffer.Load(int3(coord, push_constant.gbuffer_mip)).r, push_constant.z_buffer_params);
+    float3 center_normal = octohedral_to_direction(GBufferB.Load(int3(coord, push_constant.gbuffer_mip)).rg);
 
-    int radius = push_constants.radius;
+    int radius = push_constant.radius;
 
     for(int i = -radius; i <= radius; i++)
     {
@@ -43,10 +55,10 @@ float bilateral_blur(ivec2 coord)
             continue;
         }
 
-        ivec2 sample_coord = coord + push_constants.direction * ivec2(i);
-        float sample_depth = linear_eye_depth(texelFetch(depth_buffer, sample_coord, push_constants.gbuffer_mip).r, push_constants.z_buffer_params);
-        float sample_ao = texelFetch(ao_image, sample_coord, 0).r;
-        float3 sample_normal = octohedral_to_direction(texelFetch(gbufferB, sample_coord, push_constants.gbuffer_mip).rg);
+        int2 sample_coord = coord + push_constant.direction * int2(i);
+        float sample_depth = linear_eye_depth(DepthBuffer.Load(int3(sample_coord, push_constant.gbuffer_mip)).r, push_constant.z_buffer_params);
+        float sample_ao = AOImage.Load(int3(sample_coord, 0)).r;
+        float3 sample_normal = octohedral_to_direction(GBufferB.Load(int3(sample_coord, push_constant.gbuffer_mip)).rg);
     
         float weight = gaussian_weight(float(i), deviation) *
                         compute_edge_stopping_weight(
@@ -64,20 +76,22 @@ float bilateral_blur(ivec2 coord)
     return total_ao / max(total_weight, 0.0001);
 }
 
-void main()
+[shader("compute")]
+[numthreads(NUM_THREADS_X, NUM_THREADS_Y, 1)]
+void main(CSParam param)
 {
-    ivec2 size = textureSize(gbufferB, push_constants.gbuffer_mip);
-    ivec2 coord = denoise_tile_buffer.coord[gl_WorkGroupID.x] + ivec2(gl_LocalInvocationID.xy);
+    int2 size = texture_size(GBufferB, push_constant.gbuffer_mip);
+    int2 coord = DenoiseTileBuffer[param.GroupID.x] + int2(param.GroupThreadID.xy);
     if(coord.x >= size.x || coord.y >= size.y)
     {
         return;
     }
-    float depth = texelFetch(depth_buffer, coord, push_constants.gbuffer_mip).r;
+    float depth = DepthBuffer.Load(int3(coord, push_constant.gbuffer_mip)).r;
     if(depth == 1.0)
     {
-        imageStore(bilateral_image, coord, vec4(1.0));
+        BilateralImage[coord] = 1.0;
         return;
     }
     float ao = bilateral_blur(coord);
-    imageStore(bilateral_image, coord, vec4(ao));
+    BilateralImage[coord] = ao;
 }
