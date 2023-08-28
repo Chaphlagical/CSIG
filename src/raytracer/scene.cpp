@@ -166,33 +166,42 @@ Scene::Scene(const Context &context) :
 	buffer.view = m_context->create_buffer("View Buffer", sizeof(view_info), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	m_context->buffer_copy_to_device(buffer.view, &view_info, sizeof(view_info));
 
+	// Point Warp
+	samplers.push_back(m_context->create_sampler(VK_FILTER_NEAREST, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_REPEAT));
+	// Point Clamp
+	samplers.push_back(m_context->create_sampler(VK_FILTER_NEAREST, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE));
+	// Linear Warp
+	samplers.push_back(m_context->create_sampler(VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_REPEAT));
+	// Linear Clamp
+	samplers.push_back(m_context->create_sampler(VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE));
+
 	descriptor.layout = m_context->create_descriptor_layout()
 	                        // TLAS
-	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Instance Buffer
-	                        .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Emitter Buffer
-	                        .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Material Buffer
-	                        .add_descriptor_binding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        .add_descriptor_binding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Vertex Buffer
-	                        .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Index Buffer
-	                        .add_descriptor_binding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        .add_descriptor_binding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Indirect Draw Buffer
-	                        .add_descriptor_binding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        .add_descriptor_binding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // View Buffer
-	                        .add_descriptor_binding(7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        .add_descriptor_binding(7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Emitter Alias Table Buffer
-	                        .add_descriptor_binding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        .add_descriptor_binding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Mesh Alias Table Buffer
-	                        .add_descriptor_binding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        .add_descriptor_binding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Scene Buffer
-	                        .add_descriptor_binding(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        .add_descriptor_binding(10, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Textures
-	                        .add_descriptor_binding(11, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        .add_descriptor_bindless_binding(11, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Samplers
-	                        .add_descriptor_binding(12, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        .add_descriptor_bindless_binding(12, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        .create();
 
 	descriptor.set = m_context->allocate_descriptor_set({descriptor.layout});
@@ -202,7 +211,8 @@ Scene::~Scene()
 {
 	m_context->wait();
 	m_context->destroy(descriptor.layout)
-	    .destroy(descriptor.set);
+	    .destroy(descriptor.set)
+		.destroy(samplers);
 	destroy_scene();
 }
 
@@ -613,7 +623,7 @@ void Scene::load_scene(const std::string &filename)
 					    .firstInstance = instance_id,
 					};
 				}
-				buffer.indirect_draw = m_context->create_buffer("Indirect Draw Buffer", indirect_commands.size() * sizeof(VkDrawIndexedIndirectCommand), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+				buffer.indirect_draw = m_context->create_buffer("Indirect Draw Buffer", indirect_commands.size() * sizeof(VkDrawIndexedIndirectCommand), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 				m_context->buffer_copy_to_device(buffer.indirect_draw, indirect_commands.data(), indirect_commands.size() * sizeof(VkDrawIndexedIndirectCommand), true);
 			}
 
@@ -786,6 +796,25 @@ void Scene::update_view(CommandBufferRecorder &recorder)
 	        VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
 	    .insert()
 	    .end_marker();
+}
+
+void Scene::update_descriptor()
+{
+	m_context->update_descriptor()
+	    .write_acceleration_structures(0, {tlas})
+	    .write_storage_buffers(1, {buffer.instance.vk_buffer})
+	    .write_storage_buffers(2, {buffer.emitter.vk_buffer})
+	    .write_storage_buffers(3, {buffer.material.vk_buffer})
+	    .write_storage_buffers(4, {buffer.vertex.vk_buffer})
+	    .write_storage_buffers(5, {buffer.index.vk_buffer})
+	    .write_storage_buffers(6, {buffer.indirect_draw.vk_buffer})
+	    .write_uniform_buffers(7, {buffer.view.vk_buffer})
+	    .write_storage_buffers(8, {buffer.emitter_alias_table.vk_buffer})
+	    .write_storage_buffers(9, {buffer.mesh_alias_table.vk_buffer})
+	    .write_uniform_buffers(10, {buffer.scene.vk_buffer})
+	    .write_sampled_images(11, texture_views)
+	    .write_samplers(12, samplers)
+		.update(descriptor.set);
 }
 
 void Scene::destroy_scene()

@@ -1,98 +1,91 @@
 #ifndef COMMON_SLANGH
 #define COMMON_SLANGH
 
-struct Vertex
+static const float PI            = 3.14159265358979323846;
+static const float InvPI         = 0.31830988618379067154;
+static const float Inv2PI        = 0.15915494309189533577;
+static const float Inv4PI        = 0.07957747154594766788;
+static const float PIOver2       = 1.57079632679489661923;
+static const float PIOver4       = 0.78539816339744830961;
+static const float Sqrt2         = 1.41421356237309504880;
+static const float ShadowEpsilon = 0.0001;
+static const float Epsilon       = 1e-7;
+static const float Infinity      = 1e32;
+
+struct CSParam
 {
-	float4 position; // xyz - position, w - texcoord u
-	float4 normal; // xyz - normal, w - texcoord v
+    uint3 DispatchThreadID : SV_DispatchThreadID;
+    uint3 GroupThreadID : SV_GroupThreadID;
+    uint3 GroupID : SV_GroupID;
+    uint GroupIndex : SV_GroupIndex;
 };
 
-struct Emitter
-{
-	float3 p0;
-	float3 p1;
-	float3 p2;
-	float3 n0;
-	float3 n1;
-	float3 n2;
-	float3 intensity;
+struct DispatchIndirectCommand {
+    uint x;
+    uint y;
+    uint z;
 };
 
-struct Mesh
+void coordinate_system(float3 N, out float3 Nt, out float3 Nb)
 {
-	uint vertices_offset;
-	uint vertices_count;
-	uint indices_offset;
-	uint indices_count;
-	uint material;
-	float area;
-};
+	Nt = normalize(((abs(N.z) > 0.99999f) ? float3(-N.x * N.y, 1.0f - N.y * N.y, -N.y * N.z) :
+	                                        float3(-N.x * N.z, -N.y * N.z, 1.0f - N.z * N.z)));
+	Nb = normalize(cross(Nt, N));
+}
 
-struct Material
+float3 local_to_world(float3 n, float3 v)
 {
-	uint alpha_mode; // 0 - opaque, 1 - mask, 2 - blend
-	uint double_sided;
-	float cutoff;
-	float metallic_factor;
-	float roughness_factor;
-	float transmission_factor;
-	float clearcoat_factor;
-	float clearcoat_roughness_factor;
-	float4 base_color;
-	float3 emissive_factor;
-	int32_t base_color_texture;
-	int32_t normal_texture;
-	int32_t metallic_roughness_texture;
-	float2 padding;
-};
+	const float3 ref = abs(dot(n, float3(0, 1, 0))) > 0.99 ? float3(0, 0, 1) : float3(0, 1, 0);
+    const float3 x = normalize(cross(ref, n));
+    const float3 y = cross(n, x);
+	return normalize(mul(float3x3(x, y, n), v));
+}
 
-struct Instance
+float3 world_position_from_depth(float2 uv, float ndc_depth, float4x4 view_proj_inv)
 {
-    float4x4 transform;
-    float4x4 transform_inv;
-    uint vertices_offset;
-    uint vertices_count;
-    uint indices_offset;
-    uint indices_count;
-    uint mesh;
-    uint material;
-    int emitter;
-    float area;
-};
+    float2 screen_pos = uv * 2.0 - 1.0;
+    float4 ndc_pos = float4(screen_pos, ndc_depth, 1.0);
+	float4 world_pos  = mul(view_proj_inv, ndc_pos);
+    world_pos = world_pos / world_pos.w;
+    return world_pos.xyz;
+}
 
-struct AliasTable
+float3 octohedral_to_direction(float2 e)
 {
-	float prob;         // The i's column's event i's prob
-	int   alias;        // The i's column's another event's idx
-	float ori_prob;
-	float alias_ori_prob;
-};
+    float3 v = float3(e, 1.0 - abs(e.x) - abs(e.y));
 
-enum SamplerType
+    if (v.z < 0.0)
+	{
+        v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - 1.0);
+	}
+
+    return normalize(v);
+}
+
+int2 texture_size(Texture2D<float> texture, uint mip_level)
 {
-    Point,
-    Linear,
-    Bilinear,
-};
+	uint width, height, level;
+	texture.GetDimensions(mip_level, width, height, level);
+	return int2(width, height);
+}
 
-struct SceneBuffer
+int2 texture_size(Texture2D<float4> texture, uint mip_level)
 {
-    [[vk::binding(0, 0)]] RaytracingAccelerationStructure tlas;
-    [[vk::binding(1, 0)]] ByteAddressBuffer instance;
-    [[vk::binding(2, 0)]] ByteAddressBuffer emitter;
-    [[vk::binding(3, 0)]] ByteAddressBuffer material;
-    [[vk::binding(4, 0)]] ByteAddressBuffer vertex;
-    [[vk::binding(5, 0)]] ByteAddressBuffer index;
-    [[vk::binding(6, 0)]] ByteAddressBuffer indirect_draw;
-    [[vk::binding(7, 0)]] ByteAddressBuffer view;
-    [[vk::binding(8, 0)]] ByteAddressBuffer emitter_alias_table;
-    [[vk::binding(9, 0)]] ByteAddressBuffer mesh_alias_table;
-    [[vk::binding(10, 0)]] ByteAddressBuffer scene;
-    [[vk::binding(11, 0)]] Texture2D textures[];
-    [[vk::binding(12, 0)]] SamplerState samplers[];
+	uint width, height, level;
+	texture.GetDimensions(mip_level, width, height, level);
+	return int2(width, height);
+}
 
+int2 texture_size(Texture2D<uint> texture, uint mip_level)
+{
+	uint width, height, level;
+	texture.GetDimensions(mip_level, width, height, level);
+	return int2(width, height);
+}
 
-
-};
+float luminance(float3 color)
+{
+	return dot(color, float3(0.212671, 0.715160, 0.072169));
+}
 
 #endif

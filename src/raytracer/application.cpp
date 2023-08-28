@@ -5,7 +5,9 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <imgui.h>
+
 #include <spdlog/fmt/fmt.h>
+#include <spdlog/spdlog.h>
 
 #define HALTON_SAMPLES 16
 
@@ -40,11 +42,12 @@ inline glm::vec3 smooth_step(const glm::vec3 &v1, const glm::vec3 &v2, float t)
 }
 
 Application::Application() :
+    m_context{1920, 1080},
     m_scene{m_context},
     m_renderer{
-        .ui_pass{m_context},
-        .gbuffer_pass{m_context, m_scene},
-    }
+        .ui{m_context},
+        .gbuffer{m_context, m_scene},
+        .ao{m_context, m_scene, m_renderer.gbuffer}}
 {
 	for (uint32_t i = 0; i < 3; i++)
 	{
@@ -66,12 +69,7 @@ Application::Application() :
 
 	m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\default.glb)");
 	// m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\Deferred\Deferred.gltf)");
-
-	m_context.record_command()
-	    .begin()
-	    .execute([&](CommandBufferRecorder &recorder) { m_renderer.gbuffer_pass.init(recorder); })
-	    .end()
-	    .flush();
+	m_scene.update_descriptor();
 
 	m_context.wait();
 }
@@ -103,8 +101,12 @@ void Application::run()
 		update_ui();
 
 		begin_render();
+
+		recorder.begin_marker("Tick");
 		update(recorder);
 		render(recorder);
+		recorder.end_marker();
+
 		end_render();
 
 		m_current_frame     = (m_current_frame + 1) % 3;
@@ -251,13 +253,35 @@ void Application::update(CommandBufferRecorder &recorder)
 
 void Application::render(CommandBufferRecorder &recorder)
 {
-	m_renderer.gbuffer_pass.draw(recorder, m_scene);
-	m_renderer.ui_pass.render(recorder, m_current_frame);
+	m_renderer.gbuffer.draw(recorder, m_scene);
+	m_renderer.ao.draw(recorder, m_scene, m_renderer.gbuffer);
+
+	recorder.insert_barrier()
+	    .add_image_barrier(m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image,
+	                       VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+	                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+	    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+	                       VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+	                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+	    .insert();
+
+	m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image);
+
+	recorder.insert_barrier()
+	    .add_image_barrier(m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image,
+	                       VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
+	                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+	    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+	                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
+	                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+	    .insert();
+
+	m_renderer.ui.render(recorder, m_current_frame);
 }
 
 void Application::update_ui()
 {
-	m_renderer.ui_pass.begin_frame();
+	m_renderer.ui.begin_frame();
 
 	if (ImGui::IsKeyPressed(ImGuiKey_G, false))
 	{
@@ -266,8 +290,12 @@ void Application::update_ui()
 
 	if (m_enable_ui)
 	{
-		ImGui::ShowDemoWindow();
+		ImGui::Begin("UI", &m_enable_ui);
+		ImGui::Text("CSIG 2023 RayTracer");
+		ImGui::Text("FPS: %.f", ImGui::GetIO().Framerate);
+		ImGui::Text("Frames: %.d", m_num_frames);
+		ImGui::End();
 	}
 
-	m_renderer.ui_pass.end_frame();
+	m_renderer.ui.end_frame();
 }

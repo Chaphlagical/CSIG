@@ -1,10 +1,25 @@
-#ifndef COMMON_SLANGH
-#define COMMON_SLANGH
+#ifndef SCENE_SLANGH
+#define SCENE_SLANGH
 
 struct Vertex
 {
 	float4 position; // xyz - position, w - texcoord u
 	float4 normal; // xyz - normal, w - texcoord v
+};
+
+struct View
+{
+	float4x4 view_inv;
+	float4x4 projection_inv;
+	float4x4 view_projection_inv;
+	float4x4 view_projection;
+	float4x4 prev_view;
+	float4x4 prev_projection;
+	float4x4 prev_view_projection;
+	float4x4 prev_view_projection_inv;
+	float4 cam_pos; // xyz - position, w - num_frames
+	float4 prev_cam_pos; // xyz - position, w - padding
+	float4 jitter;
 };
 
 struct Emitter
@@ -67,5 +82,39 @@ struct AliasTable
 	float ori_prob;
 	float alias_ori_prob;
 };
+
+enum SamplerType
+{
+    PointWarp,
+    PointClamp,
+    LinearWarp,
+    LinearClamp,
+};
+
+struct Scene
+{
+	uint vertices_count;
+	uint indices_count;
+	uint instance_count;
+	uint material_count;
+	float3 min_extent;
+	uint emitter_count;
+	float3 max_extent;
+	uint mesh_count;
+};
+
+[[vk::binding(0, 0)]] RaytracingAccelerationStructure TLAS;
+[[vk::binding(1, 0)]] StructuredBuffer<Instance> InstanceBuffer;
+[[vk::binding(2, 0)]] ByteAddressBuffer EmitterBuffer;
+[[vk::binding(3, 0)]] StructuredBuffer<Material> MaterialBuffer;
+[[vk::binding(4, 0)]] ByteAddressBuffer VertexBuffer;
+[[vk::binding(5, 0)]] ByteAddressBuffer IndexBuffer;
+[[vk::binding(6, 0)]] ByteAddressBuffer IndirectDrawBuffer;
+[[vk::binding(7, 0)]] ConstantBuffer<View> ViewBuffer;
+[[vk::binding(8, 0)]] ByteAddressBuffer EmitterAliasTableBuffer;
+[[vk::binding(9, 0)]] ByteAddressBuffer MeshAliasTableBuffer;
+[[vk::binding(10, 0)]] ConstantBuffer<Scene> SceneBuffer;
+[[vk::binding(11, 0)]] Texture2D Textures[];
+[[vk::binding(12, 0)]] SamplerState Samplers[];
 
 #endif

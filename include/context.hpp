@@ -17,6 +17,13 @@ struct GLFWwindow;
 struct Context;
 struct CommandBufferRecorder;
 
+enum class RayTracedScale
+{
+	Full_Res,
+	Half_Res,
+	Quarter_Res,
+};
+
 struct Texture
 {
 	VkImage       vk_image       = VK_NULL_HANDLE;
@@ -207,7 +214,7 @@ struct CommandBufferRecorder
 
 	BarrierBuilder insert_barrier();
 
-	CommandBufferRecorder &generate_mipmap(VkImage image, uint32_t width, uint32_t height, uint32_t mip_level);
+	CommandBufferRecorder &generate_mipmap(VkImage image, uint32_t width, uint32_t height, uint32_t mip_level, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT);
 
 	void flush();
 
@@ -339,8 +346,6 @@ struct Context
 
 	VkPhysicalDeviceProperties physical_device_properties;
 
-	VkSampler default_sampler = VK_NULL_HANDLE;
-
 	explicit Context(uint32_t width = 0, uint32_t height = 0, float upscale_factor = 1.f);
 
 	~Context();
@@ -350,6 +355,14 @@ struct Context
 	VkSemaphore create_semaphore(const std::string &name) const;
 
 	VkFence create_fence(const std::string &name) const;
+
+	VkSampler create_sampler(
+	    VkFilter             mag_filter,
+	    VkFilter             min_filter,
+	    VkSamplerMipmapMode  mipmap_mode,
+	    VkSamplerAddressMode address_u,
+	    VkSamplerAddressMode address_v,
+	    VkSamplerAddressMode address_w) const;
 
 	Buffer create_buffer(
 	    const std::string &name,
@@ -423,13 +436,12 @@ struct Context
 
 	DescriptorLayoutBuilder create_descriptor_layout() const;
 
-	VkDescriptorSet allocate_descriptor_set(
-	    const std::vector<VkDescriptorSetLayout> &layouts) const;
+	VkDescriptorSet allocate_descriptor_set(VkDescriptorSetLayout layouts) const;
 
 	VkPipelineLayout create_pipeline_layout(
 	    const std::vector<VkDescriptorSetLayout> &layouts,
-	    VkShaderStageFlags                        stages         = VK_SHADER_STAGE_ALL,
-	    uint32_t                                  push_data_size = 0) const;
+	    uint32_t                                  push_data_size = 0,
+	    VkShaderStageFlags                        stages         = VK_SHADER_STAGE_ALL) const;
 
 	VkPipeline create_compute_pipeline(
 	    VkShaderModule   shader,
@@ -462,16 +474,18 @@ struct Context
 	    VkExtent2D      extent = {0, 0}) const;
 
 	template <uint32_t N>
-	std::array<VkDescriptorSet, N> allocate_descriptor_sets(const std::vector<VkDescriptorSetLayout> &layouts) const
+	std::array<VkDescriptorSet, N> allocate_descriptor_sets(VkDescriptorSetLayout layout) const
 	{
-		std::array<VkDescriptorSet, N> descriptor_sets;
-		VkDescriptorSetAllocateInfo    allocate_info = {
-		       .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-		       .pNext              = nullptr,
-		       .descriptorPool     = vk_descriptor_pool,
-		       .descriptorSetCount = N,
-		       .pSetLayouts        = layouts.data(),
-        };
+		std::array<VkDescriptorSet, N>       descriptor_sets;
+		std::array<VkDescriptorSetLayout, N> layouts;
+		std::fill(layouts.begin(), layouts.end(), layout);
+		VkDescriptorSetAllocateInfo allocate_info = {
+		    .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+		    .pNext              = nullptr,
+		    .descriptorPool     = vk_descriptor_pool,
+		    .descriptorSetCount = N,
+		    .pSetLayouts        = layouts.data(),
+		};
 		vkAllocateDescriptorSets(vk_device, &allocate_info, descriptor_sets.data());
 		return descriptor_sets;
 	}
@@ -487,6 +501,16 @@ struct Context
 			destroy(x);
 		}
 		data.clear();
+		return *this;
+	}
+
+	template <typename T, size_t N>
+	const Context &destroy(std::array<T, N> &data) const
+	{
+		for (auto &x : data)
+		{
+			destroy(x);
+		}
 		return *this;
 	}
 

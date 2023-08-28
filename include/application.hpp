@@ -2,6 +2,7 @@
 
 #include "context.hpp"
 #include "pipeline/gbuffer.hpp"
+#include "pipeline/raytrace_ao.hpp"
 #include "pipeline/ui.hpp"
 #include "scene.hpp"
 
@@ -50,7 +51,7 @@ class Application
 		float     yaw      = 0.f;
 		float     pitch    = 0.f;
 		float     sensity  = 0.1f;
-		float     speed    = 1.f;
+		float     speed    = 5.f;
 		glm::vec3 velocity = glm::vec3(0.f);
 
 		glm::mat4 view          = glm::mat4(1.f);
@@ -67,7 +68,8 @@ class Application
 
 	struct
 	{
-		UIPass      ui_pass;
-		GBufferPass gbuffer_pass;
+		UIPass      ui;
+		GBufferPass gbuffer;
+		RayTracedAO ao;
 	} m_renderer;
 };

@@ -14,6 +14,8 @@ struct Scene
 
 	void update_view(CommandBufferRecorder &recorder);
 
+	void update_descriptor();
+
   public:
 	struct
 	{

@@ -469,14 +469,14 @@ CommandBufferRecorder &CommandBufferRecorder::bind_index_buffer(VkBuffer index_b
 
 CommandBufferRecorder &CommandBufferRecorder::dispatch(const glm::uvec3 &thread_num, const glm::uvec3 &group_size)
 {
-	glm::uvec3 group_count = thread_num / group_size;
+	glm::uvec3 group_count = glm::uvec3(glm::ceil(glm::vec3(thread_num) / glm::vec3(group_size)));
 	vkCmdDispatch(cmd_buffer, group_count.x, group_count.y, group_count.z);
 	return *this;
 }
 
 CommandBufferRecorder &CommandBufferRecorder::draw_mesh_task(const glm::uvec3 &thread_num, const glm::uvec3 &group_size)
 {
-	glm::uvec3 group_count = thread_num / group_size;
+	glm::uvec3 group_count = glm::uvec3(glm::ceil(glm::vec3(thread_num) / glm::vec3(group_size)));
 	vkCmdDrawMeshTasksEXT(cmd_buffer, group_count.x, group_count.y, group_count.z);
 	return *this;
 }
@@ -532,7 +532,7 @@ BarrierBuilder CommandBufferRecorder::insert_barrier()
 	return BarrierBuilder(*this);
 }
 
-CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uint32_t width, uint32_t height, uint32_t mip_level)
+CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uint32_t width, uint32_t height, uint32_t mip_level, VkImageAspectFlags aspect)
 {
 	if (mip_level <= 1)
 	{
@@ -543,7 +543,7 @@ CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uin
 	{
 		VkImageBlit blit_info = {
 		    .srcSubresource = VkImageSubresourceLayers{
-		        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		        .aspectMask     = aspect,
 		        .mipLevel       = i - 1,
 		        .baseArrayLayer = 0,
 		        .layerCount     = 1,
@@ -561,7 +561,7 @@ CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uin
 		        },
 		    },
 		    .dstSubresource = VkImageSubresourceLayers{
-		        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		        .aspectMask     = aspect,
 		        .mipLevel       = i,
 		        .baseArrayLayer = 0,
 		        .layerCount     = 1,
@@ -591,7 +591,7 @@ CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uin
 			    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			    .image               = image,
 			    .subresourceRange    = VkImageSubresourceRange{
-			           .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			           .aspectMask     = aspect,
 			           .baseMipLevel   = i,
 			           .levelCount     = 1,
 			           .baseArrayLayer = 0,
@@ -609,7 +609,7 @@ CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uin
 		    cmd_buffer,
 		    image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 		    image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		    1, &blit_info, VK_FILTER_LINEAR);
+		    1, &blit_info, aspect == VK_IMAGE_ASPECT_DEPTH_BIT ? VK_FILTER_NEAREST : VK_FILTER_LINEAR);
 
 		{
 			VkImageMemoryBarrier image_barrier = VkImageMemoryBarrier{
@@ -622,7 +622,7 @@ CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uin
 			    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			    .image               = image,
 			    .subresourceRange    = VkImageSubresourceRange{
-			           .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			           .aspectMask     = aspect,
 			           .baseMipLevel   = i,
 			           .levelCount     = 1,
 			           .baseArrayLayer = 0,
@@ -649,7 +649,7 @@ CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uin
 		        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		        .image               = image,
 		        .subresourceRange    = VkImageSubresourceRange{
-		               .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		               .aspectMask     = aspect,
 		               .baseMipLevel   = 0,
 		               .levelCount     = mip_level,
 		               .baseArrayLayer = 0,
@@ -1624,6 +1624,59 @@ Context::Context(uint32_t width, uint32_t height, float upscale_factor)
 		}
 	}
 
+	// init vulkan resource
+	{
+		VkCommandPoolCreateInfo create_info = {
+		    .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+		    .flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+		    .queueFamilyIndex = graphics_family.value(),
+		};
+		vkCreateCommandPool(vk_device, &create_info, nullptr, &graphics_cmd_pool);
+	}
+
+	{
+		VkCommandPoolCreateInfo create_info = {
+		    .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+		    .flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+		    .queueFamilyIndex = compute_family.value(),
+		};
+		vkCreateCommandPool(vk_device, &create_info, nullptr, &compute_cmd_pool);
+	}
+
+	{
+		VkPipelineCacheCreateInfo create_info = {
+		    .sType           = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
+		    .initialDataSize = 0,
+		    .pInitialData    = nullptr,
+		};
+		vkCreatePipelineCache(vk_device, &create_info, nullptr, &vk_pipeline_cache);
+	}
+
+	{
+		std::vector<VkDescriptorPoolSize> pool_sizes =
+		    {
+		        {VK_DESCRIPTOR_TYPE_SAMPLER, 1000},
+		        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
+		        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000},
+		        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000},
+		        {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000},
+		        {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000},
+		        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000},
+		        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000},
+		        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000},
+		        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000},
+		        {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000},
+		    };
+		VkDescriptorPoolCreateInfo pool_info = {
+		    .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+		    .flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT | VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT,
+		    .maxSets       = 1000 * static_cast<uint32_t>(pool_sizes.size()),
+		    .poolSizeCount = (uint32_t) static_cast<uint32_t>(pool_sizes.size()),
+		    .pPoolSizes    = pool_sizes.data(),
+		};
+		vkCreateDescriptorPool(vk_device, &pool_info, nullptr, &vk_descriptor_pool);
+	}
+
 	// Init vulkan swapchain
 	{
 #ifdef _WIN32
@@ -1730,82 +1783,26 @@ Context::Context(uint32_t width, uint32_t height, float upscale_factor)
 			set_object_name(VK_OBJECT_TYPE_IMAGE, (uint64_t) swapchain_images[i], fmt::format("Swapchain Image {}", i).c_str());
 			swapchain_image_views[i] = create_texture_view(fmt::format("Swapchain Image View {}", i), swapchain_images[i], vk_format);
 		}
+
+		record_command()
+		    .begin()
+		    .insert_barrier()
+		    .add_image_barrier(
+		        swapchain_images[0],
+		        0, VK_ACCESS_MEMORY_READ_BIT,
+		        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+		    .add_image_barrier(
+		        swapchain_images[1],
+		        0, VK_ACCESS_MEMORY_READ_BIT,
+		        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+		    .add_image_barrier(
+		        swapchain_images[2],
+		        0, VK_ACCESS_MEMORY_READ_BIT,
+		        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+		    .insert()
+		    .end()
+		    .flush();
 	}
-
-	// init vulkan resource
-	{
-		{
-			VkCommandPoolCreateInfo create_info = {
-			    .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-			    .flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-			    .queueFamilyIndex = graphics_family.value(),
-			};
-			vkCreateCommandPool(vk_device, &create_info, nullptr, &graphics_cmd_pool);
-		}
-
-		{
-			VkCommandPoolCreateInfo create_info = {
-			    .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-			    .flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-			    .queueFamilyIndex = compute_family.value(),
-			};
-			vkCreateCommandPool(vk_device, &create_info, nullptr, &compute_cmd_pool);
-		}
-
-		{
-			VkPipelineCacheCreateInfo create_info = {
-			    .sType           = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
-			    .initialDataSize = 0,
-			    .pInitialData    = nullptr,
-			};
-			vkCreatePipelineCache(vk_device, &create_info, nullptr, &vk_pipeline_cache);
-		}
-
-		{
-			std::vector<VkDescriptorPoolSize> pool_sizes =
-			    {
-			        {VK_DESCRIPTOR_TYPE_SAMPLER, 1000},
-			        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
-			        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000},
-			        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000},
-			        {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000},
-			        {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000},
-			        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000},
-			        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000},
-			        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000},
-			        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000},
-			        {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000},
-			    };
-			VkDescriptorPoolCreateInfo pool_info = {
-			    .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-			    .flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT | VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT,
-			    .maxSets       = 1000 * static_cast<uint32_t>(pool_sizes.size()),
-			    .poolSizeCount = (uint32_t) static_cast<uint32_t>(pool_sizes.size()),
-			    .pPoolSizes    = pool_sizes.data(),
-			};
-			vkCreateDescriptorPool(vk_device, &pool_info, nullptr, &vk_descriptor_pool);
-		}
-	}
-
-	// Create default sampler
-	VkSamplerCreateInfo sampler_create_info = {
-	    .sType            = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-	    .magFilter        = VK_FILTER_LINEAR,
-	    .minFilter        = VK_FILTER_LINEAR,
-	    .mipmapMode       = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-	    .addressModeU     = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-	    .addressModeV     = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-	    .addressModeW     = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-	    .mipLodBias       = 0.f,
-	    .anisotropyEnable = VK_FALSE,
-	    .maxAnisotropy    = 1.f,
-	    .compareEnable    = VK_FALSE,
-	    .compareOp        = VK_COMPARE_OP_NEVER,
-	    .minLod           = 0.f,
-	    .maxLod           = 12.f,
-	    .borderColor      = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
-	};
-	vkCreateSampler(vk_device, &sampler_create_info, nullptr, &default_sampler);
 }
 
 Context::~Context()
@@ -1815,8 +1812,6 @@ Context::~Context()
 	// Destroy window
 	glfwDestroyWindow(window);
 	glfwTerminate();
-
-	vkDestroySampler(vk_device, default_sampler, nullptr);
 
 	for (auto &view : swapchain_image_views)
 	{
@@ -1866,6 +1861,32 @@ VkFence Context::create_fence(const std::string &name) const
 	vkCreateFence(vk_device, &create_info, nullptr, &fence);
 	set_object_name(VK_OBJECT_TYPE_FENCE, (uint64_t) fence, name.c_str());
 	return fence;
+}
+
+VkSampler Context::create_sampler(VkFilter mag_filter, VkFilter min_filter, VkSamplerMipmapMode mipmap_mode, VkSamplerAddressMode address_u, VkSamplerAddressMode address_v, VkSamplerAddressMode address_w) const
+{
+	VkSampler sampler = VK_NULL_HANDLE;
+
+	VkSamplerCreateInfo sampler_create_info = {
+	    .sType            = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+	    .magFilter        = mag_filter,
+	    .minFilter        = min_filter,
+	    .mipmapMode       = mipmap_mode,
+	    .addressModeU     = address_u,
+	    .addressModeV     = address_v,
+	    .addressModeW     = address_w,
+	    .mipLodBias       = 0.f,
+	    .anisotropyEnable = VK_FALSE,
+	    .maxAnisotropy    = 1.f,
+	    .compareEnable    = VK_FALSE,
+	    .compareOp        = VK_COMPARE_OP_NEVER,
+	    .minLod           = 0.f,
+	    .maxLod           = 12.f,
+	    .borderColor      = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
+	};
+	vkCreateSampler(vk_device, &sampler_create_info, nullptr, &sampler);
+
+	return sampler;
 }
 
 Buffer Context::create_buffer(const std::string &name, size_t size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage) const
@@ -2372,7 +2393,7 @@ DescriptorLayoutBuilder Context::create_descriptor_layout() const
 	return builder;
 }
 
-VkDescriptorSet Context::allocate_descriptor_set(const std::vector<VkDescriptorSetLayout> &layouts) const
+VkDescriptorSet Context::allocate_descriptor_set(VkDescriptorSetLayout layout) const
 {
 	VkDescriptorSet             descriptor_set = VK_NULL_HANDLE;
 	VkDescriptorSetAllocateInfo allocate_info  = {
@@ -2380,13 +2401,13 @@ VkDescriptorSet Context::allocate_descriptor_set(const std::vector<VkDescriptorS
 	     .pNext              = nullptr,
 	     .descriptorPool     = vk_descriptor_pool,
 	     .descriptorSetCount = 1,
-	     .pSetLayouts        = layouts.data(),
+	     .pSetLayouts        = &layout,
     };
 	vkAllocateDescriptorSets(vk_device, &allocate_info, &descriptor_set);
 	return descriptor_set;
 }
 
-VkPipelineLayout Context::create_pipeline_layout(const std::vector<VkDescriptorSetLayout> &layouts, VkShaderStageFlags stage, uint32_t push_data_size) const
+VkPipelineLayout Context::create_pipeline_layout(const std::vector<VkDescriptorSetLayout> &layouts, uint32_t push_data_size, VkShaderStageFlags stage) const
 {
 	VkPipelineLayout    layout = VK_NULL_HANDLE;
 	VkPushConstantRange range  = {
@@ -2605,6 +2626,17 @@ const Context &Context::destroy(VkFence &fence) const
 }
 
 template <>
+const Context &Context::destroy(VkSampler &sampler) const
+{
+	if (sampler)
+	{
+		vkDestroySampler(vk_device, sampler, nullptr);
+		sampler = VK_NULL_HANDLE;
+	}
+	return *this;
+}
+
+template <>
 const Context &Context::destroy(AccelerationStructure &as) const
 {
 	if (as.vk_as)
@@ -2627,6 +2659,7 @@ template const Context &Context::destroy<VkPipelineLayout>(VkPipelineLayout &) c
 template const Context &Context::destroy<VkPipeline>(VkPipeline &) const;
 template const Context &Context::destroy<VkSemaphore>(VkSemaphore &) const;
 template const Context &Context::destroy<VkFence>(VkFence &) const;
+template const Context &Context::destroy<VkSampler>(VkSampler &) const;
 template const Context &Context::destroy<AccelerationStructure>(AccelerationStructure &) const;
 
 void Context::set_object_name(VkObjectType type, uint64_t handle, const char *name) const
