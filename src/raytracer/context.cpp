@@ -481,6 +481,12 @@ CommandBufferRecorder &CommandBufferRecorder::draw_mesh_task(const glm::uvec3 &t
 	return *this;
 }
 
+CommandBufferRecorder &CommandBufferRecorder::draw(uint32_t vertex_count, uint32_t instance_count, uint32_t vertex_offset, uint32_t instance_offset)
+{
+	vkCmdDraw(cmd_buffer, vertex_count, instance_count, vertex_offset, instance_offset);
+	return *this;
+}
+
 CommandBufferRecorder &CommandBufferRecorder::draw_indexed(uint32_t index_count, uint32_t instance_count, uint32_t first_index, int32_t vertex_offset, uint32_t first_instance)
 {
 	vkCmdDrawIndexed(cmd_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
@@ -532,7 +538,7 @@ BarrierBuilder CommandBufferRecorder::insert_barrier()
 	return BarrierBuilder(*this);
 }
 
-CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uint32_t width, uint32_t height, uint32_t mip_level, VkImageAspectFlags aspect)
+CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uint32_t width, uint32_t height, uint32_t mip_level, uint32_t layer, VkImageAspectFlags aspect)
 {
 	if (mip_level <= 1)
 	{
@@ -546,7 +552,7 @@ CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uin
 		        .aspectMask     = aspect,
 		        .mipLevel       = i - 1,
 		        .baseArrayLayer = 0,
-		        .layerCount     = 1,
+		        .layerCount     = layer,
 		    },
 		    .srcOffsets = {
 		        VkOffset3D{
@@ -564,7 +570,7 @@ CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uin
 		        .aspectMask     = aspect,
 		        .mipLevel       = i,
 		        .baseArrayLayer = 0,
-		        .layerCount     = 1,
+		        .layerCount     = layer,
 		    },
 		    .dstOffsets = {
 		        VkOffset3D{
@@ -595,7 +601,7 @@ CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uin
 			           .baseMipLevel   = i,
 			           .levelCount     = 1,
 			           .baseArrayLayer = 0,
-			           .layerCount     = 1,
+			           .layerCount     = layer,
                 },
 			};
 			vkCmdPipelineBarrier(
@@ -626,7 +632,7 @@ CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uin
 			           .baseMipLevel   = i,
 			           .levelCount     = 1,
 			           .baseArrayLayer = 0,
-			           .layerCount     = 1,
+			           .layerCount     = layer,
                 },
 			};
 			vkCmdPipelineBarrier(
@@ -653,7 +659,7 @@ CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uin
 		               .baseMipLevel   = 0,
 		               .levelCount     = mip_level,
 		               .baseArrayLayer = 0,
-		               .layerCount     = 1,
+		               .layerCount     = layer,
                 },
 		    };
 		vkCmdPipelineBarrier(
@@ -1251,7 +1257,7 @@ Context::Context(uint32_t width, uint32_t height, float upscale_factor)
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-		window = glfwCreateWindow(extent.width, extent.height, "Hair Renderer", NULL, NULL);
+		window = glfwCreateWindow(extent.width, extent.height, "CSIG Renderer", NULL, NULL);
 		if (!window)
 		{
 			glfwTerminate();
@@ -2275,6 +2281,32 @@ Texture Context::create_texture_2d(const std::string &name, uint32_t width, uint
 	    .extent        = VkExtent3D{width, height, 1},
 	    .mipLevels     = mipmap ? static_cast<uint32_t>(std::floor(std::log2(std::max(width, height))) + 1) : 1,
 	    .arrayLayers   = 1,
+	    .samples       = VK_SAMPLE_COUNT_1_BIT,
+	    .tiling        = VK_IMAGE_TILING_OPTIMAL,
+	    .usage         = usage,
+	    .sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
+	    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+	};
+	VmaAllocationCreateInfo allocation_create_info = {
+	    .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+	};
+	vmaCreateImage(vma_allocator, &image_create_info, &allocation_create_info, &texture.vk_image, &texture.vma_allocation, nullptr);
+	set_object_name(VK_OBJECT_TYPE_IMAGE, (uint64_t) texture.vk_image, name.c_str());
+	return texture;
+}
+
+Texture Context::create_texture_cube(const std::string &name, uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, uint32_t mipmap) const
+{
+	Texture texture;
+
+	VkImageCreateInfo image_create_info = {
+	    .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+	    .flags         = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
+	    .imageType     = VK_IMAGE_TYPE_2D,
+	    .format        = format,
+	    .extent        = VkExtent3D{width, height, 1},
+	    .mipLevels     = mipmap,
+	    .arrayLayers   = 6,
 	    .samples       = VK_SAMPLE_COUNT_1_BIT,
 	    .tiling        = VK_IMAGE_TILING_OPTIMAL,
 	    .usage         = usage,

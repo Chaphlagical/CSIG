@@ -21,8 +21,13 @@ PathTracing::PathTracing(const Context &context, const Scene &scene, const GBuff
 	                              .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                              .create();
 	m_descriptor_sets = m_context->allocate_descriptor_sets<2>(m_descriptor_set_layout);
-	m_pipeline_layout = m_context->create_pipeline_layout({scene.descriptor.layout, gbuffer_pass.descriptor.layout, m_descriptor_set_layout});
+	m_pipeline_layout = m_context->create_pipeline_layout({scene.descriptor.layout, gbuffer_pass.descriptor.layout, m_descriptor_set_layout}, sizeof(m_push_constant), VK_SHADER_STAGE_COMPUTE_BIT);
 	m_pipeline        = m_context->create_compute_pipeline("path_tracing.slang", m_pipeline_layout);
+
+	descriptor.layout = m_context->create_descriptor_layout()
+	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        .create();
+	descriptor.sets = m_context->allocate_descriptor_sets<2>(descriptor.layout);
 
 	for (uint32_t i = 0; i < 2; i++)
 	{
@@ -30,6 +35,9 @@ PathTracing::PathTracing(const Context &context, const Scene &scene, const GBuff
 		    .write_storage_images(0, {render_target_view[i]})
 		    .write_sampled_images(1, {render_target_view[i]})
 		    .update(m_descriptor_sets[i]);
+		m_context->update_descriptor()
+		    .write_sampled_images(0, {render_target_view[i]})
+		    .update(descriptor.sets[i]);
 	}
 
 	m_context->record_command()
@@ -50,14 +58,17 @@ PathTracing::~PathTracing()
 {
 	m_context->destroy(render_target)
 	    .destroy(render_target_view)
+	    .destroy(m_descriptor_set_layout)
 	    .destroy(m_descriptor_sets)
 	    .destroy(m_pipeline_layout)
-	    .destroy(m_pipeline);
+	    .destroy(m_pipeline)
+	    .destroy(descriptor.layout)
+	    .destroy(descriptor.sets);
 }
 
 void PathTracing::draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass)
 {
-	m_context->record_command()
+	recorder
 	    .begin_marker("Path Tracing")
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline)
 	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], m_descriptor_sets[m_context->ping_pong]})

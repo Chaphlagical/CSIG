@@ -1,87 +1,7 @@
 #ifndef SCENE_SLANGH
 #define SCENE_SLANGH
 
-struct Vertex
-{
-	float4 position; // xyz - position, w - texcoord u
-	float4 normal; // xyz - normal, w - texcoord v
-};
-
-struct View
-{
-	float4x4 view_inv;
-	float4x4 projection_inv;
-	float4x4 view_projection_inv;
-	float4x4 view_projection;
-	float4x4 prev_view;
-	float4x4 prev_projection;
-	float4x4 prev_view_projection;
-	float4x4 prev_view_projection_inv;
-	float4 cam_pos; // xyz - position, w - num_frames
-	float4 prev_cam_pos; // xyz - position, w - padding
-	float4 jitter;
-};
-
-struct Emitter
-{
-	float3 p0;
-	float3 p1;
-	float3 p2;
-	float3 n0;
-	float3 n1;
-	float3 n2;
-	float3 intensity;
-};
-
-struct Mesh
-{
-	uint vertices_offset;
-	uint vertices_count;
-	uint indices_offset;
-	uint indices_count;
-	uint material;
-	float area;
-};
-
-struct Material
-{
-	uint alpha_mode; // 0 - opaque, 1 - mask, 2 - blend
-	uint double_sided;
-	float cutoff;
-	float metallic_factor;
-	float roughness_factor;
-	float transmission_factor;
-	float clearcoat_factor;
-	float clearcoat_roughness_factor;
-	float4 base_color;
-	float3 emissive_factor;
-	int32_t base_color_texture;
-	int32_t normal_texture;
-	int32_t metallic_roughness_texture;
-	float2 padding;
-};
-
-struct Instance
-{
-    float4x4 transform;
-    float4x4 transform_inv;
-    uint vertices_offset;
-    uint vertices_count;
-    uint indices_offset;
-    uint indices_count;
-    uint mesh;
-    uint material;
-    int emitter;
-    float area;
-};
-
-struct AliasTable
-{
-	float prob;         // The i's column's event i's prob
-	int   alias;        // The i's column's another event's idx
-	float ori_prob;
-	float alias_ori_prob;
-};
+#include "common.slangh"
 
 enum class SamplerType: int
 {
@@ -91,24 +11,12 @@ enum class SamplerType: int
     LinearClamp,
 };
 
-struct Scene
-{
-	uint vertices_count;
-	uint indices_count;
-	uint instance_count;
-	uint material_count;
-	float3 min_extent;
-	uint emitter_count;
-	float3 max_extent;
-	uint mesh_count;
-};
-
 [[vk::binding(0, 0)]] RaytracingAccelerationStructure TLAS;
 [[vk::binding(1, 0)]] StructuredBuffer<Instance> InstanceBuffer;
-[[vk::binding(2, 0)]] ByteAddressBuffer EmitterBuffer;
+[[vk::binding(2, 0)]] StructuredBuffer<Emitter> EmitterBuffer;
 [[vk::binding(3, 0)]] StructuredBuffer<Material> MaterialBuffer;
-[[vk::binding(4, 0)]] ByteAddressBuffer VertexBuffer;
-[[vk::binding(5, 0)]] ByteAddressBuffer IndexBuffer;
+[[vk::binding(4, 0)]] StructuredBuffer<Vertex> VertexBuffer;
+[[vk::binding(5, 0)]] StructuredBuffer<uint> IndexBuffer;
 [[vk::binding(6, 0)]] ByteAddressBuffer IndirectDrawBuffer;
 [[vk::binding(7, 0)]] ConstantBuffer<View> ViewBuffer;
 [[vk::binding(8, 0)]] StructuredBuffer<AliasTable> EmitterAliasTableBuffer;
@@ -116,6 +24,7 @@ struct Scene
 [[vk::binding(10, 0)]] ConstantBuffer<Scene> SceneBuffer;
 [[vk::binding(11, 0)]] Texture2D Textures[];
 [[vk::binding(12, 0)]] SamplerState Samplers[];
+[[vk::binding(13, 0)]] TextureCube EnvMap;
 
 void sample_emitter_alias_table(float2 rnd, out int index, out float pdf) 
 {

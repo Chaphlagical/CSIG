@@ -12,6 +12,22 @@
 #include <filesystem>
 #include <queue>
 
+#define CUBEMAP_SIZE 1024
+#define IRRADIANCE_CUBEMAP_SIZE 128
+#define IRRADIANCE_WORK_GROUP_SIZE 8
+#define SH_INTERMEDIATE_SIZE (IRRADIANCE_CUBEMAP_SIZE / IRRADIANCE_WORK_GROUP_SIZE)
+#define CUBEMAP_FACE_NUM 6
+#define PREFILTER_MAP_SIZE 256
+#define PREFILTER_MIP_LEVELS 5
+
+enum SamplerType
+{
+	PointWarp,
+	PointClamp,
+	LinearWarp,
+	LinearClamp,
+};
+
 struct Vertex
 {
 	glm::vec4 position;        // xyz - position, w - texcoord u
@@ -20,13 +36,13 @@ struct Vertex
 
 struct Emitter
 {
-	glm::vec3 p0;
-	glm::vec3 p1;
-	glm::vec3 p2;
-	glm::vec3 n0;
-	glm::vec3 n1;
-	glm::vec3 n2;
-	glm::vec3 intensity;
+	glm::vec4 p0;
+	glm::vec4 p1;
+	glm::vec4 p2;
+	glm::vec4 n0;
+	glm::vec4 n1;
+	glm::vec4 n2;
+	glm::vec4 intensity;
 };
 
 struct Mesh
@@ -163,7 +179,8 @@ inline std::vector<AliasTable> build_alias_table(std::vector<float> &probs, floa
 Scene::Scene(const Context &context) :
     m_context(&context)
 {
-	buffer.view = m_context->create_buffer("View Buffer", sizeof(view_info), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	size_t sssss = sizeof(Emitter);
+	buffer.view  = m_context->create_buffer("View Buffer", sizeof(view_info), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	m_context->buffer_copy_to_device(buffer.view, &view_info, sizeof(view_info));
 
 	// Point Warp
@@ -202,6 +219,8 @@ Scene::Scene(const Context &context) :
 	                        .add_descriptor_bindless_binding(11, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Samplers
 	                        .add_descriptor_bindless_binding(12, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // Envmap Texture
+	                        .add_descriptor_binding(13, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        .create();
 
 	descriptor.set = m_context->allocate_descriptor_set({descriptor.layout});
@@ -212,8 +231,9 @@ Scene::~Scene()
 	m_context->wait();
 	m_context->destroy(descriptor.layout)
 	    .destroy(descriptor.set)
-		.destroy(samplers);
+	    .destroy(samplers);
 	destroy_scene();
+	destroy_envmap();
 }
 
 void Scene::load_scene(const std::string &filename)
@@ -543,10 +563,10 @@ void Scene::load_scene(const std::string &filename)
 								    .p0        = instance.transform * glm::vec4(glm::vec3(vertices[mesh.vertices_offset + i0].position), 1.f),
 								    .p1        = instance.transform * glm::vec4(glm::vec3(vertices[mesh.vertices_offset + i1].position), 1.f),
 								    .p2        = instance.transform * glm::vec4(glm::vec3(vertices[mesh.vertices_offset + i2].position), 1.f),
-								    .n0        = glm::normalize(normal_mat * glm::vec3(vertices[mesh.vertices_offset + i0].normal)),
-								    .n1        = glm::normalize(normal_mat * glm::vec3(vertices[mesh.vertices_offset + i1].normal)),
-								    .n2        = glm::normalize(normal_mat * glm::vec3(vertices[mesh.vertices_offset + i2].normal)),
-								    .intensity = materials[mesh.material].emissive_factor,
+								    .n0        = glm::vec4(glm::normalize(normal_mat * glm::vec3(vertices[mesh.vertices_offset + i0].normal)), 0),
+								    .n1        = glm::vec4(glm::normalize(normal_mat * glm::vec3(vertices[mesh.vertices_offset + i1].normal)), 0),
+								    .n2        = glm::vec4(glm::normalize(normal_mat * glm::vec3(vertices[mesh.vertices_offset + i2].normal)), 0),
+								    .intensity = glm::vec4(materials[mesh.material].emissive_factor, 0.f),
 								});
 							}
 							instance.emitter = emitter_offset;
@@ -594,7 +614,7 @@ void Scene::load_scene(const std::string &filename)
 				{
 					const auto &emitter = emitters[i];
 
-					float area = glm::length(glm::cross(emitter.p1 - emitter.p0, emitter.p2 - emitter.p1)) * 0.5f;
+					float area = glm::length(glm::cross(glm::vec3(emitter.p1 - emitter.p0), glm::vec3(emitter.p2 - emitter.p1))) * 0.5f;
 
 					emitter_probs[i] = glm::dot(glm::vec3(emitter.intensity), glm::vec3(0.212671f, 0.715160f, 0.072169f)) * area;
 					total_weight += emitter_probs[i];
@@ -779,6 +799,401 @@ void Scene::load_scene(const std::string &filename)
 
 void Scene::load_envmap(const std::string &filename)
 {
+	m_context->wait();
+	destroy_envmap();
+
+	int32_t width = 0, height = 0, channel = 0, req_channel = 4;
+
+	float *raw_data = stbi_loadf(filename.c_str(), &width, &height, &channel, req_channel);
+	size_t raw_size = static_cast<size_t>(width) * static_cast<size_t>(height) * static_cast<size_t>(req_channel) * sizeof(float);
+
+	Texture hdr_texture = m_context->create_texture_2d(
+	    "HDRTexture",
+	    (uint32_t) width, (uint32_t) height,
+	    VK_FORMAT_R32G32B32A32_SFLOAT,
+	    VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+
+	VkImageView hdr_texture_view = m_context->create_texture_view(
+	    "HDRTexture View",
+	    hdr_texture.vk_image,
+	    VK_FORMAT_R32G32B32A32_SFLOAT);
+
+	Buffer staging_buffer = m_context->create_buffer(
+	    "Staging Buffer",
+	    raw_size,
+	    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+	    VMA_MEMORY_USAGE_CPU_TO_GPU);
+
+	m_context->buffer_copy_to_device(staging_buffer, raw_data, raw_size);
+
+	envmap.texture = m_context->create_texture_cube(
+	    "Envmap Texture",
+	    CUBEMAP_SIZE, CUBEMAP_SIZE,
+	    VK_FORMAT_R32G32B32A32_SFLOAT,
+	    VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+	    5);
+
+	envmap.texture_view = m_context->create_texture_view(
+	    "Envmap Texture View",
+	    envmap.texture.vk_image,
+	    VK_FORMAT_R32G32B32A32_SFLOAT,
+	    VK_IMAGE_VIEW_TYPE_CUBE,
+	    {
+	        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+	        .baseMipLevel   = 0,
+	        .levelCount     = 5,
+	        .baseArrayLayer = 0,
+	        .layerCount     = 6,
+	    });
+
+	Texture sh_intermediate = m_context->create_texture_2d_array(
+	    "SH Intermediate",
+	    SH_INTERMEDIATE_SIZE * 9, SH_INTERMEDIATE_SIZE, 6,
+	    VK_FORMAT_R32G32B32A32_SFLOAT,
+	    VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT);
+
+	VkImageView sh_intermediate_view = m_context->create_texture_view(
+	    "Envmap Texture View",
+	    sh_intermediate.vk_image,
+	    VK_FORMAT_R32G32B32A32_SFLOAT,
+	    VK_IMAGE_VIEW_TYPE_2D_ARRAY,
+	    {
+	        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+	        .baseMipLevel   = 0,
+	        .levelCount     = 1,
+	        .baseArrayLayer = 0,
+	        .layerCount     = 6,
+	    });
+
+	envmap.irradiance_sh = m_context->create_texture_2d(
+	    "Irradiance SH",
+	    9, 1,
+	    VK_FORMAT_R32G32B32A32_SFLOAT,
+	    VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT);
+
+	envmap.irradiance_sh_view = m_context->create_texture_view(
+	    "Irradiance SH View",
+	    envmap.irradiance_sh.vk_image,
+	    VK_FORMAT_R32G32B32A32_SFLOAT);
+
+	envmap.prefilter_map = m_context->create_texture_cube(
+	    "Envmap Prefilter Map",
+	    PREFILTER_MAP_SIZE, PREFILTER_MAP_SIZE,
+	    VK_FORMAT_R32G32B32A32_SFLOAT,
+	    VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+	    PREFILTER_MIP_LEVELS);
+
+	envmap.prefilter_map_view = m_context->create_texture_view(
+	    "Prefilter Map View",
+	    envmap.prefilter_map.vk_image,
+	    VK_FORMAT_R32G32B32A32_SFLOAT,
+	    VK_IMAGE_VIEW_TYPE_CUBE,
+	    {
+	        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+	        .baseMipLevel   = 0,
+	        .levelCount     = PREFILTER_MIP_LEVELS,
+	        .baseArrayLayer = 0,
+	        .layerCount     = CUBEMAP_FACE_NUM,
+	    });
+
+	std::array<VkImageView, PREFILTER_MIP_LEVELS> prefilter_map_views;
+	for (uint32_t i = 0; i < PREFILTER_MIP_LEVELS; i++)
+	{
+		prefilter_map_views[i] = m_context->create_texture_view(
+		    fmt::format("Prefilter Map View Array 2D - {}", i),
+		    envmap.prefilter_map.vk_image,
+		    VK_FORMAT_R32G32B32A32_SFLOAT,
+		    VK_IMAGE_VIEW_TYPE_2D_ARRAY,
+		    {
+		        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		        .baseMipLevel   = i,
+		        .levelCount     = 1,
+		        .baseArrayLayer = 0,
+		        .layerCount     = CUBEMAP_FACE_NUM,
+		    });
+	}
+
+	// Equirectangular to cubemap
+	struct
+	{
+		VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
+		VkDescriptorSet       descriptor_set        = VK_NULL_HANDLE;
+		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
+		VkPipeline            pipeline              = VK_NULL_HANDLE;
+	} equirectangular_to_cubemap;
+
+	equirectangular_to_cubemap.descriptor_set_layout = m_context->create_descriptor_layout()
+	                                                       .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT)
+	                                                       .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT)
+	                                                       .create();
+	equirectangular_to_cubemap.descriptor_set  = m_context->allocate_descriptor_set(equirectangular_to_cubemap.descriptor_set_layout);
+	equirectangular_to_cubemap.pipeline_layout = m_context->create_pipeline_layout({equirectangular_to_cubemap.descriptor_set_layout});
+	equirectangular_to_cubemap.pipeline        = m_context->create_graphics_pipeline(equirectangular_to_cubemap.pipeline_layout)
+	                                          .add_shader(VK_SHADER_STAGE_VERTEX_BIT, "equirectangular_to_cubemap.slang", "vs_main")
+	                                          .add_shader(VK_SHADER_STAGE_FRAGMENT_BIT, "equirectangular_to_cubemap.slang", "fs_main")
+	                                          .add_color_attachment(VK_FORMAT_R32G32B32A32_SFLOAT)
+	                                          .add_viewport({
+	                                              .x        = 0,
+	                                              .y        = 0,
+	                                              .width    = (float) CUBEMAP_SIZE,
+	                                              .height   = (float) CUBEMAP_SIZE,
+	                                              .minDepth = 0.f,
+	                                              .maxDepth = 1.f,
+	                                          })
+	                                          .add_scissor({.offset = {0, 0}, .extent = {CUBEMAP_SIZE, CUBEMAP_SIZE}})
+	                                          .create();
+
+	m_context->update_descriptor()
+	    .write_sampled_images(0, {hdr_texture_view})
+	    .write_samplers(1, {samplers[SamplerType::LinearWarp]})
+	    .update(equirectangular_to_cubemap.descriptor_set);
+
+	// Cubemap sh projection
+	struct
+	{
+		VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
+		VkDescriptorSet       descriptor_set        = VK_NULL_HANDLE;
+		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
+		VkPipeline            pipeline              = VK_NULL_HANDLE;
+	} cubemap_sh_projection;
+
+	cubemap_sh_projection.descriptor_set_layout = m_context->create_descriptor_layout()
+	                                                  .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                                  .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                                  .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                                  .create();
+	cubemap_sh_projection.descriptor_set  = m_context->allocate_descriptor_set(cubemap_sh_projection.descriptor_set_layout);
+	cubemap_sh_projection.pipeline_layout = m_context->create_pipeline_layout({cubemap_sh_projection.descriptor_set_layout});
+	cubemap_sh_projection.pipeline        = m_context->create_compute_pipeline("cubemap_sh_projection.slang", cubemap_sh_projection.pipeline_layout);
+
+	m_context->update_descriptor()
+	    .write_sampled_images(0, {envmap.texture_view})
+	    .write_storage_images(1, {sh_intermediate_view})
+	    .write_samplers(2, {samplers[SamplerType::LinearWarp]})
+	    .update(cubemap_sh_projection.descriptor_set);
+
+	// Cubemap sh add pass
+	struct
+	{
+		VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
+		VkDescriptorSet       descriptor_set        = VK_NULL_HANDLE;
+		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
+		VkPipeline            pipeline              = VK_NULL_HANDLE;
+	} cubemap_sh_add;
+
+	cubemap_sh_add.descriptor_set_layout = m_context->create_descriptor_layout()
+	                                           .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                           .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                           .create();
+	cubemap_sh_add.descriptor_set  = m_context->allocate_descriptor_set(cubemap_sh_add.descriptor_set_layout);
+	cubemap_sh_add.pipeline_layout = m_context->create_pipeline_layout({cubemap_sh_add.descriptor_set_layout});
+	cubemap_sh_add.pipeline        = m_context->create_compute_pipeline("cubemap_sh_add.slang", cubemap_sh_add.pipeline_layout);
+
+	m_context->update_descriptor()
+	    .write_sampled_images(0, {sh_intermediate_view})
+	    .write_storage_images(1, {envmap.irradiance_sh_view})
+	    .update(cubemap_sh_add.descriptor_set);
+
+	// Cubemap prefilter
+	struct
+	{
+		VkDescriptorSetLayout                             descriptor_set_layout = VK_NULL_HANDLE;
+		std::array<VkDescriptorSet, PREFILTER_MIP_LEVELS> descriptor_sets;
+		VkPipelineLayout                                  pipeline_layout = VK_NULL_HANDLE;
+		VkPipeline                                        pipeline        = VK_NULL_HANDLE;
+	} cubemap_prefilter;
+
+	cubemap_prefilter.descriptor_set_layout = m_context->create_descriptor_layout()
+	                                              .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                              .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                              .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                              .create();
+	cubemap_prefilter.descriptor_sets = m_context->allocate_descriptor_sets<PREFILTER_MIP_LEVELS>(cubemap_prefilter.descriptor_set_layout);
+	cubemap_prefilter.pipeline_layout = m_context->create_pipeline_layout({cubemap_prefilter.descriptor_set_layout}, sizeof(int32_t), VK_SHADER_STAGE_COMPUTE_BIT);
+	cubemap_prefilter.pipeline        = m_context->create_compute_pipeline("cubemap_prefilter.slang", cubemap_prefilter.pipeline_layout);
+
+	for (uint32_t i = 0; i < PREFILTER_MIP_LEVELS; i++)
+	{
+		m_context->update_descriptor()
+		    .write_sampled_images(0, {envmap.texture_view})
+		    .write_storage_images(1, {prefilter_map_views[i]})
+		    .write_samplers(2, {samplers[SamplerType::LinearWarp]})
+		    .update(cubemap_prefilter.descriptor_sets[i]);
+	}
+
+	m_context->record_command()
+	    .begin()
+	    // Copy buffer to texture
+	    .begin_marker("Copy HDR Texture Data to Device")
+	    .insert_barrier()
+	    .add_image_barrier(
+	        hdr_texture.vk_image,
+	        0, VK_ACCESS_TRANSFER_WRITE_BIT,
+	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+	    .insert()
+	    .copy_buffer_to_image(staging_buffer.vk_buffer, hdr_texture.vk_image, {(uint32_t) width, (uint32_t) height, 1})
+	    .end_marker()
+	    // Equirectangular to cubemap
+	    .begin_marker("Equirectangular to Cubemap")
+	    .insert_barrier()
+	    .add_image_barrier(
+	        hdr_texture.vk_image,
+	        VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+	        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+	    .add_image_barrier(
+	        envmap.texture.vk_image,
+	        0, VK_ACCESS_SHADER_WRITE_BIT,
+	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+	        {
+	            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+	            .baseMipLevel   = 0,
+	            .levelCount     = 5,
+	            .baseArrayLayer = 0,
+	            .layerCount     = 6,
+	        })
+	    .insert()
+	    .bind_pipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, equirectangular_to_cubemap.pipeline)
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_GRAPHICS, equirectangular_to_cubemap.pipeline_layout, {equirectangular_to_cubemap.descriptor_set})
+	    .add_color_attachment(envmap.texture_view)
+	    .begin_rendering(CUBEMAP_SIZE, CUBEMAP_SIZE, 6)
+	    .draw(3, 6)
+	    .end_rendering()
+	    .insert_barrier()
+	    .add_image_barrier(
+	        envmap.texture.vk_image,
+	        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+	        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+	        {
+	            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+	            .baseMipLevel   = 0,
+	            .levelCount     = 5,
+	            .baseArrayLayer = 0,
+	            .layerCount     = 6,
+	        })
+	    .add_image_barrier(
+	        sh_intermediate.vk_image,
+	        0, VK_ACCESS_SHADER_WRITE_BIT,
+	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+	        {
+	            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+	            .baseMipLevel   = 0,
+	            .levelCount     = 1,
+	            .baseArrayLayer = 0,
+	            .layerCount     = 6,
+	        })
+	    .insert()
+	    .generate_mipmap(envmap.texture.vk_image, CUBEMAP_SIZE, CUBEMAP_SIZE, 5, 6)
+	    .insert_barrier()
+	    .add_image_barrier(
+	        envmap.texture.vk_image,
+	        VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+	        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	        {
+	            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+	            .baseMipLevel   = 0,
+	            .levelCount     = 5,
+	            .baseArrayLayer = 0,
+	            .layerCount     = 6,
+	        })
+	    .insert()
+	    .end_marker()
+	    // Cubemap sh projection
+	    .begin_marker("Cubemap SH Projection")
+	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, cubemap_sh_projection.pipeline)
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, cubemap_sh_projection.pipeline_layout, {cubemap_sh_projection.descriptor_set})
+	    .dispatch({IRRADIANCE_CUBEMAP_SIZE, IRRADIANCE_CUBEMAP_SIZE, 6}, {IRRADIANCE_WORK_GROUP_SIZE, IRRADIANCE_WORK_GROUP_SIZE, 1})
+	    .insert_barrier()
+	    .add_image_barrier(
+	        envmap.irradiance_sh.vk_image,
+	        0, VK_ACCESS_SHADER_WRITE_BIT,
+	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL)
+	    .add_image_barrier(
+	        sh_intermediate.vk_image,
+	        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+	        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	        {
+	            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+	            .baseMipLevel   = 0,
+	            .levelCount     = 1,
+	            .baseArrayLayer = 0,
+	            .layerCount     = 6,
+	        })
+	    .insert()
+	    .end_marker()
+	    // Cubemap sh add
+	    .begin_marker("Cubemap SH Add")
+	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, cubemap_sh_add.pipeline)
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, cubemap_sh_add.pipeline_layout, {cubemap_sh_add.descriptor_set})
+	    .dispatch({9, 1, 1}, {1, 1, 1})
+	    .insert_barrier()
+	    .add_image_barrier(
+	        envmap.irradiance_sh.vk_image,
+	        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+	        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+	    .add_image_barrier(
+	        envmap.prefilter_map.vk_image,
+	        0, VK_ACCESS_SHADER_WRITE_BIT,
+	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+	        {
+	            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+	            .baseMipLevel   = 0,
+	            .levelCount     = PREFILTER_MIP_LEVELS,
+	            .baseArrayLayer = 0,
+	            .layerCount     = 6,
+	        })
+	    .insert()
+	    .end_marker()
+	    // Cubemap prefilter
+	    .begin_marker("Cubemap Prefilter")
+	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, cubemap_prefilter.pipeline)
+	    .execute([&](CommandBufferRecorder &recorder) {
+		    for (int32_t i = 0; i < PREFILTER_MIP_LEVELS; i++)
+		    {
+			    uint32_t mip_size = static_cast<uint32_t>(PREFILTER_MAP_SIZE * std::pow(0.5f, i));
+			    recorder.push_constants(cubemap_prefilter.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, i)
+			        .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, cubemap_prefilter.pipeline_layout, {cubemap_prefilter.descriptor_sets[i]})
+			        .dispatch({mip_size, mip_size, 6}, {8, 8, 1});
+		    }
+	    })
+	    .insert_barrier()
+	    .add_image_barrier(
+	        envmap.prefilter_map.vk_image,
+	        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+	        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	        {
+	            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+	            .baseMipLevel   = 0,
+	            .levelCount     = PREFILTER_MIP_LEVELS,
+	            .baseArrayLayer = 0,
+	            .layerCount     = 6,
+	        })
+	    .insert()
+	    .end_marker()
+	    .end()
+	    .flush();
+
+	m_context->destroy(hdr_texture)
+	    .destroy(hdr_texture_view)
+	    .destroy(staging_buffer)
+	    .destroy(sh_intermediate)
+	    .destroy(sh_intermediate_view)
+	    .destroy(prefilter_map_views)
+	    .destroy(equirectangular_to_cubemap.descriptor_set_layout)
+	    .destroy(equirectangular_to_cubemap.descriptor_set)
+	    .destroy(equirectangular_to_cubemap.pipeline_layout)
+	    .destroy(equirectangular_to_cubemap.pipeline)
+	    .destroy(cubemap_sh_projection.descriptor_set_layout)
+	    .destroy(cubemap_sh_projection.descriptor_set)
+	    .destroy(cubemap_sh_projection.pipeline_layout)
+	    .destroy(cubemap_sh_projection.pipeline)
+	    .destroy(cubemap_sh_add.descriptor_set_layout)
+	    .destroy(cubemap_sh_add.descriptor_set)
+	    .destroy(cubemap_sh_add.pipeline_layout)
+	    .destroy(cubemap_sh_add.pipeline)
+	    .destroy(cubemap_prefilter.descriptor_set_layout)
+	    .destroy(cubemap_prefilter.descriptor_sets)
+	    .destroy(cubemap_prefilter.pipeline_layout)
+	    .destroy(cubemap_prefilter.pipeline);
 }
 
 void Scene::update_view(CommandBufferRecorder &recorder)
@@ -798,7 +1213,7 @@ void Scene::update_view(CommandBufferRecorder &recorder)
 	    .end_marker();
 }
 
-void Scene::update_descriptor()
+void Scene::update()
 {
 	m_context->update_descriptor()
 	    .write_acceleration_structures(0, {tlas})
@@ -814,7 +1229,8 @@ void Scene::update_descriptor()
 	    .write_uniform_buffers(10, {buffer.scene.vk_buffer})
 	    .write_sampled_images(11, texture_views)
 	    .write_samplers(12, samplers)
-		.update(descriptor.set);
+	    .write_sampled_images(13, {envmap.texture_view})
+	    .update(descriptor.set);
 }
 
 void Scene::destroy_scene()
@@ -837,4 +1253,10 @@ void Scene::destroy_scene()
 
 void Scene::destroy_envmap()
 {
+	m_context->destroy(envmap.texture)
+	    .destroy(envmap.irradiance_sh)
+	    .destroy(envmap.prefilter_map)
+	    .destroy(envmap.texture_view)
+	    .destroy(envmap.irradiance_sh_view)
+	    .destroy(envmap.prefilter_map_view);
 }

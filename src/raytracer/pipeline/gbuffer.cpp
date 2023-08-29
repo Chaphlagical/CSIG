@@ -309,7 +309,7 @@ void GBufferPass::draw(CommandBufferRecorder &recorder, const Scene &scene)
 	    .generate_mipmap(gbufferA[m_context->ping_pong].vk_image, m_width, m_height, m_mip_level)
 	    .generate_mipmap(gbufferB[m_context->ping_pong].vk_image, m_width, m_height, m_mip_level)
 	    .generate_mipmap(gbufferC[m_context->ping_pong].vk_image, m_width, m_height, m_mip_level)
-	    .generate_mipmap(depth_buffer[m_context->ping_pong].vk_image, m_width, m_height, m_mip_level, VK_IMAGE_ASPECT_DEPTH_BIT)
+	    .generate_mipmap(depth_buffer[m_context->ping_pong].vk_image, m_width, m_height, m_mip_level, 1, VK_IMAGE_ASPECT_DEPTH_BIT)
 	    .insert_barrier()
 	    .add_image_barrier(
 	        gbufferA[m_context->ping_pong].vk_image,
@@ -359,57 +359,3 @@ void GBufferPass::draw(CommandBufferRecorder &recorder, const Scene &scene)
 	    .end_marker()
 	    .end_marker();
 }
-
-//void GBufferPass::transition_read(CommandBufferRecorder &recorder)
-//{
-//	recorder.insert_barrier()
-//	    .add_image_barrier(
-//	        gbufferA[m_context->ping_pong].vk_image,
-//	        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-//	        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-//	        {
-//	            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-//	            .baseMipLevel   = 0,
-//	            .levelCount     = m_mip_level,
-//	            .baseArrayLayer = 0,
-//	            .layerCount     = 1,
-//	        })
-//	    .add_image_barrier(
-//	        gbufferB[m_context->ping_pong].vk_image,
-//	        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-//	        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-//	        {
-//	            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-//	            .baseMipLevel   = 0,
-//	            .levelCount     = m_mip_level,
-//	            .baseArrayLayer = 0,
-//	            .layerCount     = 1,
-//	        })
-//	    .add_image_barrier(
-//	        gbufferC[m_context->ping_pong].vk_image,
-//	        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-//	        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-//	        {
-//	            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-//	            .baseMipLevel   = 0,
-//	            .levelCount     = m_mip_level,
-//	            .baseArrayLayer = 0,
-//	            .layerCount     = 1,
-//	        })
-//	    .add_image_barrier(
-//	        depth_buffer[m_context->ping_pong].vk_image,
-//	        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-//	        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-//	        {
-//	            .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
-//	            .baseMipLevel   = 0,
-//	            .levelCount     = m_mip_level,
-//	            .baseArrayLayer = 0,
-//	            .layerCount     = 1,
-//	        })
-//	    .insert();
-//}
-//
-//void GBufferPass::transition_write(CommandBufferRecorder &recorder)
-//{
-//}

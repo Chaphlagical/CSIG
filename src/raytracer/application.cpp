@@ -47,7 +47,9 @@ Application::Application() :
     m_renderer{
         .ui{m_context},
         .gbuffer{m_context, m_scene},
-        .ao{m_context, m_scene, m_renderer.gbuffer}}
+        .path_tracing{m_context, m_scene, m_renderer.gbuffer},
+        .ao{m_context, m_scene, m_renderer.gbuffer},
+        .tonemap{m_context}}
 {
 	for (uint32_t i = 0; i < 3; i++)
 	{
@@ -67,9 +69,11 @@ Application::Application() :
 		m_jitter_samples.push_back(glm::vec2((2.f * halton_sequence(2, i) - 1.f), (2.f * halton_sequence(3, i) - 1.f)));
 	}
 
-	m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\default.glb)");
+	// m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\Deferred/Deferred.gltf)");
+	 m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\default.glb)");
+	m_scene.load_envmap(R"(D:\Workspace\CSIG\assets\textures\hdr\default.hdr)");
 	// m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\Deferred\Deferred.gltf)");
-	m_scene.update_descriptor();
+	m_scene.update();
 
 	m_context.wait();
 }
@@ -203,6 +207,7 @@ void Application::update_view()
 		              0, 0, -1, 0,
 		              0, 0, 1, 1) *
 		    glm::perspective(glm::radians(60.f), static_cast<float>(m_context.render_extent.width) / static_cast<float>(m_context.render_extent.height), 0.01f, 1000.f);
+		m_renderer.path_tracing.reset_frames();
 	}
 	else
 	{
@@ -254,27 +259,50 @@ void Application::update(CommandBufferRecorder &recorder)
 void Application::render(CommandBufferRecorder &recorder)
 {
 	m_renderer.gbuffer.draw(recorder, m_scene);
-	m_renderer.ao.draw(recorder, m_scene, m_renderer.gbuffer);
+	if (m_render_mode == RenderMode::PathTracing)
+	{
+		m_renderer.path_tracing.draw(recorder, m_scene, m_renderer.gbuffer);
+		m_renderer.tonemap.draw(recorder, m_renderer.path_tracing);
+		recorder.insert_barrier()
+		    .add_image_barrier(m_renderer.tonemap.render_target.vk_image,
+		                       VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+		                       VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+		    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+		                       VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+		                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+		    .insert();
+		m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.tonemap.render_target.vk_image);
+		recorder.insert_barrier()
+		    .add_image_barrier(m_renderer.tonemap.render_target.vk_image,
+		                       VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT,
+		                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL)
+		    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+		                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
+		                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+		    .insert();
+	}
+	else
+	{
+		m_renderer.ao.draw(recorder, m_scene, m_renderer.gbuffer);
 
-	recorder.insert_barrier()
-	    .add_image_barrier(m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image,
-	                       VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-	                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
-	    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
-	                       VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
-	                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-	    .insert();
-
-	m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image);
-
-	recorder.insert_barrier()
-	    .add_image_barrier(m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image,
-	                       VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
-	                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-	    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
-	                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
-	                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
-	    .insert();
+		recorder.insert_barrier()
+		    .add_image_barrier(m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image,
+		                       VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+		                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+		    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+		                       VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+		                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+		    .insert();
+		m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image);
+		recorder.insert_barrier()
+		    .add_image_barrier(m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image,
+		                       VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
+		                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+		    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+		                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
+		                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+		    .insert();
+	}
 
 	m_renderer.ui.render(recorder, m_current_frame);
 }
@@ -294,6 +322,22 @@ void Application::update_ui()
 		ImGui::Text("CSIG 2023 RayTracer");
 		ImGui::Text("FPS: %.f", ImGui::GetIO().Framerate);
 		ImGui::Text("Frames: %.d", m_num_frames);
+		const char *const render_modes[] = {"Path Tracing", "Ambient Occlusion"};
+		ImGui::Combo("Render Mode", reinterpret_cast<int *>(&m_render_mode), render_modes, 2);
+
+		bool update = false;
+		switch (m_render_mode)
+		{
+			case RenderMode::PathTracing:
+				update |= m_renderer.path_tracing.draw_ui();
+				break;
+		}
+		if (update)
+		{
+			m_renderer.path_tracing.reset_frames();
+		}
+		m_renderer.tonemap.draw_ui();
+
 		ImGui::End();
 	}
 

@@ -2,7 +2,9 @@
 
 #include "context.hpp"
 #include "pipeline/gbuffer.hpp"
+#include "pipeline/path_tracing.hpp"
 #include "pipeline/raytrace_ao.hpp"
+#include "pipeline/tonemap.hpp"
 #include "pipeline/ui.hpp"
 #include "scene.hpp"
 
@@ -42,7 +44,7 @@ class Application
 	glm::vec2 m_current_jitter = glm::vec2(0.f);
 	glm::vec2 m_prev_jitter    = glm::vec2(0.f);
 
-	bool m_update = true;
+	bool m_update    = true;
 	bool m_enable_ui = true;
 
 	struct
@@ -70,6 +72,14 @@ class Application
 	{
 		UIPass      ui;
 		GBufferPass gbuffer;
+		PathTracing path_tracing;
 		RayTracedAO ao;
+		Tonemap     tonemap;
 	} m_renderer;
+
+	enum class RenderMode : uint32_t
+	{
+		PathTracing,
+		AmbientOcclusion,
+	} m_render_mode = RenderMode::PathTracing;
 };

@@ -174,6 +174,12 @@ struct CommandBufferRecorder
 	    const glm::uvec3 &thread_num,
 	    const glm::uvec3 &group_size);
 
+	CommandBufferRecorder &draw(
+	    uint32_t vertex_count,
+	    uint32_t instance_count  = 1,
+	    uint32_t vertex_offset   = 0,
+	    uint32_t instance_offset = 0);
+
 	CommandBufferRecorder &draw_indexed(
 	    uint32_t index_count,
 	    uint32_t instance_count = 1,
@@ -214,7 +220,7 @@ struct CommandBufferRecorder
 
 	BarrierBuilder insert_barrier();
 
-	CommandBufferRecorder &generate_mipmap(VkImage image, uint32_t width, uint32_t height, uint32_t mip_level, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT);
+	CommandBufferRecorder &generate_mipmap(VkImage image, uint32_t width, uint32_t height, uint32_t mip_level, uint32_t layer = 1, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT);
 
 	void flush();
 
@@ -402,6 +408,14 @@ struct Context
 	    VkFormat           format,
 	    VkImageUsageFlags  usage,
 	    bool               mipmap = false) const;
+
+	Texture create_texture_cube(
+	    const std::string &name,
+	    uint32_t           width,
+	    uint32_t           height,
+	    VkFormat           format,
+	    VkImageUsageFlags  usage,
+	    uint32_t           mipmap = 1) const;
 
 	Texture create_texture_2d_array(
 	    const std::string &name,

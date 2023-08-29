@@ -5,21 +5,6 @@
 #include "random.slangh"
 #include "common.slangh"
 
-struct ShadeState
-{
-	float3 normal;
-	float3 geom_normal;
-	float3 ffnormal;
-	float3 position;
-	float3 tangent;
-	float3 bitangent;
-	float eta;
-	bool primary;
-	float depth;
-	float2 motion_vector;
-	Material mat;
-};
-
 struct RtPayload
 {
   uint   seed;
@@ -84,11 +69,13 @@ bool hit_test(in RayQuery<RAY_FLAG_NONE> ray_query, in RayDesc r)
 	float base_color_alpha = material.base_color.a;
 	if(material.base_color_texture > -1)
 	{
-        uint3 ind = IndexBuffer.Load<uint3>(instance.indices_offset + primitive_id * 3);
+		const uint ind0 = IndexBuffer.Load(instance.indices_offset + primitive_id * 3 + 0);
+		const uint ind1 = IndexBuffer.Load(instance.indices_offset + primitive_id * 3 + 1);
+		const uint ind2 = IndexBuffer.Load(instance.indices_offset + primitive_id * 3 + 2);
 
-        const Vertex v0 = VertexBuffer.Load<Vertex>(instance.vertices_offset + ind.x);
-        const Vertex v1 = VertexBuffer.Load<Vertex>(instance.vertices_offset + ind.y);
-        const Vertex v2 = VertexBuffer.Load<Vertex>(instance.vertices_offset + ind.z);
+        const Vertex v0 = VertexBuffer.Load(instance.vertices_offset + ind0);
+        const Vertex v1 = VertexBuffer.Load(instance.vertices_offset + ind1);
+        const Vertex v2 = VertexBuffer.Load(instance.vertices_offset + ind2);
 
 		const float2 uv0 = float2(v0.position.w, v0.normal.w);
 		const float2 uv1 = float2(v1.position.w, v1.normal.w);
@@ -206,11 +193,13 @@ ShadeState get_shade_state(RayDesc ray, RtPayload payload)
 	const float3 bary = float3(1.0 - payload.bary_coord.x - payload.bary_coord.y, payload.bary_coord.x, payload.bary_coord.y);
 	const Instance instance = InstanceBuffer.Load(instance_id);
 
-    const uint3 ind = IndexBuffer.Load(instance.indices_offset + primitive_id * 3);
+    const uint ind0 = IndexBuffer.Load(instance.indices_offset + primitive_id * 3 + 0);
+    const uint ind1 = IndexBuffer.Load(instance.indices_offset + primitive_id * 3 + 1);
+    const uint ind2 = IndexBuffer.Load(instance.indices_offset + primitive_id * 3 + 2);
 
-	const Vertex v0 = VertexBuffer.Load<Vertex>(instance.vertices_offset + ind.x);
-	const Vertex v1 = VertexBuffer.Load<Vertex>(instance.vertices_offset + ind.y);
-	const Vertex v2 = VertexBuffer.Load<Vertex>(instance.vertices_offset + ind.z);
+	const Vertex v0 = VertexBuffer.Load(instance.vertices_offset + ind0);
+	const Vertex v1 = VertexBuffer.Load(instance.vertices_offset + ind1);
+	const Vertex v2 = VertexBuffer.Load(instance.vertices_offset + ind2);
 
 	const float3 world_position = ray.Origin + payload.hit_t * ray.Direction;
 
@@ -285,9 +274,9 @@ LightSample sample_light_idx(ShadeState sstate, uint idx)
 
 	if(idx < SceneBuffer.emitter_count)
 	{
-		Emitter emitter = EmitterBuffer.Load<Emitter>(idx);
+		Emitter emitter = EmitterBuffer.Load(idx);
 
-		float area = 0.5 * length(cross(emitter.p1 - emitter.p0, emitter.p2 - emitter.p1));
+		float area = 0.5 * length(cross(emitter.p1.xyz - emitter.p0.xyz, emitter.p2.xyz - emitter.p1.xyz));
 		float a = sqrt(rand(prd.seed));
 		float b = a * rand(prd.seed);
 		
@@ -295,7 +284,7 @@ LightSample sample_light_idx(ShadeState sstate, uint idx)
 		ls.norm = normalize(emitter.n0.xyz + (emitter.n1 - emitter.n0).xyz * (1.0 - a) + (emitter.n2 - emitter.n0).xyz * b);
 		ls.dir = normalize(ls.pos - sstate.position);
 		ls.dist = length(ls.pos - sstate.position);
-		ls.le = emitter.intensity;
+		ls.le = emitter.intensity.rgb;
 		ls.pdf = ls.dist * ls.dist / (area * abs(dot(ls.norm, -ls.dir)));
 	}
 	return ls;

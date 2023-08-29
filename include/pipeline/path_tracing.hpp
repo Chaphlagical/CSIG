@@ -20,6 +20,12 @@ struct PathTracing
 	std::array<Texture, 2>     render_target;
 	std::array<VkImageView, 2> render_target_view = {VK_NULL_HANDLE, VK_NULL_HANDLE};
 
+	struct
+	{
+		VkDescriptorSetLayout          layout = VK_NULL_HANDLE;
+		std::array<VkDescriptorSet, 2> sets   = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+	} descriptor;
+
   private:
 	const Context *m_context = nullptr;
 

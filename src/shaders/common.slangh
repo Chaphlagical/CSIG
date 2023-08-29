@@ -12,6 +12,13 @@ static const float ShadowEpsilon = 0.0001;
 static const float Epsilon       = 1e-7;
 static const float Infinity      = 1e32;
 
+#define POSITIVE_X 0
+#define NEGATIVE_X 1
+#define POSITIVE_Y 2
+#define NEGATIVE_Y 3
+#define POSITIVE_Z 4
+#define NEGATIVE_Z 5
+
 struct CSParam
 {
     uint3 DispatchThreadID : SV_DispatchThreadID;
@@ -24,6 +31,125 @@ struct DispatchIndirectCommand {
     uint x;
     uint y;
     uint z;
+};
+
+struct Vertex
+{
+	float4 position; // xyz - position, w - texcoord u
+	float4 normal; // xyz - normal, w - texcoord v
+};
+
+struct View
+{
+	float4x4 view_inv;
+	float4x4 projection_inv;
+	float4x4 view_projection_inv;
+	float4x4 view_projection;
+	float4x4 prev_view;
+	float4x4 prev_projection;
+	float4x4 prev_view_projection;
+	float4x4 prev_view_projection_inv;
+	float4 cam_pos; // xyz - position, w - num_frames
+	float4 prev_cam_pos; // xyz - position, w - padding
+	float4 jitter;
+};
+
+struct Emitter
+{
+	float4 p0;
+	float4 p1;
+	float4 p2;
+	float4 n0;
+	float4 n1;
+	float4 n2;
+	float4 intensity;
+};
+
+struct Mesh
+{
+	uint vertices_offset;
+	uint vertices_count;
+	uint indices_offset;
+	uint indices_count;
+	uint material;
+	float area;
+};
+
+struct Material
+{
+	uint alpha_mode; // 0 - opaque, 1 - mask, 2 - blend
+	uint double_sided;
+	float cutoff;
+	float metallic_factor;
+	float roughness_factor;
+	float transmission_factor;
+	float clearcoat_factor;
+	float clearcoat_roughness_factor;
+	float4 base_color;
+	float3 emissive_factor;
+	int32_t base_color_texture;
+	int32_t normal_texture;
+	int32_t metallic_roughness_texture;
+	float2 padding;
+};
+
+struct Instance
+{
+    float4x4 transform;
+    float4x4 transform_inv;
+    uint vertices_offset;
+    uint vertices_count;
+    uint indices_offset;
+    uint indices_count;
+    uint mesh;
+    uint material;
+    int emitter;
+    float area;
+};
+
+struct AliasTable
+{
+	float prob;         // The i's column's event i's prob
+	int   alias;        // The i's column's another event's idx
+	float ori_prob;
+	float alias_ori_prob;
+};
+
+struct Scene
+{
+	uint vertices_count;
+	uint indices_count;
+	uint instance_count;
+	uint material_count;
+	float3 min_extent;
+	uint emitter_count;
+	float3 max_extent;
+	uint mesh_count;
+};
+
+struct ShadeState
+{
+	float3 normal;
+	float3 geom_normal;
+	float3 ffnormal;
+	float3 position;
+	float3 tangent;
+	float3 bitangent;
+	float eta;
+	bool primary;
+	float depth;
+	float2 motion_vector;
+	Material mat;
+};
+
+struct SH9
+{
+    float weights[9];
+};
+
+struct SH9Color
+{
+    float3 weights[9];
 };
 
 void coordinate_system(float3 N, out float3 Nt, out float3 Nb)
@@ -83,9 +209,103 @@ int2 texture_size(Texture2D<uint> texture, uint mip_level)
 	return int2(width, height);
 }
 
+int2 texture_size(TextureCube<float4> texture, uint mip_level)
+{
+	uint width, height, level;
+	texture.GetDimensions(mip_level, width, height, level);
+	return int2(width, height);
+}
+
 float luminance(float3 color)
 {
 	return dot(color, float3(0.212671, 0.715160, 0.072169));
+}
+
+float area_integral(float x, float y)
+{
+    return atan2(x * y, sqrt(x * x + y * y + 1));
+}
+
+float unlerp(float val, float max_val)
+{
+    return (val + 0.5) / max_val;
+}
+
+SH9 project_sh(in float3 dir)
+{
+    SH9 sh;
+
+    sh.weights[0] = 0.282095;
+
+    sh.weights[1] = -0.488603 * dir.y;
+    sh.weights[2] = 0.488603 * dir.z;
+    sh.weights[3] = -0.488603 * dir.x;
+
+    sh.weights[4] = 1.092548 * dir.x * dir.y;
+    sh.weights[5] = -1.092548 * dir.y * dir.z;
+    sh.weights[6] = 0.315392 * (3.0 * dir.z * dir.z - 1.0);
+    sh.weights[7] = -1.092548 * dir.x * dir.z;
+    sh.weights[8] = 0.546274 * (dir.x * dir.x - dir.y * dir.y);
+
+    return sh;
+}
+
+float calculate_solid_angle(uint x, uint y, uint width, uint height)
+{
+    float s = unlerp(float(x), width) * 2.0 - 1.0;
+    float t = unlerp(float(y), height) * 2.0 - 1.0;
+
+    // assumes square face
+    float half_texel_size = 1.0 / width;
+    float x0 = s - half_texel_size;
+    float y0 = t - half_texel_size;
+    float x1 = s + half_texel_size;
+    float y1 = t + half_texel_size;
+
+    return area_integral(x0, y0) - area_integral(x0, y1) - area_integral(x1, y0) + area_integral(x1, y1);
+}
+
+float3 calculate_cubemap_direction(uint face, uint face_x, uint face_y, uint width, uint height)
+{
+    float u = unlerp(float(face_x), width) * 2.0 - 1.0;
+    float v = unlerp(float(face_y), height) * 2.0 - 1.0;
+    float x, y, z;
+
+    switch (face)
+    {
+        case POSITIVE_X:
+            x = 1;
+            y = -v;
+            z = -u;
+            break;
+        case NEGATIVE_X:
+            x = -1;
+            y = -v;
+            z = u;
+            break;
+        case POSITIVE_Y:
+            x = u;
+            y = 1;
+            z = v;
+            break;
+        case NEGATIVE_Y:
+            x = u;
+            y = -1;
+            z = -v;
+            break;
+        case POSITIVE_Z:
+            x = u;
+            y = -v;
+            z = 1;
+            break;
+        case NEGATIVE_Z:
+            x = -u;
+            y = -v;
+            z = -1;
+            break;
+    }
+	
+    return normalize(float3(x, y, z));
 }
 
 #endif
