@@ -1,0 +1,106 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
+
+#include "common.glsl"
+#include "bxdf.glsl"
+
+#define LOCAL_SIZE 8
+#define CUBEMAP_SIZE 1024
+#define PREFILTER_MAP_SIZE 256
+#define PREFILTER_MIP_LEVELS 5
+#define SAMPLE_COUNT 1024
+
+layout(local_size_x = LOCAL_SIZE, local_size_y = LOCAL_SIZE, local_size_z = 1) in;
+
+layout(binding = 0) uniform samplerCube skybox;
+layout(binding = 1, rgba16f) uniform imageCube prefiltered_image;
+
+layout(push_constant) uniform PushConstants
+{
+	int mip;
+}push_constants;
+
+float radical_inverse_vdc(uint bits)
+{
+    bits = (bits << 16u) | (bits >> 16u);
+    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+    return float(bits) * 2.3283064365386963e-10; // / 0x100000000
+}
+
+vec2 hammersley(uint i, uint N)
+{
+    return vec2(float(i) / float(N), radical_inverse_vdc(i));
+}
+
+vec3 sample_direction(uint idx, float roughness)
+{
+	vec2 Xi = hammersley(idx, SAMPLE_COUNT);
+	float a = roughness * roughness;
+
+	float phi = 2.0f * PI * Xi.x;
+	float cos_theta = sqrt((1.0 - Xi.y) / (1.0 + (a * a - 1.0) * Xi.y));
+	float sin_theta = sqrt(1.0 - cos_theta * cos_theta);
+
+	vec3 H;
+	H.x = cos(phi) * sin_theta;
+	H.y = sin(phi) * sin_theta;
+	H.z = cos_theta;
+
+	return H;
+}
+
+void main()
+{
+	uint width = uint(PREFILTER_MAP_SIZE * pow(0.5, push_constants.mip));
+    uint height = uint(PREFILTER_MAP_SIZE * pow(0.5, push_constants.mip));
+	int start_level = CUBEMAP_SIZE / PREFILTER_MAP_SIZE - 1;
+
+	vec3 N = calculate_cubemap_direction(gl_GlobalInvocationID.z, gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, width, height);
+	vec3 R = N;
+    vec3 V = R;
+
+	ivec2 size = textureSize(skybox, start_level);
+	float res = float(size.x);
+	
+	float roughness = float(push_constants.mip) / float(PREFILTER_MIP_LEVELS - 1);
+	vec3 prefiltered_color = vec3(0.0);
+    float total_weight = 0.0;
+
+	vec3 up = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+    vec3 tangent = normalize(cross(up, N));
+    vec3 bitangent = cross(N, tangent);
+
+	mat3 TBN = mat3(tangent, bitangent, N);
+
+	for (uint i = 0; i < SAMPLE_COUNT; ++i)
+	{
+		vec3 H = TBN * sample_direction(i, roughness).xyz;
+        vec3 L = normalize(2.0 * dot(V, H) * H - V);
+
+		float NdotL = max(dot(N, L), 0.0);
+
+		if (NdotL > 0.0)
+        {
+            float D = GTR2(max(dot(N, H), 0.0), roughness);
+            float NdotH = max(dot(N, H), 0.0);
+            float HdotV = max(dot(H, V), 0.0);
+            float pdf = D * NdotH / (4.0 * HdotV) + 0.0001;
+
+            float sa_texel  = 4.0 * PI / (6.0 * res * res);
+            float sa_sample = 1.0 / (float(SAMPLE_COUNT) * pdf + 0.0001);
+
+            float mip_level = roughness == 0.0 ? 0.0 : 0.5 * log2(sa_sample / sa_texel);
+
+            prefiltered_color += textureLod(skybox, L, start_level + mip_level).rgb * NdotL;
+            total_weight += NdotL;
+        }
+	}
+
+	prefiltered_color = prefiltered_color / total_weight;
+	imageStore(prefiltered_image, ivec3(gl_GlobalInvocationID), vec4(prefiltered_color, 1.0));
+}

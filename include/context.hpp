@@ -277,6 +277,7 @@ struct DescriptorUpdateBuilder
 	DescriptorUpdateBuilder &write_storage_images(uint32_t binding, const std::vector<VkImageView> &image_views);
 	DescriptorUpdateBuilder &write_sampled_images(uint32_t binding, const std::vector<VkImageView> &image_views);
 	DescriptorUpdateBuilder &write_samplers(uint32_t binding, const std::vector<VkSampler> &samplers);
+	DescriptorUpdateBuilder &write_combine_sampled_images(uint32_t binding, VkSampler sampler, const std::vector<VkImageView> &image_views);
 	DescriptorUpdateBuilder &write_uniform_buffers(uint32_t binding, const std::vector<VkBuffer> &buffers);
 	DescriptorUpdateBuilder &write_storage_buffers(uint32_t binding, const std::vector<VkBuffer> &buffers);
 	DescriptorUpdateBuilder &write_acceleration_structures(uint32_t binding, const std::vector<AccelerationStructure> &as);
@@ -304,6 +305,7 @@ struct GraphicsPipelineBuilder
 
 	explicit GraphicsPipelineBuilder(const Context &context, VkPipelineLayout layout);
 
+	GraphicsPipelineBuilder &add_shader(VkShaderStageFlagBits stage, const std::string &shader_path, const std::string &entry_point = "main", const std::unordered_map<std::string, std::string> &macros = {});
 	GraphicsPipelineBuilder &add_shader(VkShaderStageFlagBits stage, const uint32_t *spirv_code, size_t size);
 	GraphicsPipelineBuilder &add_shader(VkShaderStageFlagBits stage, VkShaderModule shader);
 	GraphicsPipelineBuilder &add_color_attachment(VkFormat format, VkPipelineColorBlendAttachmentState blend_state = {.blendEnable = false, .colorWriteMask = 0xf});
@@ -444,6 +446,12 @@ struct Context
 	VkShaderModule load_spirv_shader(
 	    const uint32_t *spirv_code,
 	    size_t          size) const;
+
+	VkShaderModule load_slang_shader(
+	    const std::string                                  &path,
+	    VkShaderStageFlagBits                               stage,
+	    const std::string                                  &entry_point,
+	    const std::unordered_map<std::string, std::string> &macros) const;
 
 	DescriptorLayoutBuilder create_descriptor_layout() const;
 

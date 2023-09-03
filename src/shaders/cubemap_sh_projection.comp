@@ -1,0 +1,81 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
+
+#include "common.glsl"
+#include "spherical_harmonic.glsl"
+
+#define LOCAL_SIZE 8
+#define CUBEMAP_SIZE 1024
+#define IRRADIANCE_CUBEMAP_SIZE 128
+#define SH_INTERMEDIATE_SIZE (IRRADIANCE_CUBEMAP_SIZE / LOCAL_SIZE)
+#define CUBEMAP_MIP_LEVEL 2.0
+
+layout(local_size_x = LOCAL_SIZE, local_size_y = LOCAL_SIZE, local_size_z = 1) in;
+
+layout(binding = 0) uniform samplerCube skybox;
+layout(binding = 1, rgba32f) uniform image2DArray sh_intermediate;
+
+shared SH9Color sh_coeffs[LOCAL_SIZE][LOCAL_SIZE];
+shared float sh_weights[LOCAL_SIZE][LOCAL_SIZE];
+
+void main()
+{
+    for (uint i = 0; i < 9; i++)
+    {
+        sh_coeffs[gl_LocalInvocationID.x][gl_LocalInvocationID.y].weights[i] = vec3(0.0);
+    }
+
+    barrier();
+
+    uint width = uint(CUBEMAP_SIZE * pow(0.5, CUBEMAP_MIP_LEVEL));
+    uint height = uint(CUBEMAP_SIZE * pow(0.5, CUBEMAP_MIP_LEVEL));
+
+    vec3 dir = calculate_cubemap_direction(gl_GlobalInvocationID.z, gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, width, height);
+    float solid_angle = calculate_solid_angle(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, width, height);
+    vec3 texel = textureLod(skybox, dir, CUBEMAP_MIP_LEVEL).rgb;
+
+    SH9 basis = project_sh(dir);
+
+    sh_weights[gl_LocalInvocationID.x][gl_LocalInvocationID.y] = solid_angle;
+
+    for (uint i = 0; i < 9; i++)
+    {
+        sh_coeffs[gl_LocalInvocationID.x][gl_LocalInvocationID.y].weights[i] += texel * basis.weights[i] * solid_angle;
+    }
+
+    barrier();
+
+    if (gl_LocalInvocationID.x == 0)
+    {
+        for (int i = 1; i < LOCAL_SIZE; i++)
+        {
+            sh_weights[0][gl_LocalInvocationID.y] += sh_weights[i][gl_LocalInvocationID.y];
+            for (int j = 0; j < 9; j++)
+            {
+                sh_coeffs[0][gl_LocalInvocationID.y].weights[j] += sh_coeffs[i][gl_LocalInvocationID.y].weights[j];
+            }
+        }
+    }
+
+    barrier();
+
+    if (gl_LocalInvocationID.x == 0 && gl_LocalInvocationID.y == 0)
+    {
+        for (int i = 1; i < LOCAL_SIZE; i++)
+        {
+            sh_weights[0][0] += sh_weights[0][i];
+            for (int j = 0; j < 9; j++)
+            {
+                sh_coeffs[0][0].weights[j] += sh_coeffs[0][i].weights[j];
+            }
+        }
+
+        for (int j = 0; j < 9; j++)
+        {
+            ivec3 p = ivec3(SH_INTERMEDIATE_SIZE * j + gl_GlobalInvocationID.x / LOCAL_SIZE, gl_GlobalInvocationID.y / LOCAL_SIZE, gl_GlobalInvocationID.z);
+            imageStore(sh_intermediate, p, vec4(sh_coeffs[0][0].weights[j], sh_weights[0][0]));
+        }
+    }
+}

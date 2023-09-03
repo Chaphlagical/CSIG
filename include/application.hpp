@@ -73,7 +73,7 @@ class Application
 		UIPass      ui;
 		GBufferPass gbuffer;
 		PathTracing path_tracing;
-		RayTracedAO ao;
+		//RayTracedAO ao;
 		Tonemap     tonemap;
 	} m_renderer;
 

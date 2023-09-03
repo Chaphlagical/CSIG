@@ -1,0 +1,60 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
+
+#include "common.glsl"
+#include "spherical_harmonic.glsl"
+
+#define LOCAL_SIZE 8
+#define IRRADIANCE_CUBEMAP_SIZE 128
+#define SH_INTERMEDIATE_SIZE IRRADIANCE_CUBEMAP_SIZE / LOCAL_SIZE
+#define CUBEMAP_FACE_NUM 6
+
+layout(local_size_x = 1, local_size_y = SH_INTERMEDIATE_SIZE, local_size_z = CUBEMAP_FACE_NUM) in;
+
+layout(binding = 0) uniform sampler2DArray sh_intermediate;
+layout(binding = 1, rgba32f) uniform image2D irradiance_sh;
+
+shared vec3 sh_coeffs[SH_INTERMEDIATE_SIZE][CUBEMAP_FACE_NUM];
+shared float sh_weights[SH_INTERMEDIATE_SIZE][CUBEMAP_FACE_NUM];
+
+void main()
+{
+    sh_coeffs[gl_GlobalInvocationID.y][gl_GlobalInvocationID.z] = vec3(0.0);
+    sh_weights[gl_GlobalInvocationID.y][gl_GlobalInvocationID.z] = 0.0;
+
+    barrier();
+
+    for (uint i = 0; i < SH_INTERMEDIATE_SIZE; i++)
+    {
+        ivec3 p = ivec3(gl_GlobalInvocationID.x * SH_INTERMEDIATE_SIZE + i, gl_GlobalInvocationID.y, gl_GlobalInvocationID.z);
+        vec4 val = texelFetch(sh_intermediate, p, 0);
+        sh_coeffs[gl_GlobalInvocationID.y][gl_GlobalInvocationID.z] += val.rgb;
+        sh_weights[gl_GlobalInvocationID.y][gl_GlobalInvocationID.z] += val.a;
+    }
+
+    barrier();
+
+    if(gl_GlobalInvocationID.z == 0)
+    {
+        for (uint i = 1; i < CUBEMAP_FACE_NUM; i++)
+        {
+            sh_coeffs[gl_GlobalInvocationID.y][0] += sh_coeffs[gl_GlobalInvocationID.y][i];
+            sh_weights[gl_GlobalInvocationID.y][0] += sh_weights[gl_GlobalInvocationID.y][i];
+        }
+    }
+
+    barrier();
+
+    if (gl_GlobalInvocationID.y == 0 && gl_GlobalInvocationID.z == 0)
+    {
+        for (uint i = 0; i < SH_INTERMEDIATE_SIZE; i++)
+        {
+           sh_coeffs[0][0] += sh_coeffs[i][0];
+           sh_weights[0][0] += sh_weights[i][0];
+        }
+        float scale = (4.0 * PI) / sh_weights[0][0];
+        imageStore(irradiance_sh, ivec2(gl_GlobalInvocationID.x, 0), vec4(sh_coeffs[0][0] * scale, sh_weights[0][0]));
+    }
+}

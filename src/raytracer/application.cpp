@@ -10,6 +10,8 @@
 #include <spdlog/spdlog.h>
 
 #define HALTON_SAMPLES 16
+#define CAMERA_NEAR_PLANE 0.01f
+#define CAMERA_FAR_PLANE 1000.f
 
 inline bool is_key_pressed(GLFWwindow *window, uint32_t keycode)
 {
@@ -48,8 +50,9 @@ Application::Application() :
         .ui{m_context},
         .gbuffer{m_context, m_scene},
         .path_tracing{m_context, m_scene, m_renderer.gbuffer},
-        .ao{m_context, m_scene, m_renderer.gbuffer},
-        .tonemap{m_context}}
+        //.ao{m_context, m_scene, m_renderer.gbuffer},
+        .tonemap{m_context},
+    }
 {
 	for (uint32_t i = 0; i < 3; i++)
 	{
@@ -105,12 +108,10 @@ void Application::run()
 		update_ui();
 
 		begin_render();
-
 		recorder.begin_marker("Tick");
 		update(recorder);
 		render(recorder);
 		recorder.end_marker();
-
 		end_render();
 
 		m_current_frame     = (m_current_frame + 1) % 3;
@@ -121,17 +122,57 @@ void Application::run()
 
 void Application::begin_render()
 {
-	m_context.acquire_next_image(m_present_complete);
+	/*m_context.acquire_next_image(m_present_complete);
 	m_context.wait(m_fences[m_current_frame]);
-	m_recorders[m_current_frame].begin();
+	m_recorders[m_current_frame].begin();*/
+	m_context.image_index = 0;
+	vkAcquireNextImageKHR(m_context.vk_device, m_context.vk_swapchain, UINT64_MAX, m_present_complete, nullptr, &m_context.image_index);
+
+	vkWaitForFences(m_context.vk_device, 1, &m_fences[m_current_frame], VK_TRUE, UINT64_MAX);
+	vkResetFences(m_context.vk_device, 1, &m_fences[m_current_frame]);
+
+	VkCommandBufferBeginInfo begin_info = {
+	    .sType            = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+	    .flags            = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+	    .pInheritanceInfo = nullptr,
+	};
+
+	vkBeginCommandBuffer(m_recorders[m_current_frame].cmd_buffer, &begin_info);
 }
 
 void Application::end_render()
 {
-	m_recorders[m_current_frame]
-	    .end()
-	    .submit({m_render_complete}, {m_present_complete}, {VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT}, m_fences[m_current_frame])
-	    .present({m_render_complete});
+	//m_recorders[m_current_frame]
+	//    .end()
+	//    .submit({m_render_complete}, {m_present_complete}, {VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT}, m_fences[m_current_frame])
+	//    .present({m_render_complete});
+	vkEndCommandBuffer(m_recorders[m_current_frame].cmd_buffer);
+
+	VkPipelineStageFlags pipeline_stage_flags[] = {VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT};
+
+	VkSubmitInfo submit_info = {
+	    .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+	    .waitSemaphoreCount   = 1,
+	    .pWaitSemaphores      = &m_present_complete,
+	    .pWaitDstStageMask    = pipeline_stage_flags,
+	    .commandBufferCount   = 1,
+	    .pCommandBuffers      = &m_recorders[m_current_frame].cmd_buffer,
+	    .signalSemaphoreCount = 1,
+	    .pSignalSemaphores    = &m_render_complete,
+	};
+
+	vkQueueSubmit(m_context.graphics_queue, 1, &submit_info, m_fences[m_current_frame]);
+
+	VkPresentInfoKHR present_info   = {};
+	present_info.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+	present_info.pNext              = NULL;
+	present_info.swapchainCount     = 1;
+	present_info.pSwapchains        = &m_context.vk_swapchain;
+	present_info.pImageIndices      = &m_context.image_index;
+	present_info.pWaitSemaphores    = &m_render_complete;
+	present_info.waitSemaphoreCount = 1;
+
+	vkQueuePresentKHR(m_context.present_queue, &present_info);
 }
 
 void Application::update_view()
@@ -206,7 +247,7 @@ void Application::update_view()
 		              0, 1, 0, 0,
 		              0, 0, -1, 0,
 		              0, 0, 1, 1) *
-		    glm::perspective(glm::radians(60.f), static_cast<float>(m_context.render_extent.width) / static_cast<float>(m_context.render_extent.height), 0.01f, 1000.f);
+		    glm::perspective(glm::radians(60.f), static_cast<float>(m_context.render_extent.width) / static_cast<float>(m_context.render_extent.height), CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE);
 		m_renderer.path_tracing.reset_frames();
 	}
 	else
@@ -259,8 +300,8 @@ void Application::update(CommandBufferRecorder &recorder)
 void Application::render(CommandBufferRecorder &recorder)
 {
 	m_renderer.gbuffer.draw(recorder, m_scene);
-	if (m_render_mode == RenderMode::PathTracing)
-	{
+	////if (m_render_mode == RenderMode::PathTracing)
+	////{
 		m_renderer.path_tracing.draw(recorder, m_scene, m_renderer.gbuffer);
 		m_renderer.tonemap.draw(recorder, m_renderer.path_tracing);
 		recorder.insert_barrier()
@@ -280,30 +321,30 @@ void Application::render(CommandBufferRecorder &recorder)
 		                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
 		                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
 		    .insert();
-	}
-	else
-	{
-		m_renderer.ao.draw(recorder, m_scene, m_renderer.gbuffer);
+	//}
+	//else
+	//{
+	//	m_renderer.ao.draw(recorder, m_scene, m_renderer.gbuffer);
 
-		recorder.insert_barrier()
-		    .add_image_barrier(m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image,
-		                       VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-		                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
-		    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
-		                       VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
-		                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-		    .insert();
-		//m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image);
-		m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.ao.raytraced_image.vk_image);
-		recorder.insert_barrier()
-		    .add_image_barrier(m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image,
-		                       VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
-		                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-		    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
-		                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
-		                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
-		    .insert();
-	}
+		//recorder.insert_barrier()
+		//    .add_image_barrier(m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image,
+		//                       VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+		//                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+		//    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+		//                       VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+		//                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+		//    .insert();
+		// m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image);
+		////m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.ao.raytraced_image.vk_image);
+		//recorder.insert_barrier()
+		//    .add_image_barrier(m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image,
+		//                       VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
+		//                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+		//    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+		//                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
+		//                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+		//    .insert();
+	//}
 
 	m_renderer.ui.render(recorder, m_current_frame);
 }
@@ -333,7 +374,7 @@ void Application::update_ui()
 				update |= m_renderer.path_tracing.draw_ui();
 				break;
 			case RenderMode::AmbientOcclusion:
-				update |= m_renderer.ao.draw_ui();
+				//update |= m_renderer.ao.draw_ui();
 				break;
 		}
 		if (update)

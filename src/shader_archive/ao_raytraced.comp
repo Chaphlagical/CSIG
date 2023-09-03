@@ -1,0 +1,109 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_ray_query : enable
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
+#extension GL_EXT_buffer_reference : enable
+#extension GL_EXT_buffer_reference2 : enable
+
+#include "scene.glsl"
+#include "gbuffer_data.glsl"
+#include "random.glsl"
+#include "sample.glsl"
+#include "common.glsl"
+
+#define NUM_THREADS_X 8
+#define NUM_THREADS_Y 4
+
+layout(set = 2, binding = 0, r32ui) uniform uimage2D raytraced_image;
+
+layout(push_constant) uniform PushConstants
+{
+	float ray_length;
+	float bias;
+	int gbuffer_mip;
+}push_constants;
+
+layout (local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z = 1) in;
+
+vec3 sample_cosine_lobe(vec3 n, vec2 rnd)
+{
+	rnd = max(rnd, vec2(0.00001));
+	const float phi = 2.0 * PI * rnd.y;
+	const float cos_theta = sqrt(rnd.x);
+	const float sin_theta = sqrt(1.0 - rnd.x);
+	vec3 t = vec3(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta);
+	return local_to_world(n, t);
+}
+
+bool any_hit(vec3 org, vec3 dir, float max_dist)
+{
+	rayQueryEXT ray_query;
+	rayQueryInitializeEXT(
+		ray_query, 
+		tlas, 
+		gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT | gl_RayFlagsCullBackFacingTrianglesEXT, 
+		0xFF,
+		org,
+		0.0,
+		dir,
+		max_dist);
+
+	while(rayQueryProceedEXT(ray_query))
+	{
+		if(rayQueryGetIntersectionTypeEXT(ray_query, false) == gl_RayQueryCandidateIntersectionTriangleEXT)
+		{
+			rayQueryConfirmIntersectionEXT(ray_query);
+		}
+	}
+
+	return (rayQueryGetIntersectionTypeEXT(ray_query, true) != gl_RayQueryCommittedIntersectionNoneEXT);
+}
+
+shared uint shared_ao;
+
+void main()
+{
+	if(gl_LocalInvocationIndex == 0)
+	{
+		shared_ao = 0;
+	}
+
+	barrier();
+
+	const ivec2 size = textureSize(gbufferB, int(push_constants.gbuffer_mip));
+	const ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+	const vec2 pixel = vec2(coord) + vec2(0.5);
+	const vec2 uv = pixel / vec2(size);
+
+	if(coord.x >= size.x || coord.y >= size.y)
+    {
+        return;
+    }
+
+	uint seed = tea(size.x * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x, uint(ubo.cam_pos.w));
+
+	float depth = texelFetch(depth_buffer, coord, push_constants.gbuffer_mip).r;
+
+	uint result = 0;
+
+	if(depth != 1.0)
+	{
+		vec3 world_pos = world_position_from_depth(uv, depth, ubo.view_projection_inv);
+		vec3 normal = octohedral_to_direction(texelFetch(gbufferB, coord, push_constants.gbuffer_mip).rg);
+		vec3 dir = sample_cosine_lobe(normal, rand2(seed));
+		vec3 org = world_pos + push_constants.bias * normal;
+		result = uint(!any_hit(org, dir, push_constants.ray_length));
+	}
+	
+	atomicOr(shared_ao, result << gl_LocalInvocationIndex);
+	
+	barrier();
+
+	if (gl_LocalInvocationIndex == 0)
+	{
+		imageStore(raytraced_image, ivec2(gl_WorkGroupID.xy), uvec4(shared_ao));
+	}
+}

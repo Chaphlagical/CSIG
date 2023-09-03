@@ -27,6 +27,13 @@ struct Scene
 		uint32_t  emitter_count  = 0;
 		glm::vec3 max_extent     = -glm::vec3(std::numeric_limits<float>::max());
 		uint32_t  mesh_count     = 0;
+		uint64_t  instance_buffer_addr;
+		uint64_t  emitter_buffer_addr;
+		uint64_t  material_buffer_addr;
+		uint64_t  vertex_buffer_addr;
+		uint64_t  index_buffer_addr;
+		uint64_t  emitter_alias_table_buffer_addr;
+		uint64_t  mesh_alias_table_buffer_addr;
 	} scene_info;
 
 	struct
@@ -71,7 +78,8 @@ struct Scene
 	std::vector<Texture>     textures;
 	std::vector<VkImageView> texture_views;
 
-	std::vector<VkSampler> samplers;
+	VkSampler linear_sampler = VK_NULL_HANDLE;
+	VkSampler nearest_sampler = VK_NULL_HANDLE;
 
 	struct
 	{

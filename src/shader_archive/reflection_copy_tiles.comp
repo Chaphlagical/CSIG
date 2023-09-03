@@ -1,0 +1,32 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_ray_query : enable
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
+#extension GL_EXT_buffer_reference : enable
+#extension GL_EXT_buffer_reference2 : enable
+
+#define NUM_THREADS_X 8
+#define NUM_THREADS_Y 8
+
+layout (local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D output_image;
+layout(set = 0, binding = 1) uniform sampler2D input_image;
+
+layout(push_constant) uniform PushConstants
+{
+    uint64_t copy_tile_data_addr;
+}push_constants;
+
+layout(buffer_reference, scalar, buffer_reference_align = 4) buffer TileDataBuffer
+{
+    ivec2 coord[];
+};
+
+void main()
+{
+    ivec2 coord = TileDataBuffer(push_constants.copy_tile_data_addr).coord[gl_WorkGroupID.x] + ivec2(gl_LocalInvocationID.xy);
+    imageStore(output_image, coord, texelFetch(input_image, coord, 0));
+}    

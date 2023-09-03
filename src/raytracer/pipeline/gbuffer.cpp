@@ -2,6 +2,14 @@
 
 #include <spdlog/fmt/fmt.h>
 
+static unsigned char g_gbuffer_vert_spv_data[] = {
+#include "gbuffer.vert.spv.h"
+};
+
+static unsigned char g_gbuffer_frag_spv_data[] = {
+#include "gbuffer.frag.spv.h"
+};
+
 GBufferPass::GBufferPass(const Context &context, const Scene &scene) :
     m_context(&context),
     m_width(context.render_extent.width),
@@ -92,36 +100,36 @@ GBufferPass::GBufferPass(const Context &context, const Scene &scene) :
 	                     .maxDepth = 1.f,
 	                 })
 	                 .add_scissor({.offset = {0, 0}, .extent = {m_width, m_height}})
-	                 .add_shader(VK_SHADER_STAGE_VERTEX_BIT, "gbuffer.slang", "vs_main")
-	                 .add_shader(VK_SHADER_STAGE_FRAGMENT_BIT, "gbuffer.slang", "fs_main")
+	                 .add_shader(VK_SHADER_STAGE_VERTEX_BIT, (uint32_t *) g_gbuffer_vert_spv_data, sizeof(g_gbuffer_vert_spv_data))
+	                 .add_shader(VK_SHADER_STAGE_FRAGMENT_BIT, (uint32_t *) g_gbuffer_frag_spv_data, sizeof(g_gbuffer_frag_spv_data))
 	                 .add_vertex_input_attribute(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 0)
 	                 .add_vertex_input_attribute(1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, sizeof(glm::vec4))
 	                 .add_vertex_input_binding(0, 2 * sizeof(glm::vec4))
 	                 .create();
 
 	descriptor.layout = m_context->create_descriptor_layout()
-	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        .add_descriptor_binding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        .add_descriptor_binding(5, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        .add_descriptor_binding(6, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        .add_descriptor_binding(7, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_binding(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_binding(6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_binding(7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        .create();
 	descriptor.sets = m_context->allocate_descriptor_sets<2>(descriptor.layout);
 
 	for (uint32_t i = 0; i < 2; i++)
 	{
 		m_context->update_descriptor()
-		    .write_sampled_images(0, {gbufferA_view[i]})
-		    .write_sampled_images(1, {gbufferB_view[i]})
-		    .write_sampled_images(2, {gbufferC_view[i]})
-		    .write_sampled_images(3, {depth_buffer_view[i]})
-		    .write_sampled_images(4, {gbufferA_view[!i]})
-		    .write_sampled_images(5, {gbufferB_view[!i]})
-		    .write_sampled_images(6, {gbufferC_view[!i]})
-		    .write_sampled_images(7, {depth_buffer_view[!i]})
+		    .write_combine_sampled_images(0, scene.linear_sampler, {gbufferA_view[i]})
+		    .write_combine_sampled_images(1, scene.nearest_sampler, {gbufferB_view[i]})
+		    .write_combine_sampled_images(2, scene.linear_sampler, {gbufferC_view[i]})
+		    .write_combine_sampled_images(3, scene.linear_sampler, {depth_buffer_view[i]})
+		    .write_combine_sampled_images(4, scene.linear_sampler, {gbufferA_view[!i]})
+		    .write_combine_sampled_images(5, scene.nearest_sampler, {gbufferB_view[!i]})
+		    .write_combine_sampled_images(6, scene.linear_sampler, {gbufferC_view[!i]})
+		    .write_combine_sampled_images(7, scene.linear_sampler, {depth_buffer_view[!i]})
 		    .update(descriptor.sets[i]);
 	}
 

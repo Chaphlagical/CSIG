@@ -890,6 +890,36 @@ DescriptorUpdateBuilder &DescriptorUpdateBuilder::write_samplers(uint32_t bindin
 	return *this;
 }
 
+DescriptorUpdateBuilder &DescriptorUpdateBuilder::write_combine_sampled_images(uint32_t binding, VkSampler sampler, const std::vector<VkImageView> &image_views)
+{
+	descriptor_index.push_back(image_infos.size());
+
+	for (auto &image_view : image_views)
+	{
+		image_infos.emplace_back(
+		    VkDescriptorImageInfo{
+		        .sampler     = sampler,
+		        .imageView   = image_view,
+		        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		    });
+	}
+
+	write_sets.emplace_back(
+	    VkWriteDescriptorSet{
+	        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+	        .dstSet           = VK_NULL_HANDLE,
+	        .dstBinding       = binding,
+	        .dstArrayElement  = 0,
+	        .descriptorCount  = static_cast<uint32_t>(image_views.size()),
+	        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+	        .pImageInfo       = nullptr,
+	        .pBufferInfo      = nullptr,
+	        .pTexelBufferView = nullptr,
+	    });
+
+	return *this;
+}
+
 DescriptorUpdateBuilder &DescriptorUpdateBuilder::write_uniform_buffers(uint32_t binding, const std::vector<VkBuffer> &buffers)
 {
 	descriptor_index.push_back(buffer_infos.size());
@@ -1048,6 +1078,13 @@ GraphicsPipelineBuilder::GraphicsPipelineBuilder(const Context &context, VkPipel
 	    .depthBiasSlopeFactor    = 0.f,
 	    .lineWidth               = 1.f,
 	};
+}
+
+GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_shader(VkShaderStageFlagBits stage, const std::string &shader_path, const std::string &entry_point, const std::unordered_map<std::string, std::string> &macros)
+{
+	VkShaderModule shader = context->load_slang_shader(shader_path, stage, entry_point, macros);
+	add_shader(stage, shader);
+	return *this;
 }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_shader(VkShaderStageFlagBits stage, const uint32_t *spirv_code, size_t size)
@@ -2377,6 +2414,51 @@ VkShaderModule Context::load_spirv_shader(const uint32_t *spirv_code, size_t siz
 	};
 	vkCreateShaderModule(vk_device, &create_info, nullptr, &shader);
 	return shader;
+}
+
+VkShaderModule Context::load_slang_shader(const std::string &path, VkShaderStageFlagBits stage, const std::string &entry_point, const std::unordered_map<std::string, std::string> &macros) const
+{
+	std::vector<uint32_t> spirv;
+
+#ifndef DEBUG
+	size_t hash_val = std::hash<std::unordered_map<std::string, std::string>>{}(macros);
+
+	glm::detail::hash_combine(hash_val, stage);
+	glm::detail::hash_combine(hash_val, std::hash<std::string>{}(entry_point));
+
+	std::string spirv_path = fmt::format("spirv/{}.{}.spv", path, hash_val);
+
+	if (std::filesystem::exists(spirv_path))
+	{
+		spdlog::info("Load SPV file from: {}", spirv_path);
+		std::ifstream is;
+		is.open(spirv_path, std::ios::in | std::ios::binary);
+		is.seekg(0, std::ios::end);
+		size_t read_count = static_cast<size_t>(is.tellg());
+		is.seekg(0, std::ios::beg);
+		spirv.resize(static_cast<size_t>(read_count) / sizeof(uint32_t));
+		is.read(reinterpret_cast<char *>(spirv.data()), read_count);
+		is.close();
+	}
+	else
+#endif
+	{
+		spdlog::info("Load Slang file from: {}", path);
+		spirv = ShaderCompiler::compile(path, stage, entry_point, macros);
+#ifndef DEBUG
+		if (!std::filesystem::exists("spirv"))
+		{
+			std::filesystem::create_directories("spirv");
+		}
+		std::ofstream os;
+		os.open(spirv_path, std::ios::out | std::ios::binary);
+		os.write(reinterpret_cast<char *>(spirv.data()), spirv.size() * sizeof(uint32_t));
+		os.flush();
+		os.close();
+#endif
+	}
+
+	return load_spirv_shader(spirv.data(), spirv.size());
 }
 
 DescriptorLayoutBuilder Context::create_descriptor_layout() const
