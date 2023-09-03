@@ -226,7 +226,7 @@ struct CommandBufferRecorder
 
 	BarrierBuilder insert_barrier();
 
-	CommandBufferRecorder &generate_mipmap(VkImage image, uint32_t width, uint32_t height, uint32_t mip_level, uint32_t layer = 1, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT);
+	CommandBufferRecorder &generate_mipmap(VkImage image, uint32_t width, uint32_t height, uint32_t mip_level, uint32_t layer = 1, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT, VkFilter filter = VK_FILTER_LINEAR);
 
 	void flush();
 

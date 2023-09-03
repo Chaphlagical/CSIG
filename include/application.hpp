@@ -80,6 +80,9 @@ class Application
 	enum class RenderMode : uint32_t
 	{
 		PathTracing,
-		AmbientOcclusion,
-	} m_render_mode = RenderMode::AmbientOcclusion;
+		Hybrid,
+		AO,
+		Reflection,
+		GI
+	} m_render_mode = RenderMode::PathTracing;
 };

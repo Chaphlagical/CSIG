@@ -16,6 +16,22 @@ static const uint32_t TEMPORAL_ACCUMULATION_NUM_THREADS_Y = 8;
 static const uint32_t NUM_THREADS_X = 8;
 static const uint32_t NUM_THREADS_Y = 8;
 
+static unsigned char g_ao_raytraced_comp_spv_data[] = {
+#include "ao_raytraced.comp.spv.h"
+};
+
+static unsigned char g_ao_temporal_accumulation_comp_spv_data[] = {
+#include "ao_temporal_accumulation.comp.spv.h"
+};
+
+static unsigned char g_ao_bilateral_blur_comp_spv_data[] = {
+#include "ao_bilateral_blur.comp.spv.h"
+};
+
+static unsigned char g_ao_upsampling_comp_spv_data[] = {
+#include "ao_upsampling.comp.spv.h"
+};
+
 RayTracedAO::RayTracedAO(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, RayTracedScale scale) :
     m_context(&context)
 {
@@ -50,7 +66,7 @@ RayTracedAO::RayTracedAO(const Context &context, const Scene &scene, const GBuff
 	                                        .create();
 	m_raytraced.descriptor_set  = m_context->allocate_descriptor_set(m_raytraced.descriptor_set_layout);
 	m_raytraced.pipeline_layout = m_context->create_pipeline_layout({scene.descriptor.layout, gbuffer_pass.descriptor.layout, m_raytraced.descriptor_set_layout}, sizeof(m_raytraced.push_constant), VK_SHADER_STAGE_COMPUTE_BIT);
-	m_raytraced.pipeline        = m_context->create_compute_pipeline("ao_raytraced.slang", m_raytraced.pipeline_layout);
+	m_raytraced.pipeline        = m_context->create_compute_pipeline((uint32_t *) g_ao_raytraced_comp_spv_data, sizeof(g_ao_raytraced_comp_spv_data), m_raytraced.pipeline_layout);
 
 	m_temporal_accumulation.descriptor_set_layout = m_context->create_descriptor_layout()
 	                                                    .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)

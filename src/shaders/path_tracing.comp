@@ -106,7 +106,7 @@ void main()
 	const ivec2 size = textureSize(gbufferA, 0);
 	const ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
 
-	prd.seed = tea(size.x * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x, uint(ubo.cam_pos.w));
+	prd.seed = tea(size.x * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x, push_constants.frame_count);
 
 	const vec2 jittered_coord = vec2(coord) + rand2(prd.seed);
 	const vec2 tex_coord = jittered_coord / vec2(size);

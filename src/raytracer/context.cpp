@@ -550,7 +550,7 @@ BarrierBuilder CommandBufferRecorder::insert_barrier()
 	return BarrierBuilder(*this);
 }
 
-CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uint32_t width, uint32_t height, uint32_t mip_level, uint32_t layer, VkImageAspectFlags aspect)
+CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uint32_t width, uint32_t height, uint32_t mip_level, uint32_t layer, VkImageAspectFlags aspect, VkFilter filter)
 {
 	if (mip_level <= 1)
 	{
@@ -627,7 +627,7 @@ CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uin
 		    cmd_buffer,
 		    image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 		    image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		    1, &blit_info, aspect == VK_IMAGE_ASPECT_DEPTH_BIT ? VK_FILTER_NEAREST : VK_FILTER_LINEAR);
+		    1, &blit_info, filter);
 
 		{
 			VkImageMemoryBarrier image_barrier = VkImageMemoryBarrier{
@@ -676,7 +676,7 @@ CommandBufferRecorder &CommandBufferRecorder::generate_mipmap(VkImage image, uin
 		    };
 		vkCmdPipelineBarrier(
 		    cmd_buffer,
-		    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+		    VK_PIPELINE_STAGE_TRANSFER_BIT,
 		    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
 		    0, 0, nullptr, 0, nullptr, 1, &image_barrier);
 	}
