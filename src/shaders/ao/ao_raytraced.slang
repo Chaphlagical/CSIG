@@ -1,10 +1,7 @@
 #include "scene.slangh"
+#include "common.slangh"
 #include "gbuffer.slangh"
 #include "random.slangh"
-#include "common.slangh"
-
-#define NUM_THREADS_X 8
-#define NUM_THREADS_Y 4
 
 struct PushConstant
 {
@@ -13,7 +10,7 @@ struct PushConstant
 	int gbuffer_mip;
 };
 
-[[vk::binding(0, 2)]] RWTexture2D<uint> RaytracedImage;
+[[vk::binding(0, 2)]] RWTexture2D<uint> RayTracedImage;
 [[vk::push_constant]] ConstantBuffer<PushConstant> push_constant;
 
 float3 sample_cosine_lobe(float3 n, float2 rnd)
@@ -40,7 +37,6 @@ bool any_hit(float3 org, float3 dir, float max_dist)
         RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
         0xff,
         ray);
-
     q.Proceed();
 
     if (q.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
@@ -53,31 +49,30 @@ bool any_hit(float3 org, float3 dir, float max_dist)
 groupshared uint shared_ao;
 
 [shader("compute")]
-[numthreads(NUM_THREADS_X, NUM_THREADS_Y, 1)]
+[numthreads(8, 4, 1)]
 void main(CSParam param)
 {
-	if(param.GroupIndex == 0)
+    if(param.GroupIndex == 0)
 	{
 		shared_ao = 0;
 	}
 
-	GroupMemoryBarrier();
+    GroupMemoryBarrier();
 
-	const int2 size = texture_size(GBufferB, push_constant.gbuffer_mip);
+    const int2 size = texture_size(GBufferB, push_constant.gbuffer_mip);
 	const int2 coord = int2(param.DispatchThreadID.xy);
 	const float2 pixel = float2(coord) + float2(0.5);
 	const float2 uv = pixel / float2(size);
 
-	if(coord.x >= size.x || coord.y >= size.y)
+    if(coord.x >= size.x || coord.y >= size.y)
     {
         return;
     }
 
 	uint seed = tea(size.x * param.DispatchThreadID.y + param.DispatchThreadID.x, uint(ViewBuffer.cam_pos.w));
+    float depth = DepthBuffer.Load(int3(coord, push_constant.gbuffer_mip)).r;
 
-	float depth = DepthBuffer.Load(int3(coord, push_constant.gbuffer_mip)).r;
-
-	uint result = 0;
+    uint result = 0;
 
 	if(depth != 1.0)
 	{
@@ -87,13 +82,13 @@ void main(CSParam param)
 		float3 org = world_pos + push_constant.bias * normal;
 		result = uint(!any_hit(org, dir, push_constant.ray_length));
 	}
-	
-	InterlockedOr(shared_ao, result << param.GroupIndex);
-	
-	GroupMemoryBarrier();
 
-	if (param.GroupIndex == 0)
+    InterlockedOr(shared_ao, result << param.GroupIndex);
+
+    GroupMemoryBarrier();
+
+    if (param.GroupIndex == 0)
 	{
-        RaytracedImage[int2(param.GroupID.xy)] = -1;
+        RayTracedImage[param.GroupID.xy] = shared_ao;
 	}
 }

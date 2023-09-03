@@ -70,7 +70,7 @@ Application::Application() :
 	}
 
 	// m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\Deferred/Deferred.gltf)");
-	 m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\default.glb)");
+	m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\default.glb)");
 	m_scene.load_envmap(R"(D:\Workspace\CSIG\assets\textures\hdr\default.hdr)");
 	// m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\Deferred\Deferred.gltf)");
 	m_scene.update();
@@ -293,7 +293,8 @@ void Application::render(CommandBufferRecorder &recorder)
 		                       VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
 		                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
 		    .insert();
-		m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image);
+		//m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image);
+		m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.ao.raytraced_image.vk_image);
 		recorder.insert_barrier()
 		    .add_image_barrier(m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image,
 		                       VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
@@ -330,6 +331,9 @@ void Application::update_ui()
 		{
 			case RenderMode::PathTracing:
 				update |= m_renderer.path_tracing.draw_ui();
+				break;
+			case RenderMode::AmbientOcclusion:
+				update |= m_renderer.ao.draw_ui();
 				break;
 		}
 		if (update)

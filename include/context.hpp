@@ -170,6 +170,10 @@ struct CommandBufferRecorder
 	    const glm::uvec3 &thread_num,
 	    const glm::uvec3 &group_size);
 
+	CommandBufferRecorder &dispatch_indirect(
+	    VkBuffer arg_buffer,
+	    size_t   offset = 0);
+
 	CommandBufferRecorder &draw_mesh_task(
 	    const glm::uvec3 &thread_num,
 	    const glm::uvec3 &group_size);
@@ -213,6 +217,8 @@ struct CommandBufferRecorder
 	CommandBufferRecorder &build_acceleration_structure(
 	    const VkAccelerationStructureBuildGeometryInfoKHR &geometry_info,
 	    const VkAccelerationStructureBuildRangeInfoKHR    *range_info);
+
+	CommandBufferRecorder &execute(std::function<void(void)> &&func);
 
 	CommandBufferRecorder &execute(std::function<void(VkCommandBuffer)> &&func);
 
@@ -298,7 +304,6 @@ struct GraphicsPipelineBuilder
 
 	explicit GraphicsPipelineBuilder(const Context &context, VkPipelineLayout layout);
 
-	GraphicsPipelineBuilder &add_shader(VkShaderStageFlagBits stage, const std::string &shader_path, const std::string &entry_point = "main", const std::unordered_map<std::string, std::string> &macros = {});
 	GraphicsPipelineBuilder &add_shader(VkShaderStageFlagBits stage, const uint32_t *spirv_code, size_t size);
 	GraphicsPipelineBuilder &add_shader(VkShaderStageFlagBits stage, VkShaderModule shader);
 	GraphicsPipelineBuilder &add_color_attachment(VkFormat format, VkPipelineColorBlendAttachmentState blend_state = {.blendEnable = false, .colorWriteMask = 0xf});
@@ -399,8 +404,6 @@ struct Context
 	    const std::string &filename,
 	    bool               mipmap = true) const;
 
-	// Texture load_texture_cube(const std::string &filename, bool mipmap = false) const;
-
 	Texture create_texture_2d(
 	    const std::string &name,
 	    uint32_t           width,
@@ -441,12 +444,6 @@ struct Context
 	VkShaderModule load_spirv_shader(
 	    const uint32_t *spirv_code,
 	    size_t          size) const;
-
-	VkShaderModule load_slang_shader(
-	    const std::string                                  &path,
-	    VkShaderStageFlagBits                               stage,
-	    const std::string                                  &entry_point = "main",
-	    const std::unordered_map<std::string, std::string> &macros      = {}) const;
 
 	DescriptorLayoutBuilder create_descriptor_layout() const;
 
@@ -528,8 +525,8 @@ struct Context
 		return *this;
 	}
 
-  private:
 	void set_object_name(VkObjectType type, uint64_t handle, const char *name) const;
 
+  private:
 	Buffer create_scratch_buffer(size_t size) const;
 };

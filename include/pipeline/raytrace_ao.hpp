@@ -7,7 +7,7 @@
 struct RayTracedAO
 {
   public:
-	RayTracedAO(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, RayTracedScale scale = RayTracedScale::Half_Res);
+	RayTracedAO(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, RayTracedScale scale = RayTracedScale::Full_Res);
 
 	~RayTracedAO();
 
@@ -101,12 +101,12 @@ struct RayTracedAO
 		{
 			int32_t  gbuffer_mip = 0;
 			float    power       = 1.2f;
-			uint32_t debug       = 0;
+			uint32_t debug       = 1;
 		} push_constant;
 
-		VkPipelineLayout               pipeline_layout       = VK_NULL_HANDLE;
-		VkPipeline                     pipeline              = VK_NULL_HANDLE;
-		VkDescriptorSetLayout          descriptor_set_layout = VK_NULL_HANDLE;
-		std::array<VkDescriptorSet, 2> descriptor_sets;
+		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
+		VkPipeline            pipeline              = VK_NULL_HANDLE;
+		VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
+		VkDescriptorSet       descriptor_set        = VK_NULL_HANDLE;
 	} m_upsampling;
 };

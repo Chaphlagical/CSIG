@@ -474,6 +474,12 @@ CommandBufferRecorder &CommandBufferRecorder::dispatch(const glm::uvec3 &thread_
 	return *this;
 }
 
+CommandBufferRecorder &CommandBufferRecorder::dispatch_indirect(VkBuffer arg_buffer, size_t offset)
+{
+	vkCmdDispatchIndirect(cmd_buffer, arg_buffer, offset);
+	return *this;
+}
+
 CommandBufferRecorder &CommandBufferRecorder::draw_mesh_task(const glm::uvec3 &thread_num, const glm::uvec3 &group_size)
 {
 	glm::uvec3 group_count = glm::uvec3(glm::ceil(glm::vec3(thread_num) / glm::vec3(group_size)));
@@ -518,6 +524,12 @@ CommandBufferRecorder &CommandBufferRecorder::build_acceleration_structure(const
 	    1,
 	    &geometry_info,
 	    &range_info);
+	return *this;
+}
+
+CommandBufferRecorder &CommandBufferRecorder::execute(std::function<void(void)> &&func)
+{
+	func();
 	return *this;
 }
 
@@ -769,13 +781,13 @@ VkDescriptorSetLayout DescriptorLayoutBuilder::create()
 	    .bindingCount = static_cast<uint32_t>(bindings.size()),
 	    .pBindings    = bindings.data(),
 	};
+	VkDescriptorSetLayoutBindingFlagsCreateInfo descriptor_set_layout_binding_flag_create_info = {
+	    .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+	    .bindingCount  = static_cast<uint32_t>(binding_flags.size()),
+	    .pBindingFlags = binding_flags.data(),
+	};
 	if (bindless)
 	{
-		VkDescriptorSetLayoutBindingFlagsCreateInfo descriptor_set_layout_binding_flag_create_info = {
-		    .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
-		    .bindingCount  = static_cast<uint32_t>(binding_flags.size()),
-		    .pBindingFlags = binding_flags.data(),
-		};
 		create_info.pNext = &descriptor_set_layout_binding_flag_create_info;
 		create_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
 	}
@@ -1036,13 +1048,6 @@ GraphicsPipelineBuilder::GraphicsPipelineBuilder(const Context &context, VkPipel
 	    .depthBiasSlopeFactor    = 0.f,
 	    .lineWidth               = 1.f,
 	};
-}
-
-GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_shader(VkShaderStageFlagBits stage, const std::string &shader_path, const std::string &entry_point, const std::unordered_map<std::string, std::string> &macros)
-{
-	VkShaderModule shader = context->load_slang_shader(shader_path, stage, entry_point, macros);
-	add_shader(stage, shader);
-	return *this;
 }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_shader(VkShaderStageFlagBits stage, const uint32_t *spirv_code, size_t size)
@@ -2372,51 +2377,6 @@ VkShaderModule Context::load_spirv_shader(const uint32_t *spirv_code, size_t siz
 	};
 	vkCreateShaderModule(vk_device, &create_info, nullptr, &shader);
 	return shader;
-}
-
-VkShaderModule Context::load_slang_shader(const std::string &path, VkShaderStageFlagBits stage, const std::string &entry_point, const std::unordered_map<std::string, std::string> &macros) const
-{
-	std::vector<uint32_t> spirv;
-
-#ifndef DEBUG
-	size_t hash_val = std::hash<std::unordered_map<std::string, std::string>>{}(macros);
-
-	glm::detail::hash_combine(hash_val, stage);
-	glm::detail::hash_combine(hash_val, std::hash<std::string>{}(entry_point));
-
-	std::string spirv_path = fmt::format("spirv/{}.{}.spv", path, hash_val);
-
-	if (std::filesystem::exists(spirv_path))
-	{
-		spdlog::info("Load SPV file from: {}", spirv_path);
-		std::ifstream is;
-		is.open(spirv_path, std::ios::in | std::ios::binary);
-		is.seekg(0, std::ios::end);
-		size_t read_count = static_cast<size_t>(is.tellg());
-		is.seekg(0, std::ios::beg);
-		spirv.resize(static_cast<size_t>(read_count) / sizeof(uint32_t));
-		is.read(reinterpret_cast<char *>(spirv.data()), read_count);
-		is.close();
-	}
-	else
-#endif
-	{
-		spdlog::info("Load Slang file from: {}", path);
-		spirv = ShaderCompiler::compile(path, stage, entry_point, macros);
-#ifndef DEBUG
-		if (!std::filesystem::exists("spirv"))
-		{
-			std::filesystem::create_directories("spirv");
-		}
-		std::ofstream os;
-		os.open(spirv_path, std::ios::out | std::ios::binary);
-		os.write(reinterpret_cast<char *>(spirv.data()), spirv.size() * sizeof(uint32_t));
-		os.flush();
-		os.close();
-#endif
-	}
-
-	return load_spirv_shader(spirv.data(), spirv.size());
 }
 
 DescriptorLayoutBuilder Context::create_descriptor_layout() const

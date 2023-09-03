@@ -1,87 +1,106 @@
-#include "scene.slangh"
-#include "gbuffer.slangh"
+#version 460
+
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_ray_query : enable
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
+#extension GL_EXT_buffer_reference : enable
+#extension GL_EXT_buffer_reference2 : enable
+
+#include "scene.glsl"
+#include "gbuffer_data.glsl"
 #define REPROJECTION_SINGLE_COLOR_CHANNEL
-#include "reproject.slangh"
+#include "reproject.glsl"
 
 #define NUM_THREAD_X 8
 #define NUM_THREAD_Y 8
 #define RAY_MASK_SIZE_X 8
 #define RAY_MASK_SIZE_Y 4
 
-struct PushConstant
+layout (local_size_x = NUM_THREAD_X, local_size_y = NUM_THREAD_Y, local_size_z = 1) in;
+
+layout(set = 2, binding = 0) uniform usampler2D raytraced_image;
+layout(set = 2, binding = 1, r16f) uniform writeonly image2D ao_image;
+layout(set = 2, binding = 2, r16f) uniform writeonly image2D history_length_image;
+layout(set = 2, binding = 3) uniform sampler2D prev_ao_image;
+layout(set = 2, binding = 4) uniform sampler2D prev_history_length_image;
+layout(set = 2, binding = 5, std430) buffer DenoiseTileBuffer
+{
+    ivec2 coord[];
+}denoise_tile_buffer;
+layout(set = 2, binding = 6, std430) buffer DenoiseTileDispatchArgsBuffer
+{
+    uint x;
+    uint y;
+    uint z;
+}denoise_tile_dispatch_args_buffer;
+
+layout(push_constant) uniform PushConstants
 {
     float alpha;
     int gbuffer_mip;
 	uint debug;
-};
+}push_constants;
 
-[[vk::binding(0, 2)]] Texture2D<uint> RayTracedImage;
-[[vk::binding(1, 2)]] RWTexture2D<float> AOImage;
-[[vk::binding(2, 2)]] RWTexture2D<float> HistoryLengthImage;
-[[vk::binding(3, 2)]] Texture2D<float> PrevAOImage;
-[[vk::binding(4, 2)]] Texture2D<float> PrevHistoryLengthImage;
-[[vk::binding(5, 2)]] RWStructuredBuffer<int2> DenoiseTileBuffer;
-[[vk::binding(6, 2)]] RWStructuredBuffer<DispatchIndirectCommand> DenoiseTileDispatchArgsBuffer;
-[[vk::push_constant]] ConstantBuffer<PushConstant> push_constant;
+shared uint shared_ao_masks[3][6];
+shared float shared_mean[8][24];
+shared bool shared_denoise;
 
-groupshared uint shared_ao_masks[3][6];
-groupshared float shared_mean[8][24];
-groupshared bool shared_denoise;
-
-void populate_cache(CSParam param)
+void populate_cache()
 {
 	shared_denoise = false;
 
-	if(param.GroupThreadID.x < 3 && param.GroupThreadID.y < 6)
+	if(gl_LocalInvocationID.x < 3 && gl_LocalInvocationID.y < 6)
 	{
-		const int2 pos = int2(param.GroupID.x, param.GroupID.y * 2) - int2(1, 2) + int2(param.GroupThreadID.xy);
-		const int2 size = texture_size(RayTracedImage, 0);
-		if(any(pos < int2(0, 0)) || any(pos > size - int2(1, 1)))
+		const ivec2 pos = ivec2(gl_WorkGroupID.x, gl_WorkGroupID.y * 2) - ivec2(1, 2) + ivec2(gl_LocalInvocationID.xy);
+		const ivec2 size = textureSize(raytraced_image, 0);
+		if(any(lessThan(pos, ivec2(0, 0))) || any(greaterThan(pos, size - ivec2(1, 1))))
 		{
-			shared_ao_masks[param.GroupThreadID.x][param.GroupThreadID.y] = 0xffffffff;
+			shared_ao_masks[gl_LocalInvocationID.x][gl_LocalInvocationID.y] = 0xffffffff;
 		}
 		else
 		{
-			shared_ao_masks[param.GroupThreadID.x][param.GroupThreadID.y] = RayTracedImage.Load(int3(pos, 0)).x;
+			shared_ao_masks[gl_LocalInvocationID.x][gl_LocalInvocationID.y] = texelFetch(raytraced_image, pos, 0).x;
 		}
 	}
 
-	GroupMemoryBarrier();
+	barrier();
 }
 
-float unpack_ao_hit_value(CSParam param, int2 coord)
+float unpack_ao_hit_value(ivec2 coord)
 {
-	const int2 work_group_start_coord = int2(param.GroupID.xy) * int2(NUM_THREAD_X, NUM_THREAD_Y);
-	const int2 cache_start_coord = work_group_start_coord - int2(RAY_MASK_SIZE_X, RAY_MASK_SIZE_Y * 2);
-	const int2 unpacked_cache_coord = coord - cache_start_coord;
-	const int2 packed_cache_coord = unpacked_cache_coord / int2(RAY_MASK_SIZE_X, RAY_MASK_SIZE_Y);
-	const int2 mask_start_coord = packed_cache_coord * int2(RAY_MASK_SIZE_X, RAY_MASK_SIZE_Y);
-	const int2 relative_mask_coord = unpacked_cache_coord - mask_start_coord;
+	const ivec2 work_group_start_coord = ivec2(gl_WorkGroupID.xy) * ivec2(NUM_THREAD_X, NUM_THREAD_Y);
+	const ivec2 cache_start_coord = work_group_start_coord - ivec2(RAY_MASK_SIZE_X, RAY_MASK_SIZE_Y * 2);
+	const ivec2 unpacked_cache_coord = coord - cache_start_coord;
+	const ivec2 packed_cache_coord = unpacked_cache_coord / ivec2(RAY_MASK_SIZE_X, RAY_MASK_SIZE_Y);
+	const ivec2 mask_start_coord = packed_cache_coord * ivec2(RAY_MASK_SIZE_X, RAY_MASK_SIZE_Y);
+	const ivec2 relative_mask_coord = unpacked_cache_coord - mask_start_coord;
 	const int hit_index = relative_mask_coord.y * RAY_MASK_SIZE_X + relative_mask_coord.x;
 	return float((shared_ao_masks[packed_cache_coord.x][packed_cache_coord.y] >> hit_index) & 1);
 }
 
-float horizontal_neighborhood_mean(CSParam param, int2 coord)
+float horizontal_neighborhood_mean(ivec2 coord)
 {
 	float result = 0.0;
 	for(int x = -8; x <= 8; x++)
 	{
-		result += unpack_ao_hit_value(param, int2(coord.x + x, coord.y));
+		result += unpack_ao_hit_value(ivec2(coord.x + x, coord.y));
 	}
 	return result;
 }
 
-float neighborhood_mean(CSParam param, int2 coord)
+float neighborhood_mean(ivec2 coord)
 {
-	float top = horizontal_neighborhood_mean(param, int2(coord.x, coord.y - 8));
-	float middle = horizontal_neighborhood_mean(param, int2(coord.x, coord.y));
-	float bottom = horizontal_neighborhood_mean(param, int2(coord.x, coord.y + 8));
+	float top = horizontal_neighborhood_mean(ivec2(coord.x, coord.y - 8));
+	float middle = horizontal_neighborhood_mean(ivec2(coord.x, coord.y));
+	float bottom = horizontal_neighborhood_mean(ivec2(coord.x, coord.y + 8));
 
-	shared_mean[param.GroupID.x][param.GroupID.y] = top;
-	shared_mean[param.GroupID.x][param.GroupID.y + 8] = middle;
-	shared_mean[param.GroupID.x][param.GroupID.y + 16] = bottom;
+	shared_mean[gl_LocalInvocationID.x][gl_LocalInvocationID.y] = top;
+	shared_mean[gl_LocalInvocationID.x][gl_LocalInvocationID.y + 8] = middle;
+	shared_mean[gl_LocalInvocationID.x][gl_LocalInvocationID.y + 16] = bottom;
 
-	GroupMemoryBarrier();
+	barrier();
 
 	const float radius = 8.0;
 	const float weight = (radius * 2.0 + 1.0) * (radius * 2.0 + 1.0);
@@ -89,56 +108,54 @@ float neighborhood_mean(CSParam param, int2 coord)
 	float mean = 0.0;
 	for(int y = 0; y < 16; y++)
 	{
-		mean += shared_mean[param.GroupID.x][param.GroupID.y + y];
+		mean += shared_mean[gl_LocalInvocationID.x][gl_LocalInvocationID.y + y];
 	}
 	
 	return mean / weight;
 }
 
-[shader("compute")]
-[numthreads(NUM_THREAD_X, NUM_THREAD_Y, 1)]
-void main(CSParam param)
+void main()
 {
-    if(param.DispatchThreadID.x == 0 && param.DispatchThreadID.y == 0)
+	if(gl_GlobalInvocationID.x == 0 && gl_GlobalInvocationID.y == 0)
 	{
-		DenoiseTileDispatchArgsBuffer[0].x = 0;
-		DenoiseTileDispatchArgsBuffer[0].y = 1;
-		DenoiseTileDispatchArgsBuffer[0].z = 1;
+		denoise_tile_dispatch_args_buffer.x = 0;
+		denoise_tile_dispatch_args_buffer.y = 1;
+		denoise_tile_dispatch_args_buffer.z = 1;
 	}
 
-	GroupMemoryBarrier();
+	barrier();
 
-	const int2 size = texture_size(PrevAOImage, 0);
-	const int2 coord = int2(param.DispatchThreadID.xy);
+	const ivec2 size = textureSize(prev_ao_image, 0);
+	const ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
 
 	if(coord.x >= size.x || coord.y >= size.y)
     {
         return;
     }
 
-	populate_cache(param);
-	float mean = neighborhood_mean(param, coord);
+	populate_cache();
+	float mean = neighborhood_mean(coord);
 
-	float depth = DepthBuffer.Load(int3(coord, push_constant.gbuffer_mip)).r;
+	float depth = texelFetch(depth_buffer, coord, push_constants.gbuffer_mip).r;
 
 	float ao = 1.0;
 	float history_length = 0.0;
 
 	if(depth != 1.0)
 	{
-		ao = unpack_ao_hit_value(param, coord);
+		ao = unpack_ao_hit_value(coord);
 		float history_ao = 0.0;
 		bool success = reprojection(coord,
 									depth,
-									push_constant.gbuffer_mip,
-									ViewBuffer.view_projection_inv,
-									GBufferB,
-									GBufferC,
-									PrevGBufferB,
-									PrevGBufferC,
-									PrevDepthBuffer,
-									PrevAOImage,
-									PrevHistoryLengthImage,
+									push_constants.gbuffer_mip,
+									ubo.view_projection_inv,
+									gbufferB,
+									gbufferC,
+									prev_gbufferB,
+									prev_gbufferC,
+									prev_depth_buffer,
+									prev_ao_image,
+									prev_history_length_image,
 									history_ao,
 									history_length);
 
@@ -154,24 +171,23 @@ void main(CSParam param)
 			history_ao = clamp(history_ao, nmin, nmax);
 		}
 
-		const float alpha = success ? max(push_constant.alpha, 1.0 / history_length) : 1.0;
-		ao = lerp(history_ao, ao, alpha);
+		const float alpha = success ? max(push_constants.alpha, 1.0 / history_length) : 1.0;
+		ao = mix(history_ao, ao, alpha);
 	}
 
-    AOImage[coord] = ao;
-    HistoryLengthImage[coord] = history_length;
+	imageStore(ao_image, coord, vec4(ao));
+	imageStore(history_length_image, coord, vec4(history_length));
 
 	if(ao < 1.0)
 	{
 		shared_denoise = true;
 	}
 
-	GroupMemoryBarrier();
+	barrier();
 
-	if(param.GroupIndex == 0 && shared_denoise)
+	if(gl_LocalInvocationIndex == 0 && shared_denoise)
 	{
-        uint idx;
-	    InterlockedAdd(DenoiseTileDispatchArgsBuffer[0].x, 1, idx);
-		DenoiseTileBuffer[idx] = coord;
+		uint idx = atomicAdd(denoise_tile_dispatch_args_buffer.x, 1);
+		denoise_tile_buffer.coord[idx] = coord;
 	}
 }

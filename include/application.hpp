@@ -81,5 +81,5 @@ class Application
 	{
 		PathTracing,
 		AmbientOcclusion,
-	} m_render_mode = RenderMode::PathTracing;
+	} m_render_mode = RenderMode::AmbientOcclusion;
 };

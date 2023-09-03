@@ -47,6 +47,7 @@ package_end()
 
 target("raytracer")
     set_kind("binary")
+    add_rules("utils.glsl2spv", {bin2c = true, targetenv="vulkan1.3"})
 
     if is_mode("debug") then
         add_defines("DEBUG")
@@ -60,7 +61,7 @@ target("raytracer")
     end
 
     add_files("src/**.cpp")
-
+    
     add_headerfiles("include/**.hpp", "include/**.h")
     add_headerfiles("src/**slang", "src/**.slangh")
 
