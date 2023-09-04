@@ -40,7 +40,6 @@ layout(push_constant) uniform PushConstants
 {
     float alpha;
     int gbuffer_mip;
-	uint debug;
 }push_constants;
 
 shared uint shared_ao_masks[3][6];

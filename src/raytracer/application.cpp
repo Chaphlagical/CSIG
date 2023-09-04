@@ -83,8 +83,8 @@ Application::Application() :
 		m_jitter_samples.push_back(glm::vec2((2.f * halton_sequence(2, i) - 1.f), (2.f * halton_sequence(3, i) - 1.f)));
 	}
 
+	m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\Deferred\Deferred.gltf)");
 	m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\default.glb)");
-	m_scene.load_envmap(R"(D:\Workspace\CSIG\assets\textures\hdr\default.hdr)");
 	m_scene.update();
 
 	m_context.wait();
