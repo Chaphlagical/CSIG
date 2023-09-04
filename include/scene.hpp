@@ -78,7 +78,16 @@ struct Scene
 	std::vector<Texture>     textures;
 	std::vector<VkImageView> texture_views;
 
-	VkSampler linear_sampler = VK_NULL_HANDLE;
+	Texture     ggx_lut;
+	VkImageView ggx_lut_view = VK_NULL_HANDLE;
+
+	std::array<Texture, 9>   scrambling_ranking_images;
+	std::vector<VkImageView> scrambling_ranking_image_views;
+
+	Texture     sobol_image;
+	VkImageView sobol_image_view = VK_NULL_HANDLE;
+
+	VkSampler linear_sampler  = VK_NULL_HANDLE;
 	VkSampler nearest_sampler = VK_NULL_HANDLE;
 
 	struct

@@ -44,18 +44,7 @@ PathTracing::PathTracing(const Context &context, const Scene &scene, const GBuff
 		    .update(descriptor.sets[i]);
 	}
 
-	m_context->record_command()
-	    .begin()
-	    .insert_barrier()
-	    .add_image_barrier(render_target[0].vk_image,
-	                       0, VK_ACCESS_SHADER_WRITE_BIT,
-	                       VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL)
-	    .add_image_barrier(render_target[1].vk_image,
-	                       0, VK_ACCESS_SHADER_READ_BIT,
-	                       VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-	    .insert()
-	    .end()
-	    .flush();
+	init();
 }
 
 PathTracing::~PathTracing()
@@ -68,6 +57,22 @@ PathTracing::~PathTracing()
 	    .destroy(m_pipeline)
 	    .destroy(descriptor.layout)
 	    .destroy(descriptor.sets);
+}
+
+void PathTracing::init()
+{
+	m_context->record_command()
+	    .begin()
+	    .insert_barrier()
+	    .add_image_barrier(render_target[0].vk_image,
+	                       0, VK_ACCESS_SHADER_WRITE_BIT,
+	                       VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL)
+	    .add_image_barrier(render_target[1].vk_image,
+	                       0, VK_ACCESS_SHADER_READ_BIT,
+	                       VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+	    .insert()
+	    .end()
+	    .flush();
 }
 
 void PathTracing::draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass)

@@ -199,8 +199,32 @@ inline std::vector<AliasTable> build_alias_table(std::vector<float> &probs, floa
 Scene::Scene(const Context &context) :
     m_context(&context)
 {
-	size_t sssss = sizeof(Emitter);
-	buffer.view  = m_context->create_buffer("View Buffer", sizeof(view_info), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	static const char *scrambling_ranking_textures[] = {
+	    PROJECT_DIR "assets/textures/blue_noise/scrambling_ranking_128x128_2d_1spp.png",
+	    PROJECT_DIR "assets/textures/blue_noise/scrambling_ranking_128x128_2d_2spp.png",
+	    PROJECT_DIR "assets/textures/blue_noise/scrambling_ranking_128x128_2d_4spp.png",
+	    PROJECT_DIR "assets/textures/blue_noise/scrambling_ranking_128x128_2d_8spp.png",
+	    PROJECT_DIR "assets/textures/blue_noise/scrambling_ranking_128x128_2d_16spp.png",
+	    PROJECT_DIR "assets/textures/blue_noise/scrambling_ranking_128x128_2d_32spp.png",
+	    PROJECT_DIR "assets/textures/blue_noise/scrambling_ranking_128x128_2d_64spp.png",
+	    PROJECT_DIR "assets/textures/blue_noise/scrambling_ranking_128x128_2d_128spp.png",
+	    PROJECT_DIR "assets/textures/blue_noise/scrambling_ranking_128x128_2d_256spp.png",
+	};
+
+	scrambling_ranking_image_views.resize(9);
+	for (size_t i = 0; i < 9; i++)
+	{
+		scrambling_ranking_images[i]      = m_context->load_texture_2d(scrambling_ranking_textures[i]);
+		scrambling_ranking_image_views[i] = m_context->create_texture_view(fmt::format("{} - View", scrambling_ranking_textures[i]), scrambling_ranking_images[i].vk_image, VK_FORMAT_R8G8B8A8_UNORM);
+	}
+
+	sobol_image      = m_context->load_texture_2d(PROJECT_DIR "assets/textures/blue_noise/sobol_256_4d.png");
+	sobol_image_view = m_context->create_texture_view("Sobel Image view", sobol_image.vk_image, VK_FORMAT_R8G8B8A8_UNORM);
+
+	ggx_lut      = m_context->load_texture_2d(PROJECT_DIR "assets/textures/lut/brdf_lut.png");
+	ggx_lut_view = m_context->create_texture_view("LUT view", ggx_lut.vk_image, VK_FORMAT_R8G8B8A8_UNORM);
+
+	buffer.view = m_context->create_buffer("View Buffer", sizeof(view_info), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	m_context->buffer_copy_to_device(buffer.view, &view_info, sizeof(view_info));
 
 	linear_sampler  = m_context->create_sampler(VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_REPEAT);
@@ -221,6 +245,12 @@ Scene::Scene(const Context &context) :
 	                        .add_descriptor_binding(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Prefilter Map Texture
 	                        .add_descriptor_binding(6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // GGX LUT
+	                        .add_descriptor_binding(7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // Sobel Image
+	                        .add_descriptor_binding(8, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // Scrambling Ranking Image
+	                        .add_descriptor_bindless_binding(9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        .create();
 
 	descriptor.set = m_context->allocate_descriptor_set({descriptor.layout});
@@ -231,6 +261,12 @@ Scene::~Scene()
 	m_context->wait();
 	m_context->destroy(descriptor.layout)
 	    .destroy(descriptor.set)
+	    .destroy(ggx_lut)
+	    .destroy(ggx_lut_view)
+	    .destroy(scrambling_ranking_images)
+	    .destroy(scrambling_ranking_image_views)
+	    .destroy(sobol_image)
+	    .destroy(sobol_image_view)
 	    .destroy(linear_sampler)
 	    .destroy(nearest_sampler);
 	destroy_scene();
@@ -1225,6 +1261,9 @@ void Scene::update()
 	    .write_combine_sampled_images(4, linear_sampler, {envmap.texture_view})
 	    .write_combine_sampled_images(5, linear_sampler, {envmap.irradiance_sh_view})
 	    .write_combine_sampled_images(6, linear_sampler, {envmap.prefilter_map_view})
+	    .write_combine_sampled_images(7, linear_sampler, {ggx_lut_view})
+	    .write_combine_sampled_images(8, nearest_sampler, {sobol_image_view})
+	    .write_combine_sampled_images(9, nearest_sampler, scrambling_ranking_image_views)
 	    .update(descriptor.set);
 }
 

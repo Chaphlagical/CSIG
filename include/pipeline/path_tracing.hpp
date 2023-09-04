@@ -10,6 +10,8 @@ struct PathTracing
 
 	~PathTracing();
 
+	void init();
+
 	void draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass);
 
 	bool draw_ui();

@@ -10,11 +10,9 @@ class GBufferPass
 
 	~GBufferPass();
 
+	void init();
+
 	void draw(CommandBufferRecorder &recorder, const Scene &scene);
-
-	//void transition_read(CommandBufferRecorder &recorder);
-
-	//void transition_write(CommandBufferRecorder &recorder);
 
   public:
 	struct

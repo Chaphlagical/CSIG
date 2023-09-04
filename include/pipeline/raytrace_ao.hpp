@@ -7,9 +7,11 @@
 struct RayTracedAO
 {
   public:
-	RayTracedAO(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, RayTracedScale scale = RayTracedScale::Full_Res);
+	RayTracedAO(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, RayTracedScale scale = RayTracedScale::Half_Res);
 
 	~RayTracedAO();
+
+	void init();
 
 	void draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass);
 
@@ -101,7 +103,6 @@ struct RayTracedAO
 		{
 			int32_t  gbuffer_mip = 0;
 			float    power       = 1.2f;
-			uint32_t debug       = 1;
 		} push_constant;
 
 		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;

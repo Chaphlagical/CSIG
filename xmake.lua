@@ -55,6 +55,7 @@ target("raytracer")
 
     add_defines("VK_NO_PROTOTYPES")
     add_defines("SHADER_DIR=R\"($(projectdir)/src/shaders/)\"")
+    add_defines("PROJECT_DIR=R\"($(projectdir)/)\"")
 
     if is_plat("windows") then
         add_defines("VK_USE_PLATFORM_WIN32_KHR")

@@ -133,6 +133,27 @@ GBufferPass::GBufferPass(const Context &context, const Scene &scene) :
 		    .update(descriptor.sets[i]);
 	}
 
+	init();
+}
+
+GBufferPass::~GBufferPass()
+{
+	m_context->destroy(gbufferA)
+	    .destroy(gbufferB)
+	    .destroy(gbufferC)
+	    .destroy(depth_buffer)
+	    .destroy(gbufferA_view)
+	    .destroy(gbufferB_view)
+	    .destroy(gbufferC_view)
+	    .destroy(depth_buffer_view)
+	    .destroy(descriptor.layout)
+	    .destroy(descriptor.sets)
+	    .destroy(m_pipeline_layout)
+	    .destroy(m_pipeline);
+}
+
+void GBufferPass::init()
+{
 	auto barrier_builder = m_context->record_command()
 	                           .begin()
 	                           .insert_barrier();
@@ -187,22 +208,6 @@ GBufferPass::GBufferPass(const Context &context, const Scene &scene) :
 	barrier_builder.insert()
 	    .end()
 	    .flush();
-}
-
-GBufferPass::~GBufferPass()
-{
-	m_context->destroy(gbufferA)
-	    .destroy(gbufferB)
-	    .destroy(gbufferC)
-	    .destroy(depth_buffer)
-	    .destroy(gbufferA_view)
-	    .destroy(gbufferB_view)
-	    .destroy(gbufferC_view)
-	    .destroy(depth_buffer_view)
-	    .destroy(descriptor.layout)
-	    .destroy(descriptor.sets)
-	    .destroy(m_pipeline_layout)
-	    .destroy(m_pipeline);
 }
 
 void GBufferPass::draw(CommandBufferRecorder &recorder, const Scene &scene)

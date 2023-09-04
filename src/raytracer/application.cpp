@@ -50,7 +50,8 @@ Application::Application() :
         .ui{m_context},
         .gbuffer{m_context, m_scene},
         .path_tracing{m_context, m_scene, m_renderer.gbuffer},
-        //.ao{m_context, m_scene, m_renderer.gbuffer},
+        .ao{m_context, m_scene, m_renderer.gbuffer},
+        .reflection{m_context, m_scene, m_renderer.gbuffer},
         .tonemap{m_context},
     }
 {
@@ -144,7 +145,7 @@ void Application::end_render()
 void Application::update_view()
 {
 	static bool hide_cursor = false;
-	if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
+	if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || m_num_frames == 0)
 	{
 		static double cursor_xpos, cursor_ypos;
 		if (!hide_cursor)
@@ -164,7 +165,7 @@ void Application::update_view()
 
 		m_camera.yaw += delta_pos.x * m_camera.sensity;
 		m_camera.pitch -= delta_pos.y * m_camera.sensity;
-		m_camera.pitch = glm::clamp(m_camera.pitch, -98.f, 98.f);
+		m_camera.pitch = glm::clamp(m_camera.pitch, -88.f, 88.f);
 
 		glm::vec3 front = glm::vec3(1.0f);
 
@@ -266,52 +267,33 @@ void Application::update(CommandBufferRecorder &recorder)
 void Application::render(CommandBufferRecorder &recorder)
 {
 	m_renderer.gbuffer.draw(recorder, m_scene);
-	if (m_render_mode == RenderMode::PathTracing)
+	switch (m_render_mode)
 	{
-		m_renderer.path_tracing.draw(recorder, m_scene, m_renderer.gbuffer);
-		m_renderer.tonemap.draw(recorder, m_renderer.path_tracing);
-		recorder.insert_barrier()
-		    .add_image_barrier(m_renderer.tonemap.render_target.vk_image,
-		                       VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-		                       VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
-		    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
-		                       VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
-		                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-		    .insert();
-		m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.tonemap.render_target.vk_image);
-		recorder.insert_barrier()
-		    .add_image_barrier(m_renderer.tonemap.render_target.vk_image,
-		                       VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT,
-		                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL)
-		    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
-		                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
-		                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
-		    .insert();
+		case RenderMode::PathTracing:
+			render_pathtracing(recorder);
+			break;
+		case RenderMode::Hybrid:
+			break;
+		case RenderMode::GBufferA:
+			render_gbufferA(recorder);
+			break;
+		case RenderMode::GBufferB:
+			render_gbufferB(recorder);
+			break;
+		case RenderMode::GBufferC:
+			render_gbufferC(recorder);
+			break;
+		case RenderMode::AO:
+			render_ao(recorder);
+			break;
+		case RenderMode::Reflection:
+			render_reflection(recorder);
+			break;
+		case RenderMode::GI:
+			break;
+		default:
+			break;
 	}
-	// else
-	//{
-	//	m_renderer.ao.draw(recorder, m_scene, m_renderer.gbuffer);
-
-	// recorder.insert_barrier()
-	//     .add_image_barrier(m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image,
-	//                        VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-	//                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
-	//     .add_image_barrier(m_context.swapchain_images[m_context.image_index],
-	//                        VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
-	//                        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-	//     .insert();
-	//  m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image);
-	////m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.ao.raytraced_image.vk_image);
-	// recorder.insert_barrier()
-	//     .add_image_barrier(m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image,
-	//                        VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
-	//                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-	//     .add_image_barrier(m_context.swapchain_images[m_context.image_index],
-	//                        VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
-	//                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
-	//     .insert();
-	//}
-
 	m_renderer.ui.render(recorder, m_current_frame);
 }
 
@@ -330,28 +312,170 @@ void Application::update_ui()
 		ImGui::Text("CSIG 2023 RayTracer");
 		ImGui::Text("FPS: %.f", ImGui::GetIO().Framerate);
 		ImGui::Text("Frames: %.d", m_num_frames);
-		const char *const render_modes[] = {"Path Tracing", "Ambient Occlusion"};
-		ImGui::Combo("Render Mode", reinterpret_cast<int *>(&m_render_mode), render_modes, 2);
+		const char *const render_modes[] = {"Path Tracing", "Hybrid", "GBufferA", "GBufferB", "GBufferC", "AO", "Reflection", "GI"};
+		if (ImGui::Combo("Render Mode", reinterpret_cast<int *>(&m_render_mode), render_modes, 8))
+		{
+			m_context.ping_pong = false;
+			m_context.wait();
+			m_renderer.gbuffer.init();
+			m_renderer.path_tracing.init();
+			m_renderer.ao.init();
+			m_renderer.reflection.init();
+		}
 
 		bool update = false;
-		switch (m_render_mode)
+		if (m_render_mode == RenderMode::PathTracing)
 		{
-			case RenderMode::PathTracing:
-				update |= m_renderer.path_tracing.draw_ui();
-				break;
-			case RenderMode::Hybrid:
-			case RenderMode::AO:
-				// update |= m_renderer.ao.draw_ui();
-				break;
+			update |= m_renderer.path_tracing.draw_ui();
+			if (update)
+			{
+				m_renderer.path_tracing.reset_frames();
+			}
 		}
-		if (update)
+		else if (m_render_mode == RenderMode::Hybrid || m_render_mode == RenderMode::AO)
 		{
-			m_renderer.path_tracing.reset_frames();
+			update |= m_renderer.ao.draw_ui();
 		}
-		m_renderer.tonemap.draw_ui();
+
+		if (m_render_mode != RenderMode::GBufferA ||
+		    m_render_mode != RenderMode::GBufferB ||
+		    m_render_mode != RenderMode::GBufferC)
+		{
+			m_renderer.tonemap.draw_ui();
+		}
 
 		ImGui::End();
 	}
 
 	m_renderer.ui.end_frame();
+}
+
+void Application::render_gbufferA(CommandBufferRecorder &recorder)
+{
+	recorder.insert_barrier()
+	    .add_image_barrier(m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image,
+	                       VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+	                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+	    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+	                       VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+	                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+	    .insert();
+	m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image);
+	recorder.insert_barrier()
+	    .add_image_barrier(m_renderer.gbuffer.gbufferA[m_context.ping_pong].vk_image,
+	                       VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
+	                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+	    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+	                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
+	                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+	    .insert();
+}
+
+void Application::render_gbufferB(CommandBufferRecorder &recorder)
+{
+	recorder.insert_barrier()
+	    .add_image_barrier(m_renderer.gbuffer.gbufferB[m_context.ping_pong].vk_image,
+	                       VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+	                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+	    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+	                       VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+	                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+	    .insert();
+	m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.gbuffer.gbufferB[m_context.ping_pong].vk_image);
+	recorder.insert_barrier()
+	    .add_image_barrier(m_renderer.gbuffer.gbufferB[m_context.ping_pong].vk_image,
+	                       VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
+	                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+	    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+	                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
+	                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+	    .insert();
+}
+
+void Application::render_gbufferC(CommandBufferRecorder &recorder)
+{
+	recorder.insert_barrier()
+	    .add_image_barrier(m_renderer.gbuffer.gbufferC[m_context.ping_pong].vk_image,
+	                       VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+	                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+	    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+	                       VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+	                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+	    .insert();
+	m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.gbuffer.gbufferC[m_context.ping_pong].vk_image);
+	recorder.insert_barrier()
+	    .add_image_barrier(m_renderer.gbuffer.gbufferC[m_context.ping_pong].vk_image,
+	                       VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
+	                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+	    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+	                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
+	                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+	    .insert();
+}
+
+void Application::render_pathtracing(CommandBufferRecorder &recorder)
+{
+	m_renderer.path_tracing.draw(recorder, m_scene, m_renderer.gbuffer);
+	m_renderer.tonemap.draw(recorder, m_renderer.path_tracing);
+	recorder.insert_barrier()
+	    .add_image_barrier(m_renderer.tonemap.render_target.vk_image,
+	                       VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+	                       VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+	    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+	                       VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+	                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+	    .insert();
+	m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.tonemap.render_target.vk_image);
+	recorder.insert_barrier()
+	    .add_image_barrier(m_renderer.tonemap.render_target.vk_image,
+	                       VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT,
+	                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL)
+	    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+	                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
+	                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+	    .insert();
+}
+
+void Application::render_ao(CommandBufferRecorder &recorder)
+{
+	m_renderer.ao.draw(recorder, m_scene, m_renderer.gbuffer);
+	recorder.insert_barrier()
+	    .add_image_barrier(m_renderer.ao.upsampled_ao_image.vk_image,
+	                       VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+	                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+	    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+	                       VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+	                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+	    .insert();
+	m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.ao.upsampled_ao_image.vk_image);
+	recorder.insert_barrier()
+	    .add_image_barrier(m_renderer.ao.upsampled_ao_image.vk_image,
+	                       VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
+	                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+	    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+	                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
+	                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+	    .insert();
+}
+
+void Application::render_reflection(CommandBufferRecorder &recorder)
+{
+	m_renderer.reflection.draw(recorder, m_scene, m_renderer.gbuffer);
+	recorder.insert_barrier()
+	    .add_image_barrier(m_renderer.reflection.upsampling_image.vk_image,
+	                       VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+	                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+	    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+	                       VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+	                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+	    .insert();
+	m_context.blit_back_buffer(recorder.cmd_buffer, m_renderer.reflection.upsampling_image.vk_image);
+	recorder.insert_barrier()
+	    .add_image_barrier(m_renderer.reflection.upsampling_image.vk_image,
+	                       VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
+	                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+	    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+	                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
+	                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+	    .insert();
 }
