@@ -354,9 +354,9 @@ void Application::update(VkCommandBuffer cmd_buffer)
 		};
 		glfwSetCursorPos(m_context.window, cursor_xpos, cursor_ypos);
 
-		m_camera.yaw += delta_pos.x * m_camera.sensity;
+		m_camera.yaw += delta_pos.x * m_camera.sensity * 0.5f;
 		m_camera.pitch -= delta_pos.y * m_camera.sensity;
-		m_camera.pitch = glm::clamp(m_camera.pitch, -98.f, 98.f);
+		m_camera.pitch = glm::clamp(m_camera.pitch, -89.f, 89.f);
 
 		glm::vec3 front = glm::vec3(1.0f);
 

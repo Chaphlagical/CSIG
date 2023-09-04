@@ -71,7 +71,7 @@ class Application
 		glm::vec3 position = glm::vec3(0.f);
 		float     yaw      = 0.f;
 		float     pitch    = 0.f;
-		float     sensity  = 0.1f;
+		float     sensity  = 0.05f;
 		float     speed    = 1.f;
 		glm::vec3 velocity = glm::vec3(0.f);
 
