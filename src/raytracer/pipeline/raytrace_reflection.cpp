@@ -2,6 +2,8 @@
 
 #include <spdlog/fmt/fmt.h>
 
+#include <imgui.h>
+
 #define NUM_THREADS_X 8
 #define NUM_THREADS_Y 8
 
@@ -424,5 +426,15 @@ void RayTracedReflection::draw(CommandBufferRecorder &recorder, const Scene &sce
 
 bool RayTracedReflection::draw_ui()
 {
-	return false;
+	bool update = false;
+	if (ImGui::TreeNode("RayTraced Reflection"))
+	{
+		ImGui::InputFloat("Alpha", &m_reprojection.push_constants.alpha);
+		ImGui::InputFloat("Alpha Moments", &m_reprojection.push_constants.moments_alpha);
+		ImGui::InputFloat("Phi Color", &m_denoise.a_trous.push_constants.phi_color);
+		ImGui::InputFloat("Phi Normal", &m_denoise.a_trous.push_constants.phi_normal);
+		ImGui::InputFloat("Sigma Depth", &m_denoise.a_trous.push_constants.sigma_depth);
+		ImGui::TreePop();
+	}
+	return update;
 }

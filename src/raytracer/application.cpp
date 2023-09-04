@@ -9,6 +9,10 @@
 #include <spdlog/fmt/fmt.h>
 #include <spdlog/spdlog.h>
 
+#include <nfd.h>
+
+#include <filesystem>
+
 #define HALTON_SAMPLES 16
 #define CAMERA_NEAR_PLANE 0.01f
 #define CAMERA_FAR_PLANE 1000.f
@@ -79,10 +83,8 @@ Application::Application() :
 		m_jitter_samples.push_back(glm::vec2((2.f * halton_sequence(2, i) - 1.f), (2.f * halton_sequence(3, i) - 1.f)));
 	}
 
-	// m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\Deferred/Deferred.gltf)");
 	m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\default.glb)");
 	m_scene.load_envmap(R"(D:\Workspace\CSIG\assets\textures\hdr\default.hdr)");
-	// m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\Deferred\Deferred.gltf)");
 	m_scene.update();
 
 	m_context.wait();
@@ -312,6 +314,31 @@ void Application::update_ui()
 		ImGui::Text("CSIG 2023 RayTracer");
 		ImGui::Text("FPS: %.f", ImGui::GetIO().Framerate);
 		ImGui::Text("Frames: %.d", m_num_frames);
+
+		if (ImGui::Button("Open Scene"))
+		{
+			char *path = nullptr;
+			if (NFD_OpenDialog("gltf,glb", PROJECT_DIR, &path) == NFD_OKAY)
+			{
+				m_scene.load_scene(path);
+				m_scene.update();
+				m_update = true;
+			}
+		}
+
+		ImGui::SameLine();
+
+		if (ImGui::Button("Open HDRI"))
+		{
+			char *path = nullptr;
+			if (NFD_OpenDialog("hdr", PROJECT_DIR, &path) == NFD_OKAY)
+			{
+				m_scene.load_envmap(path);
+				m_scene.update();
+				m_update = true;
+			}
+		}
+
 		const char *const render_modes[] = {"Path Tracing", "Hybrid", "GBufferA", "GBufferB", "GBufferC", "AO", "Reflection", "GI"};
 		if (ImGui::Combo("Render Mode", reinterpret_cast<int *>(&m_render_mode), render_modes, 8))
 		{
@@ -332,16 +359,17 @@ void Application::update_ui()
 				m_renderer.path_tracing.reset_frames();
 			}
 		}
-		else if (m_render_mode == RenderMode::Hybrid || m_render_mode == RenderMode::AO)
+		if (m_render_mode == RenderMode::Hybrid || m_render_mode == RenderMode::AO)
 		{
 			update |= m_renderer.ao.draw_ui();
 		}
-
-		if (m_render_mode != RenderMode::GBufferA ||
-		    m_render_mode != RenderMode::GBufferB ||
-		    m_render_mode != RenderMode::GBufferC)
+		if (m_render_mode == RenderMode::Hybrid || m_render_mode == RenderMode::Reflection)
 		{
-			m_renderer.tonemap.draw_ui();
+			update |= m_renderer.reflection.draw_ui();
+		}
+		if (m_render_mode == RenderMode::Hybrid || m_render_mode == RenderMode::PathTracing)
+		{
+			update |= m_renderer.tonemap.draw_ui();
 		}
 
 		ImGui::End();
