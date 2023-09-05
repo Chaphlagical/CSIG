@@ -1,0 +1,313 @@
+#ifndef RAYTRACE_SLANGH
+#define RAYTRACE_SLANGH
+
+#include "scene.slangh"
+#include "random.slangh"
+#include "common.slangh"
+
+struct RtPayload
+{
+  uint   seed;
+  float  hit_t;
+  int    primitive_id;
+  int    instance_id;
+  int    instance_custom_index;
+  float2   bary_coord;
+  float4x3 object_to_world;
+  float4x3 world_to_object;
+};
+
+static RtPayload prd;
+
+struct LightSample
+{
+	float3 le;
+	float3 dir;
+	float3 pos;
+	float3 norm;
+	float dist;
+	float pdf;
+	uint id;
+};
+
+float power_heuristic(float a, float b)
+{
+  float t = a * a;
+  return t / (b * b + t);
+}
+
+float3 offset_ray(float3 p, float3 n)
+{
+    const float intScale = 256.0;
+    const float floatScale = 1.0 / 65536.0;
+    const float origin = 1.0 / 32.0;
+
+    int3 of_i = int3(int(intScale * n.x), int(intScale * n.y), int(intScale * n.z));
+
+    float3 p_i = float3(asfloat(asint(p.x) + ((p.x < 0) ? -of_i.x : of_i.x)),
+                  asfloat(asint(p.y) + ((p.y < 0) ? -of_i.y : of_i.y)),
+                  asfloat(asint(p.z) + ((p.z < 0) ? -of_i.z : of_i.z)));
+
+    return float3(abs(p.x) < origin ? p.x + floatScale * n.x : p_i.x, //
+              abs(p.y) < origin ? p.y + floatScale * n.y : p_i.y, //
+              abs(p.z) < origin ? p.z + floatScale * n.z : p_i.z);
+}
+
+bool hit_test(in RayQuery<RAY_FLAG_NONE> ray_query, in RayDesc r)
+{
+    uint instance_id = ray_query.CandidateInstanceID();
+    uint primitive_id = ray_query.CandidatePrimitiveIndex();
+
+	Instance instance = InstanceBuffer.Load(instance_id);
+	Material material = MaterialBuffer.Load(instance.material);
+
+	if(material.alpha_mode == 0)	// Opaque
+	{
+		return true;
+	}
+
+	float base_color_alpha = material.base_color.a;
+	if(material.base_color_texture > -1)
+	{
+		const uint ind0 = IndexBuffer.Load(instance.indices_offset + primitive_id * 3 + 0);
+		const uint ind1 = IndexBuffer.Load(instance.indices_offset + primitive_id * 3 + 1);
+		const uint ind2 = IndexBuffer.Load(instance.indices_offset + primitive_id * 3 + 2);
+
+        const Vertex v0 = VertexBuffer.Load(instance.vertices_offset + ind0);
+        const Vertex v1 = VertexBuffer.Load(instance.vertices_offset + ind1);
+        const Vertex v2 = VertexBuffer.Load(instance.vertices_offset + ind2);
+
+		const float2 uv0 = float2(v0.position.w, v0.normal.w);
+		const float2 uv1 = float2(v1.position.w, v1.normal.w);
+		const float2 uv2 = float2(v2.position.w, v2.normal.w);
+
+		float2 bary = ray_query.CandidateTriangleBarycentrics();
+		const float2 tex_coord = uv0 * (1.0 - bary.x - bary.y) + uv1 * bary.x + uv2 * bary.y;
+
+        base_color_alpha *= Textures[material.base_color_texture].SampleLevel(Samplers[int(SamplerType::LinearWarp)], tex_coord, 0).a;
+	}
+
+	float opacity;
+	if(material.alpha_mode == 1)
+	{
+		// Masking
+		opacity = base_color_alpha > material.cutoff ? 1.0 : 0.0;
+	}
+	else
+	{
+		// Blending
+		opacity = base_color_alpha;
+	}
+
+	if(rand(prd.seed) > opacity)
+	{
+		return false;
+	}
+
+	return true;
+}
+
+bool closest_hit(float3 origin, float3 direction)
+{
+    RayDesc ray;
+    ray.Origin = origin;
+    ray.TMin = 0.001;
+    ray.Direction = direction;
+    ray.TMax = Infinity;
+
+    RayQuery<RAY_FLAG_NONE> ray_query;
+    ray_query.TraceRayInline(
+        TLAS,
+        RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
+        0xff,
+        ray);
+    
+    while(ray_query.Proceed())
+    {
+        if(ray_query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
+        {
+            if(hit_test(ray_query, ray))
+            {
+                ray_query.CommitNonOpaqueTriangleHit();
+            }
+        }
+    }
+
+	bool hit = (ray_query.CommittedStatus() == COMMITTED_TRIANGLE_HIT);
+
+	if(hit)
+	{
+		prd.hit_t               	= ray_query.CommittedRayT();
+    	prd.primitive_id         	= ray_query.CommittedPrimitiveIndex();
+    	prd.instance_id          	= ray_query.CommittedInstanceID();
+    	prd.instance_custom_index 	= ray_query.CommittedInstanceIndex();
+    	prd.bary_coord           	= ray_query.CommittedTriangleBarycentrics();
+    	prd.object_to_world       	= ray_query.CommittedObjectToWorld4x3();
+    	prd.world_to_object       	= ray_query.CommittedWorldToObject4x3();
+	}
+	else
+	{
+		prd.hit_t               	= Infinity;
+    	prd.primitive_id         	= 0;
+    	prd.instance_id          	= 0;
+    	prd.instance_custom_index 	= 0;
+    	prd.bary_coord           	= 0;
+	}
+
+	return hit;
+}
+
+bool any_hit(float3 origin, float3 direction, float max_dist)
+{
+    RayDesc ray;
+    ray.Origin = origin;
+    ray.TMin = 0.001;
+    ray.Direction = direction;
+    ray.TMax = (1.0 - ShadowEpsilon) * max_dist;
+
+    RayQuery<RAY_FLAG_NONE> ray_query;
+    ray_query.TraceRayInline(
+        TLAS,
+        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
+        0xff,
+        ray);
+
+    while(ray_query.Proceed())
+    {
+        if(ray_query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
+        {
+            if(hit_test(ray_query, ray))
+            {
+                ray_query.CommitNonOpaqueTriangleHit();
+            }
+        }
+    }
+
+	return ray_query.CommittedStatus() == COMMITTED_TRIANGLE_HIT;
+}
+
+ShadeState get_shade_state(RayDesc ray, RtPayload payload)
+{
+	const uint instance_id = payload.instance_custom_index;
+	const uint primitive_id = payload.primitive_id;
+	const float3 bary = float3(1.0 - payload.bary_coord.x - payload.bary_coord.y, payload.bary_coord.x, payload.bary_coord.y);
+	const Instance instance = InstanceBuffer.Load(instance_id);
+
+    const uint ind0 = IndexBuffer.Load(instance.indices_offset + primitive_id * 3 + 0);
+    const uint ind1 = IndexBuffer.Load(instance.indices_offset + primitive_id * 3 + 1);
+    const uint ind2 = IndexBuffer.Load(instance.indices_offset + primitive_id * 3 + 2);
+
+	const Vertex v0 = VertexBuffer.Load(instance.vertices_offset + ind0);
+	const Vertex v1 = VertexBuffer.Load(instance.vertices_offset + ind1);
+	const Vertex v2 = VertexBuffer.Load(instance.vertices_offset + ind2);
+
+	const float3 world_position = ray.Origin + payload.hit_t * ray.Direction;
+
+	const float3 normal = v0.normal.xyz * bary.x + v1.normal.xyz * bary.y + v2.normal.xyz * bary.z;
+	float3 world_normal = normalize(mul(payload.world_to_object, normal).xyz);
+  	float3 geom_normal  = normalize(cross(v1.position.xyz - v0.position.xyz, v2.position.xyz - v0.position.xyz));
+  	float3 wgeom_normal = normalize(mul(payload.world_to_object, geom_normal).xyz);
+	float3 ffnormal = dot(world_normal, ray.Direction) <= 0.0 ? world_normal : -world_normal;
+
+	float3 world_tangent, world_bitangent;
+	coordinate_system(ffnormal, world_tangent, world_bitangent);
+
+	const float2 uv0 = float2(v0.position.w, v0.normal.w);
+	const float2 uv1 = float2(v1.position.w, v1.normal.w);
+	const float2 uv2 = float2(v2.position.w, v2.normal.w);
+
+	const float2 tex_coord = uv0 * bary.x + uv1 * bary.y + uv2 * bary.z;
+
+	Material material = MaterialBuffer.Load(instance.material);
+
+	if(material.normal_texture > -1)
+	{
+		float3x3 TBN = float3x3(world_tangent, world_bitangent, world_normal);
+		float3 normal_vec = Textures[material.normal_texture].SampleLevel(Samplers[int(SamplerType::LinearClamp)], tex_coord, 0).xyz;
+		normal_vec = normalize(normal_vec * 2.0 - 1.0);
+		world_normal = normalize(mul(TBN, normal_vec));
+		ffnormal = dot(world_normal, ray.Direction) <= 0.0 ? world_normal : -world_normal;
+		coordinate_system(ffnormal, world_tangent, world_bitangent);
+	}
+
+	if(material.metallic_roughness_texture > -1)
+	{
+		float3 metallic_roughness = Textures[material.metallic_roughness_texture].SampleLevel(Samplers[int(SamplerType::LinearClamp)], tex_coord, 0).xyz;
+		material.roughness_factor *= metallic_roughness.g;
+		material.metallic_factor *= metallic_roughness.b;
+	}
+	material.roughness_factor = max(0.001, material.roughness_factor);
+
+	if(material.base_color_texture > -1)
+	{
+		float4 base_color = Textures[material.base_color_texture].SampleLevel(Samplers[int(SamplerType::LinearClamp)], tex_coord, 0);
+		base_color.rgb = pow(base_color.rgb, float3(2.2));
+		material.base_color *= base_color;
+	}
+
+	ShadeState sstate;
+	sstate.normal = world_normal;
+	sstate.geom_normal = wgeom_normal;
+	sstate.ffnormal = ffnormal;
+	sstate.position = world_position;
+	sstate.tangent = world_tangent;
+	sstate.bitangent = world_bitangent;
+	sstate.mat = material;
+	sstate.depth = payload.hit_t;
+
+	if(dot(sstate.normal, sstate.geom_normal) <= 0)
+	{
+		sstate.normal *= -1.0f;
+	}
+
+	sstate.eta = dot(sstate.normal, sstate.ffnormal) > 0.0 ? 1.0 / 1.5 : 1.5;
+	sstate.primary = false;
+	return sstate;
+}
+
+LightSample sample_light_idx(ShadeState sstate, uint idx)
+{
+	LightSample ls;
+	ls.le = 0.0;
+	ls.pdf = 1.0;
+	ls.id = idx;
+
+	if(idx < SceneBuffer.emitter_count)
+	{
+		Emitter emitter = EmitterBuffer.Load(idx);
+
+		float area = 0.5 * length(cross(emitter.p1.xyz - emitter.p0.xyz, emitter.p2.xyz - emitter.p1.xyz));
+		float a = sqrt(rand(prd.seed));
+		float b = a * rand(prd.seed);
+		
+		ls.pos = emitter.p0.xyz + (emitter.p1 - emitter.p0).xyz * (1.0 - a) + (emitter.p2 - emitter.p0).xyz * b;
+		ls.norm = normalize(emitter.n0.xyz + (emitter.n1 - emitter.n0).xyz * (1.0 - a) + (emitter.n2 - emitter.n0).xyz * b);
+		ls.dir = normalize(ls.pos - sstate.position);
+		ls.dist = length(ls.pos - sstate.position);
+		ls.le = emitter.intensity.rgb;
+		ls.pdf = ls.dist * ls.dist / (area * abs(dot(ls.norm, -ls.dir)));
+	}
+	return ls;
+}
+
+LightSample sample_light(ShadeState sstate)
+{
+	if(SceneBuffer.emitter_count == 0)
+	{
+		LightSample ls;
+		ls.le = 0.0;
+		ls.pdf = 1.0;
+		return ls;
+	}
+
+	// Sample a emitter
+	uint emitter_id;
+	float emitter_pdf;
+	sample_emitter_alias_table(rand2(prd.seed), emitter_id, emitter_pdf);
+	LightSample ls = sample_light_idx(sstate, emitter_id);
+	ls.id = emitter_id;
+	ls.pdf *= emitter_pdf;
+	return ls;
+}
+
+#endif
