@@ -7,8 +7,8 @@
 #define CUBEMAP_MIP_LEVEL 2.0
 
 [[vk::binding(0, 0)]] TextureCube<float4> EnvMap;
+[[vk::binding(0, 0)]] SamplerState Sampler;
 [[vk::binding(1, 0)]] RWTexture2DArray<float4> SHIntermediate;
-[[vk::binding(2, 0)]] SamplerState Sampler;
 
 groupshared SH9Color sh_coeffs[LOCAL_SIZE][LOCAL_SIZE];
 groupshared float sh_weights[LOCAL_SIZE][LOCAL_SIZE];
@@ -22,7 +22,7 @@ void main(CSParam param)
             sh_coeffs[param.GroupThreadID.x][param.GroupThreadID.y].weights[i] = float3(0.0);
     }
 
-    GroupMemoryBarrier();
+    GroupMemoryBarrierWithGroupSync();
 
     uint width = uint(CUBEMAP_SIZE * pow(0.5, CUBEMAP_MIP_LEVEL));
     uint height = uint(CUBEMAP_SIZE * pow(0.5, CUBEMAP_MIP_LEVEL));
@@ -41,7 +41,7 @@ void main(CSParam param)
         sh_coeffs[param.GroupThreadID.x][param.GroupThreadID.y].weights[i] += texel * basis.weights[i] * solid_angle;
     }
 
-    GroupMemoryBarrier();
+    GroupMemoryBarrierWithGroupSync();
 
     if (param.GroupThreadID.x == 0)
     {
@@ -54,7 +54,7 @@ void main(CSParam param)
         }
     }
 
-    GroupMemoryBarrier();
+    GroupMemoryBarrierWithGroupSync();
 
     if (param.GroupThreadID.x == 0 && param.GroupThreadID.y == 0)
     {

@@ -51,7 +51,7 @@ float4 fetch_base_color(in Material material, in float2 uv)
 	}
 	else
 	{
-		float4 base_color = Textures[material.base_color_texture].Sample(Samplers[int(SamplerType::LinearWarp)], uv);
+		float4 base_color = Textures[material.base_color_texture].Sample(Samplers[int(SamplerType::Linear)], uv);
 		base_color.rgb = pow(base_color.rgb, float3(2.2));
 		return base_color * material.base_color;
 	}
@@ -65,7 +65,7 @@ float2 fetch_roughness_metallic(in Material material, in float2 uv)
 	}
 	else
 	{
-		float2 roughness_metallic = Textures[material.metallic_roughness_texture].Sample(Samplers[int(SamplerType::LinearWarp)], uv).gb;
+		float2 roughness_metallic = Textures[material.metallic_roughness_texture].Sample(Samplers[int(SamplerType::Linear)], uv).gb;
 		return roughness_metallic * float2(material.roughness_factor, material.metallic_factor);
 	}
 }
@@ -81,7 +81,7 @@ float3 fetch_normal(in Material material, in float3 in_normal, in float2 uv)
 		float3 bitangent, tangent;
 		coordinate_system(in_normal, tangent, bitangent);
 		float3x3 TBN = float3x3(tangent, bitangent, in_normal);
-        float3 normal = normalize(Textures[material.normal_texture].Sample(Samplers[int(SamplerType::LinearWarp)], uv).rgb * 2.0 - 1.0);
+        float3 normal = normalize(Textures[material.normal_texture].Sample(Samplers[int(SamplerType::Linear)], uv).rgb * 2.0 - 1.0);
 		return normalize(mul(TBN, normal));
 	}
 }

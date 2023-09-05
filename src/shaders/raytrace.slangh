@@ -84,7 +84,7 @@ bool hit_test(in RayQuery<RAY_FLAG_NONE> ray_query, in RayDesc r)
 		float2 bary = ray_query.CandidateTriangleBarycentrics();
 		const float2 tex_coord = uv0 * (1.0 - bary.x - bary.y) + uv1 * bary.x + uv2 * bary.y;
 
-        base_color_alpha *= Textures[material.base_color_texture].SampleLevel(Samplers[int(SamplerType::LinearWarp)], tex_coord, 0).a;
+        base_color_alpha *= Textures[material.base_color_texture].SampleLevel(Samplers[int(SamplerType::Linear)], tex_coord, 0).a;
 	}
 
 	float opacity;
@@ -223,7 +223,7 @@ ShadeState get_shade_state(RayDesc ray, RtPayload payload)
 	if(material.normal_texture > -1)
 	{
 		float3x3 TBN = float3x3(world_tangent, world_bitangent, world_normal);
-		float3 normal_vec = Textures[material.normal_texture].SampleLevel(Samplers[int(SamplerType::LinearClamp)], tex_coord, 0).xyz;
+		float3 normal_vec = Textures[material.normal_texture].SampleLevel(Samplers[int(SamplerType::Linear)], tex_coord, 0).xyz;
 		normal_vec = normalize(normal_vec * 2.0 - 1.0);
 		world_normal = normalize(mul(TBN, normal_vec));
 		ffnormal = dot(world_normal, ray.Direction) <= 0.0 ? world_normal : -world_normal;
@@ -232,7 +232,7 @@ ShadeState get_shade_state(RayDesc ray, RtPayload payload)
 
 	if(material.metallic_roughness_texture > -1)
 	{
-		float3 metallic_roughness = Textures[material.metallic_roughness_texture].SampleLevel(Samplers[int(SamplerType::LinearClamp)], tex_coord, 0).xyz;
+		float3 metallic_roughness = Textures[material.metallic_roughness_texture].SampleLevel(Samplers[int(SamplerType::Linear)], tex_coord, 0).xyz;
 		material.roughness_factor *= metallic_roughness.g;
 		material.metallic_factor *= metallic_roughness.b;
 	}
@@ -240,7 +240,7 @@ ShadeState get_shade_state(RayDesc ray, RtPayload payload)
 
 	if(material.base_color_texture > -1)
 	{
-		float4 base_color = Textures[material.base_color_texture].SampleLevel(Samplers[int(SamplerType::LinearClamp)], tex_coord, 0);
+		float4 base_color = Textures[material.base_color_texture].SampleLevel(Samplers[int(SamplerType::Linear)], tex_coord, 0);
 		base_color.rgb = pow(base_color.rgb, float3(2.2));
 		material.base_color *= base_color;
 	}

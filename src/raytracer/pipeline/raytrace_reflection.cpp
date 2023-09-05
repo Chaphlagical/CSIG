@@ -65,8 +65,8 @@ RayTracedReflection::RayTracedReflection(const Context &context, const Scene &sc
 	                                       .create();
 	m_raytrace.descriptor_set  = m_context->allocate_descriptor_set(m_raytrace.descriptor_set_layout);
 	m_raytrace.pipeline_layout = m_context->create_pipeline_layout({
-	                                                                   scene.descriptor.layout,
-	                                                                   gbuffer_pass.descriptor.layout,
+	                                                                   scene.glsl_descriptor.layout,
+	                                                                   gbuffer_pass.glsl_descriptor.layout,
 	                                                                   m_raytrace.descriptor_set_layout,
 	                                                               },
 	                                                               sizeof(m_raytrace.push_constants), VK_SHADER_STAGE_COMPUTE_BIT);
@@ -86,8 +86,8 @@ RayTracedReflection::RayTracedReflection(const Context &context, const Scene &sc
 	                                           .create();
 	m_reprojection.descriptor_sets = m_context->allocate_descriptor_sets<2>(m_reprojection.descriptor_set_layout);
 	m_reprojection.pipeline_layout = m_context->create_pipeline_layout({
-	                                                                       scene.descriptor.layout,
-	                                                                       gbuffer_pass.descriptor.layout,
+	                                                                       scene.glsl_descriptor.layout,
+	                                                                       gbuffer_pass.glsl_descriptor.layout,
 	                                                                       m_reprojection.descriptor_set_layout,
 	                                                                   },
 	                                                                   sizeof(m_reprojection.push_constants), VK_SHADER_STAGE_COMPUTE_BIT);
@@ -113,8 +113,8 @@ RayTracedReflection::RayTracedReflection(const Context &context, const Scene &sc
 	m_denoise.a_trous.filter_reprojection_sets = m_context->allocate_descriptor_sets<2>(m_denoise.a_trous.descriptor_set_layout);
 	m_denoise.a_trous.filter_atrous_sets       = m_context->allocate_descriptor_sets<2>(m_denoise.a_trous.descriptor_set_layout);
 	m_denoise.a_trous.pipeline_layout          = m_context->create_pipeline_layout({
-                                                                              scene.descriptor.layout,
-                                                                              gbuffer_pass.descriptor.layout,
+                                                                              scene.glsl_descriptor.layout,
+                                                                              gbuffer_pass.glsl_descriptor.layout,
                                                                               m_denoise.a_trous.descriptor_set_layout,
                                                                           },
 	                                                                               sizeof(m_denoise.a_trous.push_constants), VK_SHADER_STAGE_COMPUTE_BIT);
@@ -128,8 +128,8 @@ RayTracedReflection::RayTracedReflection(const Context &context, const Scene &sc
 	                                         .create();
 	m_upsampling.descriptor_set  = m_context->allocate_descriptor_set(m_upsampling.descriptor_set_layout);
 	m_upsampling.pipeline_layout = m_context->create_pipeline_layout({
-	                                                                     scene.descriptor.layout,
-	                                                                     gbuffer_pass.descriptor.layout,
+	                                                                     scene.glsl_descriptor.layout,
+	                                                                     gbuffer_pass.glsl_descriptor.layout,
 	                                                                     m_upsampling.descriptor_set_layout,
 	                                                                 },
 	                                                                 sizeof(m_upsampling.push_constants), VK_SHADER_STAGE_COMPUTE_BIT);
@@ -293,7 +293,7 @@ void RayTracedReflection::draw(CommandBufferRecorder &recorder, const Scene &sce
 	    .begin_marker("Raytraced Reflection")
 
 	    .begin_marker("Ray Traced")
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_raytrace.pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], m_raytrace.descriptor_set})
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_raytrace.pipeline_layout, {scene.glsl_descriptor.set, gbuffer_pass.glsl_descriptor.sets[m_context->ping_pong], m_raytrace.descriptor_set})
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_raytrace.pipeline)
 	    .push_constants(m_raytrace.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_raytrace.push_constants)
 	    .dispatch({m_width, m_height, 1}, {NUM_THREADS_X, NUM_THREADS_Y, 1})
@@ -307,7 +307,7 @@ void RayTracedReflection::draw(CommandBufferRecorder &recorder, const Scene &sce
 	    .insert(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
 
 	    .begin_marker("Reprojection")
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_reprojection.pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], m_reprojection.descriptor_sets[m_context->ping_pong]})
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_reprojection.pipeline_layout, {scene.glsl_descriptor.set, gbuffer_pass.glsl_descriptor.sets[m_context->ping_pong], m_reprojection.descriptor_sets[m_context->ping_pong]})
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_reprojection.pipeline)
 	    .push_constants(m_reprojection.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_reprojection.push_constants)
 	    .dispatch({m_width, m_height, 1}, {NUM_THREADS_X, NUM_THREADS_Y, 1})
@@ -362,7 +362,7 @@ void RayTracedReflection::draw(CommandBufferRecorder &recorder, const Scene &sce
 			        .end_marker()
 			        .begin_marker("A-trous Filter")
 			        .execute([&]() { m_denoise.a_trous.push_constants.step_size = 1 << i; })
-			        .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_denoise.a_trous.pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], i == 0 ? m_denoise.a_trous.filter_reprojection_sets[m_context->ping_pong] : m_denoise.a_trous.filter_atrous_sets[ping_pong]})
+			        .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_denoise.a_trous.pipeline_layout, {scene.glsl_descriptor.set, gbuffer_pass.glsl_descriptor.sets[m_context->ping_pong], i == 0 ? m_denoise.a_trous.filter_reprojection_sets[m_context->ping_pong] : m_denoise.a_trous.filter_atrous_sets[ping_pong]})
 			        .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_denoise.a_trous.pipeline)
 			        .push_constants(m_denoise.a_trous.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_denoise.a_trous.push_constants)
 			        .dispatch_indirect(denoise_tile_dispatch_args_buffer.vk_buffer)
@@ -384,7 +384,7 @@ void RayTracedReflection::draw(CommandBufferRecorder &recorder, const Scene &sce
 	    .end_marker()
 
 	    .begin_marker("Upsampling")
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_upsampling.pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], m_upsampling.descriptor_set})
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_upsampling.pipeline_layout, {scene.glsl_descriptor.set, gbuffer_pass.glsl_descriptor.sets[m_context->ping_pong], m_upsampling.descriptor_set})
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_upsampling.pipeline)
 	    .push_constants(m_upsampling.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_upsampling.push_constants)
 	    .dispatch({m_context->render_extent.width, m_context->render_extent.height, 1}, {NUM_THREADS_X, NUM_THREADS_Y, 1})

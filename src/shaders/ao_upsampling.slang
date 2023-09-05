@@ -25,7 +25,6 @@ layout(push_constant) uniform PushConstants
 {
     int gbuffer_mip;
     float power;
-    uint debug;
 }push_constants;
 
 const float FLT_EPS = 0.00000001;

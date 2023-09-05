@@ -5,10 +5,6 @@
 #define NUM_THREADS_X 8
 #define NUM_THREADS_Y 8
 
-static unsigned char g_tonemap_comp_spv_data[] = {
-#include "tonemap.comp.spv.h"
-};
-
 Tonemap::Tonemap(const Context &context) :
     m_context(&context)
 {
@@ -16,14 +12,14 @@ Tonemap::Tonemap(const Context &context) :
 	render_target_view = m_context->create_texture_view("Tonemap Image View", render_target.vk_image, VK_FORMAT_R32G32B32A32_SFLOAT);
 
 	m_descriptor.input_layout = m_context->create_descriptor_layout()
-	                                .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                .create();
 	m_descriptor.output_layout = m_context->create_descriptor_layout()
 	                                 .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                 .create();
 	m_descriptor.output_set = m_context->allocate_descriptor_set(m_descriptor.output_layout);
 	m_pipeline_layout       = m_context->create_pipeline_layout({m_descriptor.input_layout, m_descriptor.output_layout}, sizeof(m_push_constant), VK_SHADER_STAGE_COMPUTE_BIT);
-	m_pipeline              = m_context->create_compute_pipeline((uint32_t *) g_tonemap_comp_spv_data, sizeof(g_tonemap_comp_spv_data), m_pipeline_layout);
+	m_pipeline              = m_context->create_compute_pipeline("tonemap.slang", m_pipeline_layout);
 
 	m_context->update_descriptor()
 	    .write_storage_images(0, {render_target_view})

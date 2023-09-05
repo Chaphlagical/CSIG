@@ -1,7 +1,7 @@
 #include "common.slangh"
 
 [[vk::binding(0, 0)]] Texture2D Texture;
-[[vk::binding(1, 0)]] SamplerState Sampler;
+[[vk::binding(0, 0)]] SamplerState Sampler;
 
 static const float4x4 inv_view_projections[6] = 
 {

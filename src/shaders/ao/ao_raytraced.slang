@@ -57,7 +57,7 @@ void main(CSParam param)
 		shared_ao = 0;
 	}
 
-    GroupMemoryBarrier();
+    GroupMemoryBarrierWithGroupSync();
 
     const int2 size = texture_size(GBufferB, push_constant.gbuffer_mip);
 	const int2 coord = int2(param.DispatchThreadID.xy);
@@ -85,7 +85,7 @@ void main(CSParam param)
 
     InterlockedOr(shared_ao, result << param.GroupIndex);
 
-    GroupMemoryBarrier();
+    GroupMemoryBarrierWithGroupSync();
 
     if (param.GroupIndex == 0)
 	{

@@ -55,6 +55,12 @@ struct Scene
 	{
 		VkDescriptorSetLayout layout = VK_NULL_HANDLE;
 		VkDescriptorSet       set    = VK_NULL_HANDLE;
+	} glsl_descriptor;
+
+	struct
+	{
+		VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+		VkDescriptorSet       set    = VK_NULL_HANDLE;
 	} descriptor;
 
   public:

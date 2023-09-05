@@ -44,6 +44,12 @@ struct RayTracedAO
 	// Denoise tile dispatch argument buffer
 	Buffer denoise_tile_dispatch_args_buffer;
 
+	struct
+	{
+		VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+		VkDescriptorSet       set    = VK_NULL_HANDLE;
+	}descriptor;
+
   private:
 	const Context *m_context = nullptr;
 

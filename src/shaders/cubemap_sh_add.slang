@@ -18,7 +18,7 @@ void main(CSParam param)
     sh_coeffs[param.DispatchThreadID.y][param.DispatchThreadID.z] = 0.0;
     sh_weights[param.DispatchThreadID.y][param.DispatchThreadID.z] = 0.0;
 
-    GroupMemoryBarrier();
+    GroupMemoryBarrierWithGroupSync();
 
     for (uint i = 0; i < SH_INTERMEDIATE_SIZE; i++)
     {
@@ -29,7 +29,7 @@ void main(CSParam param)
         sh_weights[param.DispatchThreadID.y][param.DispatchThreadID.z] += val.a;
     }
 
-    GroupMemoryBarrier();
+    GroupMemoryBarrierWithGroupSync();
 
     if (param.DispatchThreadID.z == 0)
     {
@@ -40,7 +40,7 @@ void main(CSParam param)
         }
     }
 
-    GroupMemoryBarrier();
+    GroupMemoryBarrierWithGroupSync();
 
     if (param.DispatchThreadID.y == 0 && param.DispatchThreadID.z == 0)
     {

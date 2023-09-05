@@ -19,6 +19,12 @@ class GBufferPass
 	{
 		VkDescriptorSetLayout          layout = VK_NULL_HANDLE;
 		std::array<VkDescriptorSet, 2> sets;
+	} glsl_descriptor;
+
+	struct
+	{
+		VkDescriptorSetLayout          layout = VK_NULL_HANDLE;
+		std::array<VkDescriptorSet, 2> sets;
 	} descriptor;
 
 	// RGB: Albedo, A: Metallic

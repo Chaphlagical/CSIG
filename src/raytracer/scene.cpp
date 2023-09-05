@@ -20,25 +20,25 @@
 #define PREFILTER_MAP_SIZE 256
 #define PREFILTER_MIP_LEVELS 5
 
-static unsigned char g_equirectangular_to_cubemap_vert_spv_data[] = {
-#include "equirectangular_to_cubemap.vert.spv.h"
-};
-
-static unsigned char g_equirectangular_to_cubemap_frag_spv_data[] = {
-#include "equirectangular_to_cubemap.frag.spv.h"
-};
-
-static unsigned char g_cubemap_sh_projection_comp_spv_data[] = {
-#include "cubemap_sh_projection.comp.spv.h"
-};
-
-static unsigned char g_cubemap_sh_add_comp_spv_data[] = {
-#include "cubemap_sh_add.comp.spv.h"
-};
-
-static unsigned char g_cubemap_prefilter_comp_spv_data[] = {
-#include "cubemap_prefilter.comp.spv.h"
-};
+// static unsigned char g_equirectangular_to_cubemap_vert_spv_data[] = {
+// #include "equirectangular_to_cubemap.vert.spv.h"
+// };
+//
+// static unsigned char g_equirectangular_to_cubemap_frag_spv_data[] = {
+// #include "equirectangular_to_cubemap.frag.spv.h"
+// };
+//
+// static unsigned char g_cubemap_sh_projection_comp_spv_data[] = {
+// #include "cubemap_sh_projection.comp.spv.h"
+// };
+//
+// static unsigned char g_cubemap_sh_add_comp_spv_data[] = {
+// #include "cubemap_sh_add.comp.spv.h"
+// };
+//
+// static unsigned char g_cubemap_prefilter_comp_spv_data[] = {
+// #include "cubemap_prefilter.comp.spv.h"
+// };
 
 enum SamplerType
 {
@@ -230,27 +230,68 @@ Scene::Scene(const Context &context) :
 	linear_sampler  = m_context->create_sampler(VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_REPEAT);
 	nearest_sampler = m_context->create_sampler(VK_FILTER_NEAREST, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_REPEAT);
 
+	glsl_descriptor.layout = m_context->create_descriptor_layout()
+	                             // View Buffer
+	                             .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                             // TLAS
+	                             .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                             // Scene Buffer
+	                             .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                             // Textures
+	                             .add_descriptor_bindless_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                             // Envmap Texture
+	                             .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                             // Irradiance SH Texture
+	                             .add_descriptor_binding(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                             // Prefilter Map Texture
+	                             .add_descriptor_binding(6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                             // GGX LUT
+	                             .add_descriptor_binding(7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                             // Sobel Image
+	                             .add_descriptor_binding(8, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                             // Scrambling Ranking Image
+	                             .add_descriptor_bindless_binding(9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                             .create();
+
+	glsl_descriptor.set = m_context->allocate_descriptor_set({glsl_descriptor.layout});
+
 	descriptor.layout = m_context->create_descriptor_layout()
-	                        // View Buffer
-	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // TLAS
-	                        .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // Instance Buffer
+	                        .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // Emitter Buffer
+	                        .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // Material Buffer
+	                        .add_descriptor_binding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // Vertex Buffer
+	                        .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // Index Buffer
+	                        .add_descriptor_binding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // View Buffer
+	                        .add_descriptor_binding(6, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // Emitter Alias Table Buffer
+	                        .add_descriptor_binding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // Mesh Alias Table Buffer
+	                        .add_descriptor_binding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Scene Buffer
-	                        .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_binding(9, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Textures
-	                        .add_descriptor_bindless_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        // Envmap Texture
-	                        .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        // Irradiance SH Texture
-	                        .add_descriptor_binding(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        // Prefilter Map Texture
-	                        .add_descriptor_binding(6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        // GGX LUT
-	                        .add_descriptor_binding(7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        // Sobel Image
-	                        .add_descriptor_binding(8, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        // Scrambling Ranking Image
-	                        .add_descriptor_bindless_binding(9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_bindless_binding(10, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // Samplers
+	                        .add_descriptor_bindless_binding(11, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // Env Map
+	                        .add_descriptor_binding(12, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // Irradiance SH
+	                        .add_descriptor_binding(13, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // Prefilter Map
+	                        .add_descriptor_binding(14, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // GGX Lut
+	                        .add_descriptor_binding(15, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // Sobel Sequence
+	                        .add_descriptor_binding(16, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // Scrambling Ranking Tile
+	                        .add_descriptor_bindless_binding(17, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        .create();
 
 	descriptor.set = m_context->allocate_descriptor_set({descriptor.layout});
@@ -261,6 +302,8 @@ Scene::~Scene()
 	m_context->wait();
 	m_context->destroy(descriptor.layout)
 	    .destroy(descriptor.set)
+	    .destroy(glsl_descriptor.layout)
+	    .destroy(glsl_descriptor.set)
 	    .destroy(ggx_lut)
 	    .destroy(ggx_lut_view)
 	    .destroy(scrambling_ranking_images)
@@ -947,7 +990,7 @@ void Scene::load_envmap(const std::string &filename)
 		    fmt::format("Prefilter Map View Array 2D - {}", i),
 		    envmap.prefilter_map.vk_image,
 		    VK_FORMAT_R32G32B32A32_SFLOAT,
-		    VK_IMAGE_VIEW_TYPE_CUBE,
+		    VK_IMAGE_VIEW_TYPE_2D_ARRAY,
 		    {
 		        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 		        .baseMipLevel   = i,
@@ -972,8 +1015,8 @@ void Scene::load_envmap(const std::string &filename)
 	equirectangular_to_cubemap.descriptor_set  = m_context->allocate_descriptor_set(equirectangular_to_cubemap.descriptor_set_layout);
 	equirectangular_to_cubemap.pipeline_layout = m_context->create_pipeline_layout({equirectangular_to_cubemap.descriptor_set_layout});
 	equirectangular_to_cubemap.pipeline        = m_context->create_graphics_pipeline(equirectangular_to_cubemap.pipeline_layout)
-	                                          .add_shader(VK_SHADER_STAGE_VERTEX_BIT, (uint32_t *) g_equirectangular_to_cubemap_vert_spv_data, sizeof(g_equirectangular_to_cubemap_vert_spv_data))
-	                                          .add_shader(VK_SHADER_STAGE_FRAGMENT_BIT, (uint32_t *) g_equirectangular_to_cubemap_frag_spv_data, sizeof(g_equirectangular_to_cubemap_frag_spv_data))
+	                                          .add_shader(VK_SHADER_STAGE_VERTEX_BIT, "equirectangular_to_cubemap.slang", "vs_main")
+	                                          .add_shader(VK_SHADER_STAGE_FRAGMENT_BIT, "equirectangular_to_cubemap.slang", "fs_main")
 	                                          .add_color_attachment(VK_FORMAT_R32G32B32A32_SFLOAT)
 	                                          .add_viewport({
 	                                              .x        = 0,
@@ -1005,7 +1048,7 @@ void Scene::load_envmap(const std::string &filename)
 	                                                  .create();
 	cubemap_sh_projection.descriptor_set  = m_context->allocate_descriptor_set(cubemap_sh_projection.descriptor_set_layout);
 	cubemap_sh_projection.pipeline_layout = m_context->create_pipeline_layout({cubemap_sh_projection.descriptor_set_layout});
-	cubemap_sh_projection.pipeline        = m_context->create_compute_pipeline((uint32_t *) g_cubemap_sh_projection_comp_spv_data, sizeof(g_cubemap_sh_projection_comp_spv_data), cubemap_sh_projection.pipeline_layout);
+	cubemap_sh_projection.pipeline        = m_context->create_compute_pipeline("cubemap_sh_projection.slang", cubemap_sh_projection.pipeline_layout);
 
 	m_context->update_descriptor()
 	    .write_combine_sampled_images(0, linear_sampler, {envmap.texture_view})
@@ -1022,15 +1065,15 @@ void Scene::load_envmap(const std::string &filename)
 	} cubemap_sh_add;
 
 	cubemap_sh_add.descriptor_set_layout = m_context->create_descriptor_layout()
-	                                           .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                           .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                           .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                           .create();
 	cubemap_sh_add.descriptor_set  = m_context->allocate_descriptor_set(cubemap_sh_add.descriptor_set_layout);
 	cubemap_sh_add.pipeline_layout = m_context->create_pipeline_layout({cubemap_sh_add.descriptor_set_layout});
-	cubemap_sh_add.pipeline        = m_context->create_compute_pipeline((uint32_t *) g_cubemap_sh_add_comp_spv_data, sizeof(g_cubemap_sh_add_comp_spv_data), cubemap_sh_add.pipeline_layout);
+	cubemap_sh_add.pipeline        = m_context->create_compute_pipeline("cubemap_sh_add.slang", cubemap_sh_add.pipeline_layout);
 
 	m_context->update_descriptor()
-	    .write_combine_sampled_images(0, linear_sampler, {sh_intermediate_view})
+	    .write_sampled_images(0, {sh_intermediate_view})
 	    .write_storage_images(1, {envmap.irradiance_sh_view})
 	    .update(cubemap_sh_add.descriptor_set);
 
@@ -1049,7 +1092,7 @@ void Scene::load_envmap(const std::string &filename)
 	                                              .create();
 	cubemap_prefilter.descriptor_sets = m_context->allocate_descriptor_sets<PREFILTER_MIP_LEVELS>(cubemap_prefilter.descriptor_set_layout);
 	cubemap_prefilter.pipeline_layout = m_context->create_pipeline_layout({cubemap_prefilter.descriptor_set_layout}, sizeof(int32_t), VK_SHADER_STAGE_COMPUTE_BIT);
-	cubemap_prefilter.pipeline        = m_context->create_compute_pipeline((uint32_t *) g_cubemap_prefilter_comp_spv_data, sizeof(g_cubemap_prefilter_comp_spv_data), cubemap_prefilter.pipeline_layout);
+	cubemap_prefilter.pipeline        = m_context->create_compute_pipeline("cubemap_prefilter.slang", cubemap_prefilter.pipeline_layout);
 
 	for (uint32_t i = 0; i < PREFILTER_MIP_LEVELS; i++)
 	{
@@ -1264,6 +1307,27 @@ void Scene::update()
 	    .write_combine_sampled_images(7, linear_sampler, {ggx_lut_view})
 	    .write_combine_sampled_images(8, nearest_sampler, {sobol_image_view})
 	    .write_combine_sampled_images(9, nearest_sampler, scrambling_ranking_image_views)
+	    .update(glsl_descriptor.set);
+
+	m_context->update_descriptor()
+	    .write_acceleration_structures(0, {tlas})
+	    .write_storage_buffers(1, {buffer.instance.vk_buffer})
+	    .write_storage_buffers(2, {buffer.emitter.vk_buffer})
+	    .write_storage_buffers(3, {buffer.material.vk_buffer})
+	    .write_storage_buffers(4, {buffer.vertex.vk_buffer})
+	    .write_storage_buffers(5, {buffer.index.vk_buffer})
+	    .write_uniform_buffers(6, {buffer.view.vk_buffer})
+	    .write_storage_buffers(7, {buffer.emitter_alias_table.vk_buffer})
+	    .write_storage_buffers(8, {buffer.mesh_alias_table.vk_buffer})
+	    .write_uniform_buffers(9, {buffer.scene.vk_buffer})
+	    .write_sampled_images(10, texture_views)
+	    .write_samplers(11, {linear_sampler, nearest_sampler})
+	    .write_sampled_images(12, {envmap.texture_view})
+	    .write_sampled_images(13, {envmap.irradiance_sh_view})
+	    .write_sampled_images(14, {envmap.prefilter_map_view})
+	    .write_sampled_images(15, {ggx_lut_view})
+	    .write_sampled_images(16, {sobol_image_view})
+	    .write_sampled_images(17, {scrambling_ranking_image_views})
 	    .update(descriptor.set);
 }
 

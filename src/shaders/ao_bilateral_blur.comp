@@ -85,16 +85,16 @@ void main()
 {
     ivec2 size = textureSize(gbufferB, push_constants.gbuffer_mip);
     ivec2 coord = denoise_tile_buffer.coord[gl_WorkGroupID.x] + ivec2(gl_LocalInvocationID.xy);
-    if(coord.x >= size.x || coord.y >= size.y)
-    {
-        return;
-    }
-    float depth = texelFetch(depth_buffer, coord, push_constants.gbuffer_mip).r;
-    if(depth == 1.0)
-    {
-        imageStore(bilateral_image, coord, vec4(1.0));
-        return;
-    }
-    float ao = bilateral_blur(coord);
-    imageStore(bilateral_image, coord, vec4(ao));
+    // if(coord.x >= size.x || coord.y >= size.y)
+    // {
+    //     return;
+    // }
+    // float depth = texelFetch(depth_buffer, coord, push_constants.gbuffer_mip).r;
+    // if(depth == 1.0)
+    // {
+    //     imageStore(bilateral_image, coord, vec4(1.0));
+    //     return;
+    // }
+    // float ao = bilateral_blur(coord);
+    imageStore(bilateral_image, coord, vec4(texelFetch(ao_image, coord, 0).r));
 }

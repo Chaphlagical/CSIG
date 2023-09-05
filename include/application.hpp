@@ -5,6 +5,7 @@
 #include "pipeline/path_tracing.hpp"
 #include "pipeline/raytrace_ao.hpp"
 #include "pipeline/raytrace_reflection.hpp"
+#include "pipeline/composite.hpp"
 #include "pipeline/tonemap.hpp"
 #include "pipeline/ui.hpp"
 #include "scene.hpp"
@@ -25,14 +26,6 @@ class Application
 	void update(CommandBufferRecorder &recorder);
 	void render(CommandBufferRecorder &recorder);
 	void update_ui();
-
-  private:
-	void render_gbufferA(CommandBufferRecorder &recorder);
-	void render_gbufferB(CommandBufferRecorder &recorder);
-	void render_gbufferC(CommandBufferRecorder &recorder);
-	void render_pathtracing(CommandBufferRecorder &recorder);
-	void render_ao(CommandBufferRecorder &recorder);
-	void render_reflection(CommandBufferRecorder &recorder);
 
   private:
 	Context m_context;
@@ -85,15 +78,17 @@ class Application
 		RayTracedAO         ao;
 		RayTracedReflection reflection;
 		Tonemap             tonemap;
+		CompositePass       composite;
 	} m_renderer;
 
 	enum class RenderMode : uint32_t
 	{
 		PathTracing,
 		Hybrid,
-		GBufferA,
-		GBufferB,
-		GBufferC,
+		Normal,
+		Albedo,
+		Roughness,
+		Metallic,
 		AO,
 		Reflection,
 		GI

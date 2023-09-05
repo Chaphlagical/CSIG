@@ -46,7 +46,7 @@ void populate_cache(CSParam param)
 		}
 	}
 
-	GroupMemoryBarrier();
+	GroupMemoryBarrierWithGroupSync();
 }
 
 float unpack_ao_hit_value(CSParam param, int2 coord)
@@ -81,7 +81,7 @@ float neighborhood_mean(CSParam param, int2 coord)
 	shared_mean[param.GroupID.x][param.GroupID.y + 8] = middle;
 	shared_mean[param.GroupID.x][param.GroupID.y + 16] = bottom;
 
-	GroupMemoryBarrier();
+	GroupMemoryBarrierWithGroupSync();
 
 	const float radius = 8.0;
 	const float weight = (radius * 2.0 + 1.0) * (radius * 2.0 + 1.0);
@@ -106,7 +106,7 @@ void main(CSParam param)
 		DenoiseTileDispatchArgsBuffer[0].z = 1;
 	}
 
-	GroupMemoryBarrier();
+	GroupMemoryBarrierWithGroupSync();
 
 	const int2 size = texture_size(PrevAOImage, 0);
 	const int2 coord = int2(param.DispatchThreadID.xy);
@@ -166,7 +166,7 @@ void main(CSParam param)
 		shared_denoise = true;
 	}
 
-	GroupMemoryBarrier();
+	GroupMemoryBarrierWithGroupSync();
 
 	if(param.GroupIndex == 0 && shared_denoise)
 	{

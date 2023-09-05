@@ -16,9 +16,9 @@ static const uint32_t TEMPORAL_ACCUMULATION_NUM_THREADS_Y = 8;
 static const uint32_t NUM_THREADS_X = 8;
 static const uint32_t NUM_THREADS_Y = 8;
 
-static unsigned char g_ao_raytraced_comp_spv_data[] = {
-#include "ao_raytraced.comp.spv.h"
-};
+// static unsigned char g_ao_raytraced_comp_spv_data[] = {
+// #include "ao_raytraced.comp.spv.h"
+// };
 
 static unsigned char g_ao_temporal_accumulation_comp_spv_data[] = {
 #include "ao_temporal_accumulation.comp.spv.h"
@@ -66,20 +66,27 @@ RayTracedAO::RayTracedAO(const Context &context, const Scene &scene, const GBuff
 	                                        .create();
 	m_raytraced.descriptor_set  = m_context->allocate_descriptor_set(m_raytraced.descriptor_set_layout);
 	m_raytraced.pipeline_layout = m_context->create_pipeline_layout({scene.descriptor.layout, gbuffer_pass.descriptor.layout, m_raytraced.descriptor_set_layout}, sizeof(m_raytraced.push_constant), VK_SHADER_STAGE_COMPUTE_BIT);
-	m_raytraced.pipeline        = m_context->create_compute_pipeline((uint32_t *) g_ao_raytraced_comp_spv_data, sizeof(g_ao_raytraced_comp_spv_data), m_raytraced.pipeline_layout);
-
+	m_raytraced.pipeline        = m_context->create_compute_pipeline("ao_raytraced.slang", m_raytraced.pipeline_layout);
+	/*[[vk::binding(0, 2)]] Texture2D<uint> RayTracedImage;
+[[vk::binding(1, 2)]] RWTexture2D<float> AOImage;
+[[vk::binding(2, 2)]] RWTexture2D<float> HistoryLengthImage;
+[[vk::binding(3, 2)]] Texture2D<float> PrevAOImage;
+[[vk::binding(4, 2)]] Texture2D<float> PrevHistoryLengthImage;
+[[vk::binding(5, 2)]] RWStructuredBuffer<int2> DenoiseTileBuffer;
+[[vk::binding(6, 2)]] RWStructuredBuffer<DispatchIndirectCommand> DenoiseTileDispatchArgsBuffer;
+[[vk::push_constant]] ConstantBuffer<PushConstant> push_constant;*/
 	m_temporal_accumulation.descriptor_set_layout = m_context->create_descriptor_layout()
-	                                                    .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                                    .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                                    .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                                    .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
-	                                                    .add_descriptor_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
-	                                                    .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                                    .add_descriptor_binding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                                    .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                                    .add_descriptor_binding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                                    .add_descriptor_binding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                                    .create();
 	m_temporal_accumulation.descriptor_sets = m_context->allocate_descriptor_sets<2>(m_temporal_accumulation.descriptor_set_layout);
 	m_temporal_accumulation.pipeline_layout = m_context->create_pipeline_layout({scene.descriptor.layout, gbuffer_pass.descriptor.layout, m_temporal_accumulation.descriptor_set_layout}, sizeof(m_temporal_accumulation.push_constant), VK_SHADER_STAGE_COMPUTE_BIT);
-	m_temporal_accumulation.pipeline        = m_context->create_compute_pipeline((uint32_t *) g_ao_temporal_accumulation_comp_spv_data, sizeof(g_ao_temporal_accumulation_comp_spv_data), m_temporal_accumulation.pipeline_layout);
+	m_temporal_accumulation.pipeline        = m_context->create_compute_pipeline("ao_temporal_accumulation.slang", m_temporal_accumulation.pipeline_layout);
 
 	m_bilateral_blur.descriptor_set_layout = m_context->create_descriptor_layout()
 	                                             .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
@@ -89,7 +96,7 @@ RayTracedAO::RayTracedAO(const Context &context, const Scene &scene, const GBuff
 	                                             .create();
 	m_bilateral_blur.descriptor_sets[0] = m_context->allocate_descriptor_sets<2>(m_bilateral_blur.descriptor_set_layout);
 	m_bilateral_blur.descriptor_sets[1] = m_context->allocate_descriptor_sets<2>(m_bilateral_blur.descriptor_set_layout);
-	m_bilateral_blur.pipeline_layout    = m_context->create_pipeline_layout({scene.descriptor.layout, gbuffer_pass.descriptor.layout, m_bilateral_blur.descriptor_set_layout}, sizeof(m_bilateral_blur.push_constant), VK_SHADER_STAGE_COMPUTE_BIT);
+	m_bilateral_blur.pipeline_layout    = m_context->create_pipeline_layout({scene.glsl_descriptor.layout, gbuffer_pass.glsl_descriptor.layout, m_bilateral_blur.descriptor_set_layout}, sizeof(m_bilateral_blur.push_constant), VK_SHADER_STAGE_COMPUTE_BIT);
 	m_bilateral_blur.pipeline           = m_context->create_compute_pipeline((uint32_t *) g_ao_bilateral_blur_comp_spv_data, sizeof(g_ao_bilateral_blur_comp_spv_data), m_bilateral_blur.pipeline_layout);
 
 	m_upsampling.descriptor_set_layout = m_context->create_descriptor_layout()
@@ -97,7 +104,7 @@ RayTracedAO::RayTracedAO(const Context &context, const Scene &scene, const GBuff
 	                                         .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                         .create();
 	m_upsampling.descriptor_set  = m_context->allocate_descriptor_set(m_upsampling.descriptor_set_layout);
-	m_upsampling.pipeline_layout = m_context->create_pipeline_layout({scene.descriptor.layout, gbuffer_pass.descriptor.layout, m_upsampling.descriptor_set_layout}, sizeof(m_upsampling.push_constant), VK_SHADER_STAGE_COMPUTE_BIT);
+	m_upsampling.pipeline_layout = m_context->create_pipeline_layout({scene.glsl_descriptor.layout, gbuffer_pass.glsl_descriptor.layout, m_upsampling.descriptor_set_layout}, sizeof(m_upsampling.push_constant), VK_SHADER_STAGE_COMPUTE_BIT);
 	m_upsampling.pipeline        = m_context->create_compute_pipeline((uint32_t *) g_ao_upsampling_comp_spv_data, sizeof(g_ao_upsampling_comp_spv_data), m_upsampling.pipeline_layout);
 
 	m_context->update_descriptor()
@@ -107,11 +114,11 @@ RayTracedAO::RayTracedAO(const Context &context, const Scene &scene, const GBuff
 	for (uint32_t i = 0; i < 2; i++)
 	{
 		m_context->update_descriptor()
-		    .write_combine_sampled_images(0, scene.nearest_sampler, {raytraced_image_view})
+		    .write_sampled_images(0, {raytraced_image_view})
 		    .write_storage_images(1, {ao_image_view[i]})
 		    .write_storage_images(2, {history_length_image_view[i]})
-		    .write_combine_sampled_images(3, scene.nearest_sampler, {ao_image_view[!i]})
-		    .write_combine_sampled_images(4, scene.nearest_sampler, {history_length_image_view[!i]})
+		    .write_sampled_images(3, {ao_image_view[!i]})
+		    .write_sampled_images(4, {history_length_image_view[!i]})
 		    .write_storage_buffers(5, {denoise_tile_buffer.vk_buffer})
 		    .write_storage_buffers(6, {denoise_tile_dispatch_args_buffer.vk_buffer})
 		    .update(m_temporal_accumulation.descriptor_sets[i]);
@@ -135,6 +142,14 @@ RayTracedAO::RayTracedAO(const Context &context, const Scene &scene, const GBuff
 	    .write_combine_sampled_images(1, scene.nearest_sampler, {bilateral_blur_image_view[1]})
 	    .update(m_upsampling.descriptor_set);
 
+	descriptor.layout = m_context->create_descriptor_layout()
+	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        .create();
+	descriptor.set = m_context->allocate_descriptor_set(descriptor.layout);
+	m_context->update_descriptor()
+	    .write_sampled_images(0, {upsampled_ao_image_view})
+	    .update(descriptor.set);
+
 	init();
 }
 
@@ -152,21 +167,23 @@ RayTracedAO::~RayTracedAO()
 	    .destroy(upsampled_ao_image_view)
 	    .destroy(denoise_tile_buffer)
 	    .destroy(denoise_tile_dispatch_args_buffer)
+	    .destroy(descriptor.layout)
+	    .destroy(descriptor.set)
 	    .destroy(m_raytraced.descriptor_set_layout)
-	    .destroy(m_temporal_accumulation.descriptor_set_layout)
-	    .destroy(m_bilateral_blur.descriptor_set_layout)
-	    .destroy(m_upsampling.descriptor_set_layout)
 	    .destroy(m_raytraced.descriptor_set)
-	    .destroy(m_temporal_accumulation.descriptor_sets)
-	    .destroy(m_bilateral_blur.descriptor_sets)
-	    .destroy(m_upsampling.descriptor_set)
 	    .destroy(m_raytraced.pipeline_layout)
-	    .destroy(m_temporal_accumulation.pipeline_layout)
-	    .destroy(m_bilateral_blur.pipeline_layout)
-	    .destroy(m_upsampling.pipeline_layout)
 	    .destroy(m_raytraced.pipeline)
-	    .destroy(m_temporal_accumulation.pipeline)
+	    .destroy(m_temporal_accumulation.descriptor_set_layout)
+	    .destroy(m_temporal_accumulation.descriptor_sets)
+	    .destroy(m_temporal_accumulation.pipeline_layout)
+	    .destroy(m_upsampling.descriptor_set_layout)
+	    .destroy(m_bilateral_blur.descriptor_set_layout)
+	    .destroy(m_bilateral_blur.descriptor_sets)
+	    .destroy(m_bilateral_blur.pipeline_layout)
 	    .destroy(m_bilateral_blur.pipeline)
+	    .destroy(m_upsampling.descriptor_set)
+	    .destroy(m_upsampling.pipeline_layout)
+	    .destroy(m_temporal_accumulation.pipeline)
 	    .destroy(m_upsampling.pipeline);
 }
 
@@ -224,7 +241,6 @@ void RayTracedAO::draw(CommandBufferRecorder &recorder, const Scene &scene, cons
 	m_bilateral_blur.push_constant.z_buffer_params = glm::vec4(z_buffer_params_x, 1.0f, z_buffer_params_x / CAMERA_NEAR_PLANE, 1.0f / CAMERA_NEAR_PLANE);
 
 	recorder.begin_marker("RayTraced AO")
-	    /////////////////////////////////////////////
 	    .begin_marker("Ray Traced")
 	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_raytraced.pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], m_raytraced.descriptor_set})
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_raytraced.pipeline)
@@ -283,7 +299,7 @@ void RayTracedAO::draw(CommandBufferRecorder &recorder, const Scene &scene, cons
 	    .insert(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
 	    .begin_marker("Bilateral Blur")
 	    .begin_marker("Vertical Blur")
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], m_bilateral_blur.descriptor_sets[m_context->ping_pong][0]})
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.pipeline_layout, {scene.glsl_descriptor.set, gbuffer_pass.glsl_descriptor.sets[m_context->ping_pong], m_bilateral_blur.descriptor_sets[m_context->ping_pong][0]})
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.pipeline)
 	    .execute([&]() { m_bilateral_blur.push_constant.direction = glm::ivec2(1, 0); })
 	    .push_constants(m_bilateral_blur.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_bilateral_blur.push_constant)
@@ -295,7 +311,7 @@ void RayTracedAO::draw(CommandBufferRecorder &recorder, const Scene &scene, cons
 	                       VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 	    .insert(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
 	    .begin_marker("Horizontal Blur")
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], m_bilateral_blur.descriptor_sets[m_context->ping_pong][1]})
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.pipeline_layout, {scene.glsl_descriptor.set, gbuffer_pass.glsl_descriptor.sets[m_context->ping_pong], m_bilateral_blur.descriptor_sets[m_context->ping_pong][1]})
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_bilateral_blur.pipeline)
 	    .execute([&]() { m_bilateral_blur.push_constant.direction = glm::ivec2(0, 1); })
 	    .push_constants(m_bilateral_blur.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_bilateral_blur.push_constant)
@@ -312,7 +328,7 @@ void RayTracedAO::draw(CommandBufferRecorder &recorder, const Scene &scene, cons
 	    .insert(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
 	    .end_marker()
 	    .begin_marker("Upsampling")
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_upsampling.pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], m_upsampling.descriptor_set})
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_upsampling.pipeline_layout, {scene.glsl_descriptor.set, gbuffer_pass.glsl_descriptor.sets[m_context->ping_pong], m_upsampling.descriptor_set})
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_upsampling.pipeline)
 	    .push_constants(m_upsampling.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_upsampling.push_constant)
 	    .dispatch({m_context->render_extent.width, m_context->render_extent.height, 1}, {NUM_THREADS_X, NUM_THREADS_Y, 1})

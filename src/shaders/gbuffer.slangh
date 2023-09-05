@@ -4,14 +4,14 @@
 #include "common.slangh"
 #include "scene.slangh"
 
-[[vk::binding(0, 1)]] Texture2D GBufferA;
-[[vk::binding(1, 1)]] Texture2D GBufferB;
-[[vk::binding(2, 1)]] Texture2D GBufferC;
-[[vk::binding(3, 1)]] Texture2D DepthBuffer;
-[[vk::binding(4, 1)]] Texture2D PrevGBufferA;
-[[vk::binding(5, 1)]] Texture2D PrevGBufferB;
-[[vk::binding(6, 1)]] Texture2D PrevGBufferC;
-[[vk::binding(7, 1)]] Texture2D PrevDepthBuffer;
+[[vk::binding(0, 1)]] Texture2D<float4> GBufferA;
+[[vk::binding(1, 1)]] Texture2D<float4> GBufferB;
+[[vk::binding(2, 1)]] Texture2D<float4> GBufferC;
+[[vk::binding(3, 1)]] Texture2D<float> DepthBuffer;
+[[vk::binding(4, 1)]] Texture2D<float4> PrevGBufferA;
+[[vk::binding(5, 1)]] Texture2D<float4> PrevGBufferB;
+[[vk::binding(6, 1)]] Texture2D<float4> PrevGBufferC;
+[[vk::binding(7, 1)]] Texture2D<float> PrevDepthBuffer;
 
 bool get_primary_state(float2 frag_coord, int mip, out ShadeState sstate)
 {

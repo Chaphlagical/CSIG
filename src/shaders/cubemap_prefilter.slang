@@ -13,8 +13,8 @@ struct PushConstant
 };
 
 [[vk::binding(0, 0)]] TextureCube<float4> EnvMap;
+[[vk::binding(0, 0)]] SamplerState Sampler;
 [[vk::binding(1, 0)]] RWTexture2DArray<float4> PrefilterMap;
-[[vk::binding(2, 0)]] SamplerState Sampler;
 [[vk::push_constant]] ConstantBuffer<PushConstant> push_constant;
 
 float GGX(float3 N, float3 H, float roughness)

@@ -26,6 +26,17 @@ float3 sample_cosine_lobe(float3 n, float2 rnd)
 	return local_to_world(n, t);
 }
 
+float3 hemisphere_sample_cosine_lobe(float2 u)
+{
+    float a = sqrt(u.x);
+    float b = 2.0f * PI * u.y;
+    float3 result = float3(
+        a * cos(b),
+        a * sin(b),
+        sqrt(1.0f - u.x));
+    return result;
+}
+
 bool any_hit(float3 org, float3 dir, float max_dist)
 {
     RayDesc ray;
@@ -61,7 +72,7 @@ void main(CSParam param)
 		shared_ao = 0;
 	}
 
-	GroupMemoryBarrier();
+	GroupMemoryBarrierWithGroupSync();
 
 	const int2 size = texture_size(GBufferB, push_constant.gbuffer_mip);
 	const int2 coord = int2(param.DispatchThreadID.xy);
@@ -75,25 +86,27 @@ void main(CSParam param)
 
 	uint seed = tea(size.x * param.DispatchThreadID.y + param.DispatchThreadID.x, uint(ViewBuffer.cam_pos.w));
 
-	float depth = DepthBuffer.Load(int3(coord, push_constant.gbuffer_mip)).r;
+    float depth = DepthBuffer.Load(int3(coord, push_constant.gbuffer_mip)).r;
+    float3 world_pos = world_position_from_depth(uv, depth, ViewBuffer.view_projection_inv);
+    float3 normal = octohedral_to_direction(GBufferB.Load(int3(coord, push_constant.gbuffer_mip)).rg);
+    float3 tangent, bitangent;
+    coordinate_system(normal, tangent, bitangent);
+    float3x3 TBN = float3x3(tangent, bitangent, normal);
 
 	uint result = 0;
-
 	if(depth != 1.0)
-	{
-		float3 world_pos = world_position_from_depth(uv, depth, ViewBuffer.view_projection_inv);
-		float3 normal = octohedral_to_direction(GBufferB.Load(int3(coord, push_constant.gbuffer_mip)).rg);
-		float3 dir = sample_cosine_lobe(normal, rand2(seed));
-		float3 org = world_pos + push_constant.bias * normal;
+    {
+        float3 dir = mul(hemisphere_sample_cosine_lobe(rand2(seed)), TBN);
+		float3 org = world_pos + push_constant.bias * dir;
 		result = uint(!any_hit(org, dir, push_constant.ray_length));
 	}
 	
 	InterlockedOr(shared_ao, result << param.GroupIndex);
 	
-	GroupMemoryBarrier();
+	GroupMemoryBarrierWithGroupSync();
 
 	if (param.GroupIndex == 0)
-	{
-        RaytracedImage[int2(param.GroupID.xy)] = -1;
+    {
+        RaytracedImage[int2(param.GroupID.xy)] = shared_ao;
 	}
 }

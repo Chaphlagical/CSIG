@@ -7,9 +7,9 @@
 #define RAY_TRACE_NUM_THREADS_X 8
 #define RAY_TRACE_NUM_THREADS_Y 8
 
-static unsigned char g_path_tracing_comp_spv_data[] = {
-#include "path_tracing.comp.spv.h"
-};
+//static unsigned char g_path_tracing_comp_spv_data[] = {
+//#include "path_tracing.comp.spv.h"
+//};
 
 PathTracing::PathTracing(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass) :
     m_context(&context)
@@ -22,14 +22,14 @@ PathTracing::PathTracing(const Context &context, const Scene &scene, const GBuff
 
 	m_descriptor_set_layout = m_context->create_descriptor_layout()
 	                              .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
-	                              .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+	                              .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                              .create();
 	m_descriptor_sets = m_context->allocate_descriptor_sets<2>(m_descriptor_set_layout);
-	m_pipeline_layout = m_context->create_pipeline_layout({scene.descriptor.layout, gbuffer_pass.descriptor.layout, m_descriptor_set_layout}, sizeof(m_push_constant), VK_SHADER_STAGE_COMPUTE_BIT);
-	m_pipeline        = m_context->create_compute_pipeline((uint32_t *) g_path_tracing_comp_spv_data, sizeof(g_path_tracing_comp_spv_data), m_pipeline_layout);
+	m_pipeline_layout = m_context->create_pipeline_layout({scene.descriptor.layout, gbuffer_pass.glsl_descriptor.layout, m_descriptor_set_layout}, sizeof(m_push_constant), VK_SHADER_STAGE_COMPUTE_BIT);
+	m_pipeline        = m_context->create_compute_pipeline("path_tracing.slang", m_pipeline_layout);
 
 	descriptor.layout = m_context->create_descriptor_layout()
-	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                        .create();
 	descriptor.sets = m_context->allocate_descriptor_sets<2>(descriptor.layout);
 
@@ -37,10 +37,10 @@ PathTracing::PathTracing(const Context &context, const Scene &scene, const GBuff
 	{
 		m_context->update_descriptor()
 		    .write_storage_images(0, {render_target_view[i]})
-		    .write_storage_images(1, {render_target_view[i]})
+		    .write_sampled_images(1, {render_target_view[i]})
 		    .update(m_descriptor_sets[i]);
 		m_context->update_descriptor()
-		    .write_combine_sampled_images(0, scene.linear_sampler, {render_target_view[i]})
+		    .write_sampled_images(0, {render_target_view[i]})
 		    .update(descriptor.sets[i]);
 	}
 
@@ -80,7 +80,7 @@ void PathTracing::draw(CommandBufferRecorder &recorder, const Scene &scene, cons
 	recorder
 	    .begin_marker("Path Tracing")
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline)
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], m_descriptor_sets[m_context->ping_pong]})
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout, {scene.descriptor.set, gbuffer_pass.glsl_descriptor.sets[m_context->ping_pong], m_descriptor_sets[m_context->ping_pong]})
 	    .push_constants(m_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_push_constant)
 	    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {RAY_TRACE_NUM_THREADS_X, RAY_TRACE_NUM_THREADS_Y, 1})
 	    .insert_barrier()

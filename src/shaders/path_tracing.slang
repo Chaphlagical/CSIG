@@ -30,7 +30,7 @@ float3 path_trace(float2 frag_coord)
 	{
 		if(!is_hit)
 		{
-			radiance += throughput * EnvMap.SampleLevel(Samplers[int(SamplerType::LinearWarp)], ray.Direction, 0).rgb;
+			radiance += throughput * EnvMap.SampleLevel(Samplers[int(SamplerType::Linear)], ray.Direction, 0).rgb;
 			break;
 		}
 
