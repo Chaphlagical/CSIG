@@ -2,7 +2,11 @@
 #include "common.slangh"
 
 #ifdef VISUALIZE_AO
-[[vk::binding(0, 1)]] Texture2D<float4> AO_Image;
+[[vk::binding(0, 1)]] Texture2D<float> AO_Image;
+#endif
+
+#ifdef VISUALIZE_REFLECTION
+[[vk::binding(0, 1)]] Texture2D<float4> Reflection_Image;
 #endif
 
 #ifdef VISUALIZE_GBUFFER
@@ -30,6 +34,10 @@ void main(CSParam param)
     Output[coord] = float4(float3(AO_Image[coord].r), 1.0);
 #endif
 
+#ifdef VISUALIZE_REFLECTION
+    Output[coord] = float4(pow(Reflection_Image[coord].rgb, 1.0 / 2.2), 1.0);
+#endif
+
 #ifdef VISUALIZE_ALBEDO
     Output[coord] = float4(GBufferA[coord].xyz, 1.0);
 #endif
@@ -44,5 +52,9 @@ void main(CSParam param)
 
 #ifdef VISUALIZE_ROUGHNESS
     Output[coord] = float4(float3(GBufferC[coord].r), 1.0);
+#endif
+
+#ifdef VISUALIZE_POSITION
+    Output[coord] = float4(world_position_from_depth(float2(coord) / float2(tex_size), DepthBuffer[coord].r, ViewBuffer.view_projection_inv), 1.0);
 #endif
 }

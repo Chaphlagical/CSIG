@@ -70,6 +70,7 @@ struct Scene
 	struct
 	{
 		Buffer instance;
+		Buffer light;
 		Buffer emitter;
 		Buffer material;
 		Buffer vertex;

@@ -75,7 +75,7 @@ float3 path_trace(float2 frag_coord)
 
 		throughput /= rrPcont;
 
-		is_hit = closest_hit(ray.Origin, ray.Direction);
+		is_hit = closest_hit(ray.Origin, ray.Direction, RAY_FLAG_CULL_BACK_FACING_TRIANGLES);
 		if(is_hit)
 		{
 			sstate = get_shade_state(ray, prd);

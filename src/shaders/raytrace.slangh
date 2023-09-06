@@ -107,7 +107,7 @@ bool hit_test(in RayQuery<RAY_FLAG_NONE> ray_query, in RayDesc r)
 	return true;
 }
 
-bool closest_hit(float3 origin, float3 direction)
+bool closest_hit(float3 origin, float3 direction, uint flags)
 {
     RayDesc ray;
     ray.Origin = origin;
@@ -118,7 +118,7 @@ bool closest_hit(float3 origin, float3 direction)
     RayQuery<RAY_FLAG_NONE> ray_query;
     ray_query.TraceRayInline(
         TLAS,
-        RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
+        flags,
         0xff,
         ray);
     

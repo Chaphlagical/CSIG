@@ -62,7 +62,7 @@ struct RayTracedAO
 		struct
 		{
 			float   ray_length  = 0.3f;
-			float   bias        = 0.03f;
+			float   bias        = 0.1f;
 			int32_t gbuffer_mip = 0;
 		} push_constant;
 
@@ -93,7 +93,7 @@ struct RayTracedAO
 		{
 			glm::vec4  z_buffer_params = glm::vec4(0.f);
 			glm::ivec2 direction       = glm::ivec2(0);
-			int32_t    radius          = 0;
+			int32_t    radius          = 3;
 			int32_t    gbuffer_mip     = 0;
 		} push_constant;
 

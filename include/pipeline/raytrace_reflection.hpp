@@ -43,6 +43,12 @@ struct RayTracedReflection
 	Buffer copy_tile_data_buffer;
 	Buffer copy_tile_dispatch_args_buffer;
 
+	struct
+	{
+		VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+		VkDescriptorSet       set    = VK_NULL_HANDLE;
+	} descriptor;
+
   private:
 	const Context *m_context = nullptr;
 
@@ -54,7 +60,12 @@ struct RayTracedReflection
 	{
 		struct
 		{
-			int32_t gbuffer_mip = 0;
+			int32_t  gbuffer_mip           = 0;
+			float    bias                  = 0.1f;
+			float    rough_ddgi_intensity  = 1.f;
+			uint32_t approximate_with_ddgi = 0;
+			float    gi_intensity          = 0.5f;
+			uint32_t sample_gi             = 1;
 		} push_constants;
 
 		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
@@ -67,13 +78,10 @@ struct RayTracedReflection
 	{
 		struct
 		{
-			uint64_t denoise_tile_data_addr          = 0;
-			uint64_t denoise_tile_dispatch_args_addr = 0;
-			uint64_t copy_tile_data_addr             = 0;
-			uint64_t copy_tile_dispatch_args_addr    = 0;
-			int32_t  gbuffer_mip                     = 0;
-			float    alpha                           = 0.01f;
-			float    moments_alpha                   = 0.2f;
+			int32_t  gbuffer_mip           = 0;
+			uint32_t approximate_with_ddgi = 0;
+			float    alpha                 = 0.01f;
+			float    moments_alpha         = 0.2f;
 		} push_constants;
 
 		VkPipelineLayout               pipeline_layout       = VK_NULL_HANDLE;
@@ -86,10 +94,6 @@ struct RayTracedReflection
 	{
 		struct
 		{
-			struct
-			{
-				uint64_t copy_tile_data_addr = 0;
-			} push_constants;
 			VkPipelineLayout               pipeline_layout        = VK_NULL_HANDLE;
 			VkPipeline                     pipeline               = VK_NULL_HANDLE;
 			VkDescriptorSetLayout          descriptor_set_layout  = VK_NULL_HANDLE;
@@ -100,13 +104,13 @@ struct RayTracedReflection
 		{
 			struct
 			{
-				uint64_t denoise_tile_data_addr = 0;
-				int32_t  gbuffer_mip            = 0;
-				float    phi_color              = 10.0f;
-				float    phi_normal             = 32.0f;
-				int32_t  radius                 = 1;
-				int32_t  step_size              = 1;
-				float    sigma_depth            = 1.0f;
+				int32_t radius                = 1;
+				int32_t step_size             = 1;
+				float   phi_color             = 10.0f;
+				float   phi_normal            = 32.0f;
+				float   sigma_depth           = 1.0f;
+				int32_t gbuffer_mip           = 0;
+				int32_t approximate_with_ddgi = 0;
 			} push_constants;
 			VkPipelineLayout               pipeline_layout          = VK_NULL_HANDLE;
 			VkPipeline                     pipeline                 = VK_NULL_HANDLE;

@@ -3,8 +3,10 @@
 #include "random.slangh"
 #include "common.slangh"
 
-#define NUM_THREADS_X 8
-#define NUM_THREADS_Y 4
+#define NUM_THREAD_X 8
+#define NUM_THREAD_Y 4
+#define SAMPLER_WHITE_NOISE 0
+#define SAMPLER_BLUE_NOISE_DISTRIBUTION 1
 
 struct PushConstant
 {
@@ -16,43 +18,52 @@ struct PushConstant
 [[vk::binding(0, 2)]] RWTexture2D<uint> RaytracedImage;
 [[vk::push_constant]] ConstantBuffer<PushConstant> push_constant;
 
-float3 sample_cosine_lobe(float3 n, float2 rnd)
+float2 random_sample(int2 coord, uint num_frames)
 {
-	rnd = max(rnd, float2(0.00001));
-	const float phi = 2.0 * PI * rnd.y;
-	const float cos_theta = sqrt(rnd.x);
-	const float sin_theta = sqrt(1.0 - rnd.x);
-	float3 t = float3(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta);
-	return local_to_world(n, t);
+    return float2(sample_blue_noise(coord, int(num_frames), 0, SobelSequence, ScramblingRankingTile[0]),
+                  sample_blue_noise(coord, int(num_frames), 1, SobelSequence, ScramblingRankingTile[0]));
 }
 
-float3 hemisphere_sample_cosine_lobe(float2 u)
+float3x3 make_rotation_matrix(float3 z)
 {
-    float a = sqrt(u.x);
-    float b = 2.0f * PI * u.y;
-    float3 result = float3(
-        a * cos(b),
-        a * sin(b),
-        sqrt(1.0f - u.x));
-    return result;
+    const float3 ref = abs(dot(z, float3(0, 1, 0))) > 0.99f ? float3(0, 0, 1) : float3(0, 1, 0);
+
+    const float3 x = normalize(cross(ref, z));
+    const float3 y = cross(z, x);
+
+    return float3x3(x, y, z);
+}
+
+float3 sample_cosine_lobe(in float3 n, in float2 r)
+{
+    float2 rand_sample = max(float2(0.00001f), r);
+
+    const float phi = 2.0f * PI * rand_sample.y;
+
+    const float cos_theta = sqrt(rand_sample.x);
+    const float sin_theta = sqrt(1 - rand_sample.x);
+
+    float3 t = float3(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta);
+
+    return normalize(mul(transpose(make_rotation_matrix(n)), t));
 }
 
 bool any_hit(float3 org, float3 dir, float max_dist)
 {
     RayDesc ray;
     ray.Origin = org;
-    ray.TMin = 0.0;
+    ray.TMin = 0.001;
     ray.Direction = dir;
     ray.TMax = max_dist;
     RayQuery<RAY_FLAG_NONE> q;
 
     q.TraceRayInline(
         TLAS,
-        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
+        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_OPAQUE,
         0xff,
         ray);
 
-    q.Proceed();
+    while(q.Proceed()) {};
 
     if (q.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
     {
@@ -64,49 +75,37 @@ bool any_hit(float3 org, float3 dir, float max_dist)
 groupshared uint shared_ao;
 
 [shader("compute")]
-[numthreads(NUM_THREADS_X, NUM_THREADS_Y, 1)]
+[numthreads(NUM_THREAD_X, NUM_THREAD_Y, 1)]
 void main(CSParam param)
 {
-	if(param.GroupIndex == 0)
-	{
-		shared_ao = 0;
-	}
+    if (param.GroupIndex == 0)
+        shared_ao = 0;
 
-	GroupMemoryBarrierWithGroupSync();
+    GroupMemoryBarrierWithGroupSync();
 
-	const int2 size = texture_size(GBufferB, push_constant.gbuffer_mip);
-	const int2 coord = int2(param.DispatchThreadID.xy);
-	const float2 pixel = float2(coord) + float2(0.5);
-	const float2 uv = pixel / float2(size);
+    const int2 size = texture_size(GBufferA, push_constant.gbuffer_mip);
+    const int2 current_coord = int2(param.DispatchThreadID.xy);
+    const float2 pixel_center = float2(current_coord) + float2(0.5);
+    const float2 tex_coord = pixel_center / float2(size);
 
-	if(coord.x >= size.x || coord.y >= size.y)
+    float depth = DepthBuffer.Load(int3(current_coord, push_constant.gbuffer_mip)).r;
+
+    uint result = 0;
+
+    if (depth != 1.0f)
     {
-        return;
+        float3 world_pos = world_position_from_depth(tex_coord, depth, ViewBuffer.view_projection_inv);
+        float3 normal = octohedral_to_direction(GBufferB.Load(int3(current_coord, push_constant.gbuffer_mip)).rg);
+        float3 ray_origin = world_pos + normal * push_constant.bias;
+        float2 rnd_sample = random_sample(current_coord, uint(ViewBuffer.cam_pos.w));
+        float3 sample_direction = sample_cosine_lobe(normal, rnd_sample);
+        result = uint(!any_hit(ray_origin, sample_direction, push_constant.ray_length));
     }
 
-	uint seed = tea(size.x * param.DispatchThreadID.y + param.DispatchThreadID.x, uint(ViewBuffer.cam_pos.w));
+    InterlockedOr(shared_ao, result << param.GroupIndex);
 
-    float depth = DepthBuffer.Load(int3(coord, push_constant.gbuffer_mip)).r;
-    float3 world_pos = world_position_from_depth(uv, depth, ViewBuffer.view_projection_inv);
-    float3 normal = octohedral_to_direction(GBufferB.Load(int3(coord, push_constant.gbuffer_mip)).rg);
-    float3 tangent, bitangent;
-    coordinate_system(normal, tangent, bitangent);
-    float3x3 TBN = float3x3(tangent, bitangent, normal);
+    GroupMemoryBarrierWithGroupSync();
 
-	uint result = 0;
-	if(depth != 1.0)
-    {
-        float3 dir = mul(hemisphere_sample_cosine_lobe(rand2(seed)), TBN);
-		float3 org = world_pos + push_constant.bias * dir;
-		result = uint(!any_hit(org, dir, push_constant.ray_length));
-	}
-	
-	InterlockedOr(shared_ao, result << param.GroupIndex);
-	
-	GroupMemoryBarrierWithGroupSync();
-
-	if (param.GroupIndex == 0)
-    {
+    if (param.GroupIndex == 0)
         RaytracedImage[int2(param.GroupID.xy)] = shared_ao;
-	}
 }

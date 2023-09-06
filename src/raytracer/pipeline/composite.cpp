@@ -1,6 +1,6 @@
 #include "pipeline/composite.hpp"
 
-CompositePass::CompositePass(const Context &context, const Scene &scene, const GBufferPass &gbuffer, const RayTracedAO &ao) :
+CompositePass::CompositePass(const Context &context, const Scene &scene, const GBufferPass &gbuffer, const RayTracedAO &ao, const RayTracedReflection &reflection) :
     m_context(&context)
 {
 	composite_image = m_context->create_texture_2d(
@@ -17,14 +17,18 @@ CompositePass::CompositePass(const Context &context, const Scene &scene, const G
 	    .write_storage_images(0, {composite_view})
 	    .update(m_descriptor_set);
 
-	m_ao.pipeline_layout = m_context->create_pipeline_layout({scene.descriptor.layout, ao.descriptor.layout, m_descriptor_layout});
-	m_ao.pipeline        = m_context->create_compute_pipeline("composite.slang", m_ao.pipeline_layout, "main", {{"VISUALIZE_AO", "1"}});
-
 	m_gbuffer.pipeline_layout    = m_context->create_pipeline_layout({scene.descriptor.layout, gbuffer.descriptor.layout, m_descriptor_layout});
 	m_gbuffer.albedo_pipeline    = m_context->create_compute_pipeline("composite.slang", m_gbuffer.pipeline_layout, "main", {{"VISUALIZE_GBUFFER", "1"}, {"VISUALIZE_ALBEDO", "1"}});
 	m_gbuffer.normal_pipeline    = m_context->create_compute_pipeline("composite.slang", m_gbuffer.pipeline_layout, "main", {{"VISUALIZE_GBUFFER", "1"}, {"VISUALIZE_NORMAL", "1"}});
 	m_gbuffer.metallic_pipeline  = m_context->create_compute_pipeline("composite.slang", m_gbuffer.pipeline_layout, "main", {{"VISUALIZE_GBUFFER", "1"}, {"VISUALIZE_METALLIC", "1"}});
 	m_gbuffer.roughness_pipeline = m_context->create_compute_pipeline("composite.slang", m_gbuffer.pipeline_layout, "main", {{"VISUALIZE_GBUFFER", "1"}, {"VISUALIZE_ROUGHNESS", "1"}});
+	m_gbuffer.position_pipeline  = m_context->create_compute_pipeline("composite.slang", m_gbuffer.pipeline_layout, "main", {{"VISUALIZE_GBUFFER", "1"}, {"VISUALIZE_POSITION", "1"}});
+
+	m_ao.pipeline_layout = m_context->create_pipeline_layout({scene.descriptor.layout, ao.descriptor.layout, m_descriptor_layout});
+	m_ao.pipeline        = m_context->create_compute_pipeline("composite.slang", m_ao.pipeline_layout, "main", {{"VISUALIZE_AO", "1"}});
+
+	m_reflection.pipeline_layout = m_context->create_pipeline_layout({scene.descriptor.layout, reflection.descriptor.layout, m_descriptor_layout});
+	m_reflection.pipeline        = m_context->create_compute_pipeline("composite.slang", m_ao.pipeline_layout, "main", {{"VISUALIZE_REFLECTION", "1"}});
 
 	init();
 }
@@ -35,15 +39,16 @@ CompositePass::~CompositePass()
 	    .destroy(m_descriptor_set)
 	    .destroy(composite_image)
 	    .destroy(composite_view)
-	    .destroy(m_ao.pipeline_layout)
-	    .destroy(m_ao.pipeline)
 	    .destroy(m_gbuffer.pipeline_layout)
 	    .destroy(m_gbuffer.albedo_pipeline)
 	    .destroy(m_gbuffer.normal_pipeline)
 	    .destroy(m_gbuffer.metallic_pipeline)
 	    .destroy(m_gbuffer.roughness_pipeline)
-
-	    ;
+	    .destroy(m_gbuffer.position_pipeline)
+	    .destroy(m_ao.pipeline_layout)
+	    .destroy(m_ao.pipeline)
+	    .destroy(m_reflection.pipeline_layout)
+	    .destroy(m_reflection.pipeline);
 }
 
 void CompositePass::init()
@@ -57,12 +62,20 @@ void CompositePass::init()
 	    .flush();
 }
 
-void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, const RayTracedAO &ao)
+void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer, GBufferOption option)
 {
+	VkPipeline pipelines[] = {
+	    m_gbuffer.albedo_pipeline,
+	    m_gbuffer.normal_pipeline,
+	    m_gbuffer.metallic_pipeline,
+	    m_gbuffer.roughness_pipeline,
+	    m_gbuffer.position_pipeline,
+	};
+
 	recorder
 	    .begin_marker("Composite")
-	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_ao.pipeline)
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_ao.pipeline_layout, {scene.descriptor.set, ao.descriptor.set, m_descriptor_set})
+	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, pipelines[(size_t) option])
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_gbuffer.pipeline_layout, {scene.descriptor.set, gbuffer.descriptor.sets[m_context->ping_pong], m_descriptor_set})
 	    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {8, 8, 1})
 	    .execute([&](CommandBufferRecorder &recorder) { blit(recorder); })
 	    .end_marker();
@@ -92,19 +105,23 @@ void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, co
 	    .end_marker();
 }
 
-void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer, GBufferOption option)
+void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, const RayTracedAO &ao)
 {
-	VkPipeline pipelines[] = {
-	    m_gbuffer.albedo_pipeline,
-	    m_gbuffer.normal_pipeline,
-	    m_gbuffer.metallic_pipeline,
-	    m_gbuffer.roughness_pipeline,
-	};
-
 	recorder
 	    .begin_marker("Composite")
-	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, pipelines[(size_t) option])
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_gbuffer.pipeline_layout, {scene.descriptor.set, gbuffer.descriptor.sets[m_context->ping_pong], m_descriptor_set})
+	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_ao.pipeline)
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_ao.pipeline_layout, {scene.descriptor.set, ao.descriptor.set, m_descriptor_set})
+	    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {8, 8, 1})
+	    .execute([&](CommandBufferRecorder &recorder) { blit(recorder); })
+	    .end_marker();
+}
+
+void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, const RayTracedReflection &reflection)
+{
+	recorder
+	    .begin_marker("Composite")
+	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_reflection.pipeline)
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_reflection.pipeline_layout, {scene.descriptor.set, reflection.descriptor.set, m_descriptor_set})
 	    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {8, 8, 1})
 	    .execute([&](CommandBufferRecorder &recorder) { blit(recorder); })
 	    .end_marker();

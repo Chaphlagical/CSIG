@@ -89,6 +89,7 @@ class Application
 		Albedo,
 		Roughness,
 		Metallic,
+		Position,
 		AO,
 		Reflection,
 		GI

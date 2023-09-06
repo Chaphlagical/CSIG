@@ -18,7 +18,7 @@ struct PushConstant
 };
 
 [[vk::binding(0, 2)]] RWTexture2D<float> Bilateral_Image;
-[[vk::binding(1, 2)]] Texture2D<uint> AO_Image;
+[[vk::binding(1, 2)]] Texture2D<float> AO_Image;
 [[vk::binding(2, 2)]] Texture2D<float> History_Length;
 [[vk::binding(3, 2)]] StructuredBuffer<int2> DenoiseTileBuffer;
 [[vk::push_constant]] ConstantBuffer<PushConstant> push_constant;
@@ -77,13 +77,8 @@ float bilateral_blur(int2 current_coord)
 [numthreads(NUM_THREADS_X, NUM_THREADS_Y, 1)]
 void main(CSParam param)
 {
-    // Query the G-Buffer image size
     int2 size = texture_size(GBufferA, push_constant.gbuffer_mip);
-
-    // Compute current pixel coord
     int2 current_coord = DenoiseTileBuffer[param.GroupID.x] + int2(param.GroupThreadID.xy);
-
-    // Skip pixel if it belongs to the background
     float depth = DepthBuffer.Load(int3(current_coord, push_constant.gbuffer_mip)).r;
 
     if (depth == 1.0f)
@@ -92,9 +87,7 @@ void main(CSParam param)
         return;
     }
 
-    // Blur
     float ao = bilateral_blur(current_coord);
 
-    // Store blurred ao
     Bilateral_Image[current_coord] = ao;
 }

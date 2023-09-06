@@ -7,26 +7,6 @@
 #define NUM_THREADS_X 8
 #define NUM_THREADS_Y 8
 
-static unsigned char g_reflection_raytraced_comp_spv_data[] = {
-#include "reflection_raytrace.comp.spv.h"
-};
-
-static unsigned char g_reflection_reprojection_comp_spv_data[] = {
-#include "reflection_reprojection.comp.spv.h"
-};
-
-static unsigned char g_reflection_copy_tiles_comp_spv_data[] = {
-#include "reflection_copy_tiles.comp.spv.h"
-};
-
-static unsigned char g_reflection_atrous_comp_spv_data[] = {
-#include "reflection_atrous.comp.spv.h"
-};
-
-static unsigned char g_reflection_upsampling_comp_spv_data[] = {
-#include "reflection_upsampling.comp.spv.h"
-};
-
 RayTracedReflection::RayTracedReflection(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, RayTracedScale scale) :
     m_context(&context)
 {
@@ -65,12 +45,12 @@ RayTracedReflection::RayTracedReflection(const Context &context, const Scene &sc
 	                                       .create();
 	m_raytrace.descriptor_set  = m_context->allocate_descriptor_set(m_raytrace.descriptor_set_layout);
 	m_raytrace.pipeline_layout = m_context->create_pipeline_layout({
-	                                                                   scene.glsl_descriptor.layout,
-	                                                                   gbuffer_pass.glsl_descriptor.layout,
+	                                                                   scene.descriptor.layout,
+	                                                                   gbuffer_pass.descriptor.layout,
 	                                                                   m_raytrace.descriptor_set_layout,
 	                                                               },
 	                                                               sizeof(m_raytrace.push_constants), VK_SHADER_STAGE_COMPUTE_BIT);
-	m_raytrace.pipeline        = m_context->create_compute_pipeline((uint32_t *) g_reflection_raytraced_comp_spv_data, sizeof(g_reflection_raytraced_comp_spv_data), m_raytrace.pipeline_layout);
+	m_raytrace.pipeline        = m_context->create_compute_pipeline("reflection_raytrace.slang", m_raytrace.pipeline_layout);
 
 	m_reprojection.descriptor_set_layout = m_context->create_descriptor_layout()
 	                                           // Output image
@@ -78,62 +58,74 @@ RayTracedReflection::RayTracedReflection(const Context &context, const Scene &sc
 	                                           // Moments image
 	                                           .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 1)
 	                                           // Input image
-	                                           .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 1)
+	                                           .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 1)
 	                                           // History output image
-	                                           .add_descriptor_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 1)
+	                                           .add_descriptor_binding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 1)
 	                                           // History moments image
-	                                           .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 1)
+	                                           .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 1)
+	                                           // Denoise Tile Data
+	                                           .add_descriptor_binding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 1)
+	                                           // Denoise Tile Dispatch Args
+	                                           .add_descriptor_binding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 1)
+	                                           // Copy Tile Data
+	                                           .add_descriptor_binding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 1)
+	                                           // Copy Tile Dispatch Args
+	                                           .add_descriptor_binding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 1)
 	                                           .create();
 	m_reprojection.descriptor_sets = m_context->allocate_descriptor_sets<2>(m_reprojection.descriptor_set_layout);
 	m_reprojection.pipeline_layout = m_context->create_pipeline_layout({
-	                                                                       scene.glsl_descriptor.layout,
-	                                                                       gbuffer_pass.glsl_descriptor.layout,
+	                                                                       scene.descriptor.layout,
+	                                                                       gbuffer_pass.descriptor.layout,
 	                                                                       m_reprojection.descriptor_set_layout,
 	                                                                   },
 	                                                                   sizeof(m_reprojection.push_constants), VK_SHADER_STAGE_COMPUTE_BIT);
-	m_reprojection.pipeline        = m_context->create_compute_pipeline((uint32_t *) g_reflection_reprojection_comp_spv_data, sizeof(g_reflection_reprojection_comp_spv_data), m_reprojection.pipeline_layout);
+	m_reprojection.pipeline        = m_context->create_compute_pipeline("reflection_reprojection.slang", m_reprojection.pipeline_layout);
 
 	m_denoise.copy_tiles.descriptor_set_layout = m_context->create_descriptor_layout()
 	                                                 // Output image
 	                                                 .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 1)
 	                                                 // Input image
-	                                                 .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 1)
+	                                                 .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 1)
+	                                                 // Copy Tile Data
+	                                                 .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 1)
 	                                                 .create();
 	m_denoise.copy_tiles.copy_atrous_sets       = m_context->allocate_descriptor_sets<2>(m_denoise.copy_tiles.descriptor_set_layout);
 	m_denoise.copy_tiles.copy_reprojection_sets = m_context->allocate_descriptor_sets<2>(m_denoise.copy_tiles.descriptor_set_layout);
-	m_denoise.copy_tiles.pipeline_layout        = m_context->create_pipeline_layout({m_denoise.copy_tiles.descriptor_set_layout}, sizeof(m_denoise.copy_tiles.push_constants), VK_SHADER_STAGE_COMPUTE_BIT);
-	m_denoise.copy_tiles.pipeline               = m_context->create_compute_pipeline((uint32_t *) g_reflection_copy_tiles_comp_spv_data, sizeof(g_reflection_copy_tiles_comp_spv_data), m_denoise.copy_tiles.pipeline_layout);
+	m_denoise.copy_tiles.pipeline_layout        = m_context->create_pipeline_layout({m_denoise.copy_tiles.descriptor_set_layout});
+	m_denoise.copy_tiles.pipeline               = m_context->create_compute_pipeline("reflection_copy_tiles.slang", m_denoise.copy_tiles.pipeline_layout);
 
 	m_denoise.a_trous.descriptor_set_layout = m_context->create_descriptor_layout()
 	                                              // Output image
 	                                              .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 1)
 	                                              // Input image
-	                                              .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 1)
+	                                              .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 1)
+	                                              // Denoise Tile Data
+	                                              .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 1)
 	                                              .create();
 	m_denoise.a_trous.filter_reprojection_sets = m_context->allocate_descriptor_sets<2>(m_denoise.a_trous.descriptor_set_layout);
 	m_denoise.a_trous.filter_atrous_sets       = m_context->allocate_descriptor_sets<2>(m_denoise.a_trous.descriptor_set_layout);
 	m_denoise.a_trous.pipeline_layout          = m_context->create_pipeline_layout({
-                                                                              scene.glsl_descriptor.layout,
-                                                                              gbuffer_pass.glsl_descriptor.layout,
+                                                                              scene.descriptor.layout,
+                                                                              gbuffer_pass.descriptor.layout,
                                                                               m_denoise.a_trous.descriptor_set_layout,
                                                                           },
 	                                                                               sizeof(m_denoise.a_trous.push_constants), VK_SHADER_STAGE_COMPUTE_BIT);
-	m_denoise.a_trous.pipeline                 = m_context->create_compute_pipeline((uint32_t *) g_reflection_atrous_comp_spv_data, sizeof(g_reflection_atrous_comp_spv_data), m_denoise.a_trous.pipeline_layout);
+	m_denoise.a_trous.pipeline                 = m_context->create_compute_pipeline("reflection_atrous.slang", m_denoise.a_trous.pipeline_layout);
 
 	m_upsampling.descriptor_set_layout = m_context->create_descriptor_layout()
 	                                         // Output image
 	                                         .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 1)
 	                                         // Input image
-	                                         .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 1)
+	                                         .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 1)
 	                                         .create();
 	m_upsampling.descriptor_set  = m_context->allocate_descriptor_set(m_upsampling.descriptor_set_layout);
 	m_upsampling.pipeline_layout = m_context->create_pipeline_layout({
-	                                                                     scene.glsl_descriptor.layout,
-	                                                                     gbuffer_pass.glsl_descriptor.layout,
+	                                                                     scene.descriptor.layout,
+	                                                                     gbuffer_pass.descriptor.layout,
 	                                                                     m_upsampling.descriptor_set_layout,
 	                                                                 },
 	                                                                 sizeof(m_upsampling.push_constants), VK_SHADER_STAGE_COMPUTE_BIT);
-	m_upsampling.pipeline        = m_context->create_compute_pipeline((uint32_t *) g_reflection_upsampling_comp_spv_data, sizeof(g_reflection_upsampling_comp_spv_data), m_upsampling.pipeline_layout);
+	m_upsampling.pipeline        = m_context->create_compute_pipeline("reflection_upsampling.slang", m_upsampling.pipeline_layout);
 
 	m_context->update_descriptor()
 	    .write_storage_images(0, {raytraced_view})
@@ -144,36 +136,52 @@ RayTracedReflection::RayTracedReflection(const Context &context, const Scene &sc
 		m_context->update_descriptor()
 		    .write_storage_images(0, {reprojection_output_view[i]})
 		    .write_storage_images(1, {reprojection_moment_view[i]})
-		    .write_combine_sampled_images(2, scene.linear_sampler, {raytraced_view})
-		    .write_combine_sampled_images(3, scene.linear_sampler, {reprojection_output_view[!i]})
-		    .write_combine_sampled_images(4, scene.linear_sampler, {reprojection_moment_view[!i]})
+		    .write_sampled_images(2, {raytraced_view})
+		    .write_sampled_images(3, {reprojection_output_view[!i]})
+		    .write_sampled_images(4, {reprojection_moment_view[!i]})
+		    .write_storage_buffers(5, {denoise_tile_data_buffer.vk_buffer})
+		    .write_storage_buffers(6, {denoise_tile_dispatch_args_buffer.vk_buffer})
+		    .write_storage_buffers(7, {copy_tile_data_buffer.vk_buffer})
+		    .write_storage_buffers(8, {copy_tile_dispatch_args_buffer.vk_buffer})
 		    .update(m_reprojection.descriptor_sets[i]);
 
 		m_context->update_descriptor()
 		    .write_storage_images(0, {a_trous_view[0]})
-		    .write_combine_sampled_images(1, scene.linear_sampler, {reprojection_output_view[i]})
+		    .write_sampled_images(1, {reprojection_output_view[i]})
+		    .write_storage_buffers(2, {copy_tile_data_buffer.vk_buffer})
 		    .update(m_denoise.copy_tiles.copy_reprojection_sets[i]);
 
 		m_context->update_descriptor()
 		    .write_storage_images(0, {a_trous_view[i]})
-		    .write_combine_sampled_images(1, scene.linear_sampler, {a_trous_view[!i]})
+		    .write_sampled_images(1, {a_trous_view[!i]})
+		    .write_storage_buffers(2, {copy_tile_data_buffer.vk_buffer})
 		    .update(m_denoise.copy_tiles.copy_atrous_sets[i]);
 
 		m_context->update_descriptor()
 		    .write_storage_images(0, {a_trous_view[0]})
-		    .write_combine_sampled_images(1, scene.linear_sampler, {reprojection_output_view[i]})
+		    .write_sampled_images(1, {reprojection_output_view[i]})
+		    .write_storage_buffers(2, {denoise_tile_data_buffer.vk_buffer})
 		    .update(m_denoise.a_trous.filter_reprojection_sets[i]);
 
 		m_context->update_descriptor()
 		    .write_storage_images(0, {a_trous_view[i]})
-		    .write_combine_sampled_images(1, scene.linear_sampler, {a_trous_view[!i]})
+		    .write_sampled_images(1, {a_trous_view[!i]})
+		    .write_storage_buffers(2, {denoise_tile_data_buffer.vk_buffer})
 		    .update(m_denoise.a_trous.filter_atrous_sets[i]);
 	}
 
 	m_context->update_descriptor()
 	    .write_storage_images(0, {upsampling_view})
-	    .write_combine_sampled_images(1, scene.linear_sampler, {a_trous_view[0]})
+	    .write_sampled_images(1, {a_trous_view[0]})
 	    .update(m_upsampling.descriptor_set);
+
+	descriptor.layout = m_context->create_descriptor_layout()
+	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        .create();
+	descriptor.set = m_context->allocate_descriptor_set(descriptor.layout);
+	m_context->update_descriptor()
+	    .write_sampled_images(0, {upsampling_view})
+	    .update(descriptor.set);
 
 	init();
 }
@@ -194,6 +202,8 @@ RayTracedReflection::~RayTracedReflection()
 	    .destroy(copy_tile_data_buffer)
 	    .destroy(denoise_tile_dispatch_args_buffer)
 	    .destroy(copy_tile_dispatch_args_buffer)
+	    .destroy(descriptor.layout)
+	    .destroy(descriptor.set)
 	    .destroy(m_raytrace.descriptor_set_layout)
 	    .destroy(m_raytrace.descriptor_set)
 	    .destroy(m_raytrace.pipeline_layout)
@@ -274,26 +284,16 @@ void RayTracedReflection::init()
 
 void RayTracedReflection::draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass)
 {
-	m_raytrace.push_constants.gbuffer_mip = m_gbuffer_mip;
-
-	m_reprojection.push_constants.gbuffer_mip                     = m_gbuffer_mip;
-	m_reprojection.push_constants.denoise_tile_data_addr          = denoise_tile_data_buffer.device_address;
-	m_reprojection.push_constants.denoise_tile_dispatch_args_addr = denoise_tile_dispatch_args_buffer.device_address;
-	m_reprojection.push_constants.copy_tile_data_addr             = copy_tile_data_buffer.device_address;
-	m_reprojection.push_constants.copy_tile_dispatch_args_addr    = copy_tile_dispatch_args_buffer.device_address;
-
-	m_denoise.copy_tiles.push_constants.copy_tile_data_addr = copy_tile_data_buffer.device_address;
-
-	m_denoise.a_trous.push_constants.denoise_tile_data_addr = denoise_tile_data_buffer.device_address;
-	m_denoise.a_trous.push_constants.gbuffer_mip            = m_gbuffer_mip;
-
-	m_upsampling.push_constants.gbuffer_mip = m_gbuffer_mip;
+	m_raytrace.push_constants.gbuffer_mip        = m_gbuffer_mip;
+	m_reprojection.push_constants.gbuffer_mip    = m_gbuffer_mip;
+	m_denoise.a_trous.push_constants.gbuffer_mip = m_gbuffer_mip;
+	m_upsampling.push_constants.gbuffer_mip      = m_gbuffer_mip;
 
 	recorder
 	    .begin_marker("Raytraced Reflection")
 
 	    .begin_marker("Ray Traced")
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_raytrace.pipeline_layout, {scene.glsl_descriptor.set, gbuffer_pass.glsl_descriptor.sets[m_context->ping_pong], m_raytrace.descriptor_set})
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_raytrace.pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], m_raytrace.descriptor_set})
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_raytrace.pipeline)
 	    .push_constants(m_raytrace.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_raytrace.push_constants)
 	    .dispatch({m_width, m_height, 1}, {NUM_THREADS_X, NUM_THREADS_Y, 1})
@@ -307,7 +307,7 @@ void RayTracedReflection::draw(CommandBufferRecorder &recorder, const Scene &sce
 	    .insert(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
 
 	    .begin_marker("Reprojection")
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_reprojection.pipeline_layout, {scene.glsl_descriptor.set, gbuffer_pass.glsl_descriptor.sets[m_context->ping_pong], m_reprojection.descriptor_sets[m_context->ping_pong]})
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_reprojection.pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], m_reprojection.descriptor_sets[m_context->ping_pong]})
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_reprojection.pipeline)
 	    .push_constants(m_reprojection.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_reprojection.push_constants)
 	    .dispatch({m_width, m_height, 1}, {NUM_THREADS_X, NUM_THREADS_Y, 1})
@@ -357,12 +357,11 @@ void RayTracedReflection::draw(CommandBufferRecorder &recorder, const Scene &sce
 			        .begin_marker("Copy Tile Data")
 			        .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_denoise.copy_tiles.pipeline_layout, {i == 0 ? m_denoise.copy_tiles.copy_reprojection_sets[m_context->ping_pong] : m_denoise.copy_tiles.copy_atrous_sets[ping_pong]})
 			        .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_denoise.copy_tiles.pipeline)
-			        .push_constants(m_denoise.copy_tiles.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_denoise.copy_tiles.push_constants)
 			        .dispatch_indirect(copy_tile_dispatch_args_buffer.vk_buffer)
 			        .end_marker()
 			        .begin_marker("A-trous Filter")
 			        .execute([&]() { m_denoise.a_trous.push_constants.step_size = 1 << i; })
-			        .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_denoise.a_trous.pipeline_layout, {scene.glsl_descriptor.set, gbuffer_pass.glsl_descriptor.sets[m_context->ping_pong], i == 0 ? m_denoise.a_trous.filter_reprojection_sets[m_context->ping_pong] : m_denoise.a_trous.filter_atrous_sets[ping_pong]})
+			        .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_denoise.a_trous.pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], i == 0 ? m_denoise.a_trous.filter_reprojection_sets[m_context->ping_pong] : m_denoise.a_trous.filter_atrous_sets[ping_pong]})
 			        .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_denoise.a_trous.pipeline)
 			        .push_constants(m_denoise.a_trous.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_denoise.a_trous.push_constants)
 			        .dispatch_indirect(denoise_tile_dispatch_args_buffer.vk_buffer)
@@ -384,7 +383,7 @@ void RayTracedReflection::draw(CommandBufferRecorder &recorder, const Scene &sce
 	    .end_marker()
 
 	    .begin_marker("Upsampling")
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_upsampling.pipeline_layout, {scene.glsl_descriptor.set, gbuffer_pass.glsl_descriptor.sets[m_context->ping_pong], m_upsampling.descriptor_set})
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_upsampling.pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], m_upsampling.descriptor_set})
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_upsampling.pipeline)
 	    .push_constants(m_upsampling.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_upsampling.push_constants)
 	    .dispatch({m_context->render_extent.width, m_context->render_extent.height, 1}, {NUM_THREADS_X, NUM_THREADS_Y, 1})
@@ -397,7 +396,7 @@ void RayTracedReflection::draw(CommandBufferRecorder &recorder, const Scene &sce
 	        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL)
 	    .add_image_barrier(
 	        upsampling_image.vk_image,
-	        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, 
+	        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
 	        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 	    .add_image_barrier(
 	        a_trous_image[0].vk_image,

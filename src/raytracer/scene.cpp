@@ -20,34 +20,6 @@
 #define PREFILTER_MAP_SIZE 256
 #define PREFILTER_MIP_LEVELS 5
 
-// static unsigned char g_equirectangular_to_cubemap_vert_spv_data[] = {
-// #include "equirectangular_to_cubemap.vert.spv.h"
-// };
-//
-// static unsigned char g_equirectangular_to_cubemap_frag_spv_data[] = {
-// #include "equirectangular_to_cubemap.frag.spv.h"
-// };
-//
-// static unsigned char g_cubemap_sh_projection_comp_spv_data[] = {
-// #include "cubemap_sh_projection.comp.spv.h"
-// };
-//
-// static unsigned char g_cubemap_sh_add_comp_spv_data[] = {
-// #include "cubemap_sh_add.comp.spv.h"
-// };
-//
-// static unsigned char g_cubemap_prefilter_comp_spv_data[] = {
-// #include "cubemap_prefilter.comp.spv.h"
-// };
-
-enum SamplerType
-{
-	PointWarp,
-	PointClamp,
-	LinearWarp,
-	LinearClamp,
-};
-
 struct Vertex
 {
 	glm::vec4 position;        // xyz - position, w - texcoord u
@@ -1336,6 +1308,7 @@ void Scene::destroy_scene()
 	m_context->destroy(blas)
 	    .destroy(tlas)
 	    .destroy(buffer.instance)
+	    .destroy(buffer.light)
 	    .destroy(buffer.emitter)
 	    .destroy(buffer.material)
 	    .destroy(buffer.vertex)

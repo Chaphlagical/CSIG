@@ -32,6 +32,12 @@ struct Tonemap
 		float key        = 0.5f;
 	} m_push_constant;
 
+	struct
+	{
+		VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
+		VkPipeline       pipeline        = VK_NULL_HANDLE;
+	}m_average_lum;
+
 	VkPipelineLayout m_pipeline_layout = VK_NULL_HANDLE;
 	VkPipeline       m_pipeline        = VK_NULL_HANDLE;
 

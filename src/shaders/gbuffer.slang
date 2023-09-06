@@ -72,7 +72,7 @@ float2 fetch_roughness_metallic(in Material material, in float2 uv)
 
 float3 fetch_normal(in Material material, in float3 in_normal, in float2 uv)
 {
-	if (material.normal_texture == ~0)
+    if (material.normal_texture == ~0)
 	{
 		return normalize(in_normal);
 	}
@@ -82,7 +82,7 @@ float3 fetch_normal(in Material material, in float3 in_normal, in float2 uv)
 		coordinate_system(in_normal, tangent, bitangent);
 		float3x3 TBN = float3x3(tangent, bitangent, in_normal);
         float3 normal = normalize(Textures[material.normal_texture].Sample(Samplers[int(SamplerType::Linear)], uv).rgb * 2.0 - 1.0);
-		return normalize(mul(TBN, normal));
+        return normalize(mul(transpose(TBN), normal));
 	}
 }
 
@@ -111,7 +111,7 @@ VSOutput vs_main(VSInput input)
     output.clip_pos = output.position;
     output.prev_clip_pos = mul(ViewBuffer.prev_view_projection, prev_world_pos);
     output.texcoord = float2(input.position.w, input.normal.w);
-    output.normal = normalize(mul(transpose(float3x3(instance.transform_inv)), input.normal.xyz));
+    output.normal = normalize(mul(transpose(float3x3(instance.transform)), input.normal.xyz));
     output.instance_id = input.instance_id;
 
     return output;

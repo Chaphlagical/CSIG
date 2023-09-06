@@ -57,7 +57,7 @@ Application::Application() :
         .ao{m_context, m_scene, m_renderer.gbuffer},
         .reflection{m_context, m_scene, m_renderer.gbuffer},
         .tonemap{m_context},
-        .composite{m_context, m_scene, m_renderer.gbuffer, m_renderer.ao},
+        .composite{m_context, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.reflection},
     }
 {
 	glfwSetWindowUserPointer(m_context.window, this);
@@ -84,7 +84,8 @@ Application::Application() :
 		m_jitter_samples.push_back(glm::vec2((2.f * halton_sequence(2, i) - 1.f), (2.f * halton_sequence(3, i) - 1.f)));
 	}
 
-	m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\default.glb)");
+	// m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\default.glb)");
+	m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\Deferred\Deferred.gltf)");
 	m_scene.load_envmap(R"(D:\Workspace\CSIG\assets\textures\hdr\default.hdr)");
 	m_scene.update();
 
@@ -271,38 +272,44 @@ void Application::render(CommandBufferRecorder &recorder)
 {
 	m_renderer.gbuffer.draw(recorder, m_scene);
 
-	if (m_render_mode == RenderMode::Albedo)
+	switch (m_render_mode)
 	{
-		m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, CompositePass::GBufferOption::Albedo);
+		case RenderMode::Normal:
+			m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, CompositePass::GBufferOption::Normal);
+			break;
+		case RenderMode::Albedo:
+			m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, CompositePass::GBufferOption::Albedo);
+			break;
+		case RenderMode::Roughness:
+			m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, CompositePass::GBufferOption::Roughness);
+			break;
+		case RenderMode::Metallic:
+			m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, CompositePass::GBufferOption::Metallic);
+			break;
+		case RenderMode::Position:
+			m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, CompositePass::GBufferOption::Position);
+			break;
+		default:
+			break;
 	}
-	else if (m_render_mode == RenderMode::Normal)
+
+	if (m_render_mode == RenderMode::PathTracing)
 	{
-		m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, CompositePass::GBufferOption::Normal);
-	}
-	else if (m_render_mode == RenderMode::Metallic)
-	{
-		m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, CompositePass::GBufferOption::Metallic);
-	}
-	else if (m_render_mode == RenderMode::Roughness)
-	{
-		m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, CompositePass::GBufferOption::Roughness);
+		m_renderer.path_tracing.draw(recorder, m_scene, m_renderer.gbuffer);
+		m_renderer.tonemap.draw(recorder, m_renderer.path_tracing);
+		m_renderer.composite.draw(recorder, m_scene, m_renderer.tonemap);
 	}
 	else
 	{
-		if (m_render_mode == RenderMode::PathTracing)
+		m_renderer.ao.draw(recorder, m_scene, m_renderer.gbuffer);
+		m_renderer.reflection.draw(recorder, m_scene, m_renderer.gbuffer);
+		if (m_render_mode == RenderMode::AO)
 		{
-			m_renderer.path_tracing.draw(recorder, m_scene, m_renderer.gbuffer);
-			m_renderer.tonemap.draw(recorder, m_renderer.path_tracing);
-			m_renderer.composite.draw(recorder, m_scene, m_renderer.tonemap);
+			m_renderer.composite.draw(recorder, m_scene, m_renderer.ao);
 		}
-		else
+		else if (m_render_mode == RenderMode::Reflection)
 		{
-			m_renderer.ao.draw(recorder, m_scene, m_renderer.gbuffer);
-			m_renderer.reflection.draw(recorder, m_scene, m_renderer.gbuffer);
-			if (m_render_mode == RenderMode::AO)
-			{
-				m_renderer.composite.draw(recorder, m_scene, m_renderer.ao);
-			}
+			m_renderer.composite.draw(recorder, m_scene, m_renderer.reflection);
 		}
 	}
 	m_renderer.ui.render(recorder, m_current_frame);
@@ -347,8 +354,8 @@ void Application::update_ui()
 				m_update = true;
 			}
 		}
-		const char *const render_modes[] = {"Path Tracing", "Hybrid", "Normal", "Albedo", "Roughness","Metallic", "AO", "Reflection", "GI"};
-		if (ImGui::Combo("Render Mode", reinterpret_cast<int *>(&m_render_mode), render_modes, 9))
+		const char *const render_modes[] = {"Path Tracing", "Hybrid", "Normal", "Albedo", "Roughness", "Metallic", "Position", "AO", "Reflection", "GI"};
+		if (ImGui::Combo("Render Mode", reinterpret_cast<int *>(&m_render_mode), render_modes, 10))
 		{
 			m_context.ping_pong = false;
 			m_context.wait();

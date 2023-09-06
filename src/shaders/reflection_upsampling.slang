@@ -1,31 +1,32 @@
+#include "common.slangh"
 #include "gbuffer.slangh"
 #include "scene.slangh"
 #define USE_EDGE_STOPPING_NORMAL_WEIGHT
 #include "edge_stopping.slangh"
 
-#define NUM_THREAD_X 8
-#define NUM_THREAD_Y 8
+#define NUM_THREADS_X 8
+#define NUM_THREADS_Y 8
 
 struct PushConstant
 {
     int gbuffer_mip;
-    float power;
 };
 
-[[vk::binding(0, 2)]] RWTexture2D<float> Output_Image;
-[[vk::binding(1, 2)]] Texture2D<float> Input_Image;
+[[vk::binding(0, 2)]] RWTexture2D<float4> Output_Image;
+[[vk::binding(1, 2)]] Texture2D<float4> Input_Image;
 [[vk::push_constant]] ConstantBuffer<PushConstant> push_constant;
 
 static const float FLT_EPS = 0.00000001;
-static const float2 kernal[4] = {
-    float2(0.0, 1.0),
-    float2(1.0, 0.0),
-    float2(-1.0, 0.0),
-    float2(0.0, -1.0),
+
+static const float2 kernel[4] = {
+    float2(0.0f, 1.0f),
+    float2(1.0f, 0.0f),
+    float2(-1.0f, 0.0f),
+    float2(0.0, -1.0f)
 };
 
 [shader("compute")]
-[numthreads(NUM_THREAD_X, NUM_THREAD_Y, 1)]
+[numthreads(NUM_THREADS_X, NUM_THREADS_Y, 1)]
 void main(CSParam param)
 {
     const int2 size = texture_size(GBufferA, 0);
@@ -38,21 +39,20 @@ void main(CSParam param)
 
     if (hi_res_depth == -1.0f)
     {
-        Output_Image[current_coord] = 1.0;
+        Output_Image[current_coord] = 0.0;
         return;
     }
 
     float3 hi_res_normal = octohedral_to_direction(GBufferB.Load(int3(current_coord, 0)).rg);
 
-    float upsampled = 0.0f;
+    float4 upsampled = float4(0.0f);
     float total_w = 0.0f;
 
     for (int i = 0; i < 4; i++)
     {
-        float2 coarse_tex_coord = tex_coord + kernal[i] * texel_size;
+        float2 coarse_tex_coord = tex_coord + kernel[i] * texel_size;
         float coarse_depth = GBufferC.SampleLevel(Samplers[int(SamplerType::Linear)], coarse_tex_coord, push_constant.gbuffer_mip).a;
 
-        // If depth belongs to skybox, skip
         if (coarse_depth == -1.0f)
             continue;
 
@@ -65,11 +65,10 @@ void main(CSParam param)
                                                coarse_normal,
                                                32.0f);
 
-        upsampled += Input_Image.SampleLevel(Samplers[int(SamplerType::Linear)], coarse_tex_coord, 0).r * w;
+        upsampled += Input_Image.SampleLevel(Samplers[int(SamplerType::Linear)], coarse_tex_coord, 0) * w;
         total_w += w;
     }
 
     upsampled = upsampled / max(total_w, FLT_EPS);
-    upsampled = pow(upsampled, push_constant.power);
     Output_Image[current_coord] = upsampled;
 }

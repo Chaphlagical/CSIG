@@ -6,8 +6,6 @@
 #define NORMAL_DISTANCE 0.1f
 #define PLANE_DISTANCE 5.0f
 
-// ------------------------------------------------------------------------
-
 bool plane_distance_disocclusion_check(float3 current_pos, float3 history_pos, float3 current_normal)
 {
     float3 to_current = current_pos - history_pos;
@@ -15,8 +13,6 @@ bool plane_distance_disocclusion_check(float3 current_pos, float3 history_pos, f
 
     return dist_to_plane > PLANE_DISTANCE;
 }
-
-// ------------------------------------------------------------------------
 
 bool out_of_frame_disocclusion_check(int2 coord, int2 image_dim)
 {
@@ -27,8 +23,6 @@ bool out_of_frame_disocclusion_check(int2 coord, int2 image_dim)
         return false;
 }
 
-// ------------------------------------------------------------------------
-
 bool mesh_id_disocclusion_check(float mesh_id, float mesh_id_prev)
 {
     if (mesh_id == mesh_id_prev)
@@ -36,8 +30,6 @@ bool mesh_id_disocclusion_check(float mesh_id, float mesh_id_prev)
     else
         return true;
 }
-
-// ------------------------------------------------------------------------
 
 bool normals_disocclusion_check(float3 current_normal, float3 history_normal)
 {
@@ -47,70 +39,42 @@ bool normals_disocclusion_check(float3 current_normal, float3 history_normal)
         return true;
 }
 
-// ------------------------------------------------------------------------
-
 bool is_reprojection_valid(int2 coord, float3 current_pos, float3 history_pos, float3 current_normal, float3 history_normal, float current_mesh_id, float history_mesh_id, int2 image_dim)
 {
-    // check if the history sample is within the frame
     if (out_of_frame_disocclusion_check(coord, image_dim)) return false;
-
-    // check if the history belongs to the same surface
     if (mesh_id_disocclusion_check(current_mesh_id, history_mesh_id)) return false;
-
-    // check if history sample is on the same plane
     if (plane_distance_disocclusion_check(current_pos, history_pos, current_normal)) return false;
-
-    // check normals for compatibility
     if (normals_disocclusion_check(current_normal, history_normal)) return false;
-
     return true;
 }
-
-// ------------------------------------------------------------------
 
 float2 surface_point_reprojection(int2 coord, float2 motion_vector, int2 size)
 {
     return float2(coord) + motion_vector.xy * float2(size);
 }
 
-// ------------------------------------------------------------------
-
 float2 virtual_point_reprojection(int2 current_coord, int2 size, float depth, float ray_length, float3 cam_pos, float4x4 view_proj_inverse, float4x4 prev_view_proj)
 {
     const float2 tex_coord = current_coord / float2(size);
     float3 ray_origin = world_position_from_depth(tex_coord, depth, view_proj_inverse);
-
     float3 camera_ray = ray_origin - cam_pos.xyz;
-
     float camera_ray_length = length(camera_ray);
     float reflection_ray_length = ray_length;
-
     camera_ray = normalize(camera_ray);
-
     float3 parallax_hit_point = cam_pos.xyz + camera_ray * (camera_ray_length + reflection_ray_length);
-
     float4 reprojected_parallax_hit_point = mul(prev_view_proj, float4(parallax_hit_point, 1.0f));
-
     reprojected_parallax_hit_point.xy /= reprojected_parallax_hit_point.w;
-
     return (reprojected_parallax_hit_point.xy * 0.5f + 0.5f) * float2(size);
 }
-
-// ------------------------------------------------------------------------
 
 float2 compute_history_coord(int2 current_coord, int2 size, float depth, float2 motion, float curvature, float ray_length, float3 cam_pos, float4x4 view_proj_inverse, float4x4 prev_view_proj)
 {
     const float2 surface_history_coord = surface_point_reprojection(current_coord, motion, size);
-
     float2 history_coord = surface_history_coord;
-
     if (ray_length > 0.0f && curvature == 0.0f)
         history_coord = virtual_point_reprojection(current_coord, size, depth, ray_length, cam_pos, view_proj_inverse, prev_view_proj);
-
     return history_coord;
 }
-
-// ------------------------------------------------------------------
 
 bool reproject(in int2 frag_coord,
                in float depth,
@@ -128,9 +92,13 @@ bool reproject(in int2 frag_coord,
                in Texture2D<float4> sampler_prev_gbuffer_2,
                in Texture2D<float4> sampler_prev_gbuffer_3,
                in Texture2D<float> sampler_prev_gbuffer_depth,
+#if defined(REPROJECTION_REFLECTIONS)
+               in Texture2D<float4> sampler_history_output,
+#else
                in Texture2D<float> sampler_history_output,
+#endif
 #if defined(REPROJECTION_MOMENTS)
-               in Texture2D<float> sampler_history_moments_length,
+               in Texture2D<float4> sampler_history_moments_length,
 #else
                in Texture2D<float> sampler_history_length,
 #endif
@@ -171,7 +139,6 @@ bool reproject(in int2 frag_coord,
     const int2 history_coord = int2(reprojected_coord);
     const float2 history_coord_floor = reprojected_coord;
 #else
-    // +0.5 to account for texel center offset
     const int2 history_coord = int2(float2(frag_coord) + current_motion.xy * image_dim + float2(0.5f));
     const float2 history_coord_floor = floor(frag_coord.xy) + current_motion.xy * image_dim;
     const float2 history_tex_coord = tex_coord + current_motion.xy;
@@ -188,8 +155,6 @@ bool reproject(in int2 frag_coord,
 
     bool v[4];
     const int2 offset[4] = { int2(0, 0), int2(1, 0), int2(0, 1), int2(1, 1) };
-
-    // check for all 4 taps of the bilinear filter for validity
     bool valid = false;
     for (int sample_idx = 0; sample_idx < 4; sample_idx++)
     {
@@ -213,8 +178,6 @@ bool reproject(in int2 frag_coord,
         float sumw = 0;
         float x = frac(history_coord_floor.x);
         float y = frac(history_coord_floor.y);
-
-        // bilinear weights
         float w[4] = { (1 - x) * (1 - y),
                        x * (1 - y),
                        (1 - x) * y,
@@ -228,8 +191,6 @@ bool reproject(in int2 frag_coord,
 #if defined(REPROJECTION_MOMENTS)
         history_moments = float2(0.0f);
 #endif
-
-        // perform the actual bilinear interpolation
         for (int sample_idx = 0; sample_idx < 4; sample_idx++)
         {
             int2 loc = int2(history_coord_floor) + offset[sample_idx];
@@ -242,13 +203,12 @@ bool reproject(in int2 frag_coord,
                 history_color += w[sample_idx] * sampler_history_output.Load(int3(loc, 0)).rgb;
 #endif
 #if defined(REPROJECTION_MOMENTS)
-                history_moments += w[sample_idx] * texelFetch(sampler_history_moments_length, loc, 0).rg;
+                history_moments += w[sample_idx] * sampler_history_moments_length.Load(int3(loc, 0)).rg;
 #endif
                 sumw += w[sample_idx];
             }
         }
 
-        // redistribute weights in case not all taps were used
         valid = (sumw >= 0.01);
 #if defined(REPROJECTION_SINGLE_COLOR_CHANNEL)
         history_color = valid ? history_color / sumw : 0.0f;
@@ -259,11 +219,9 @@ bool reproject(in int2 frag_coord,
         history_moments = valid ? history_moments / sumw : float2(0.0f);
 #endif
     }
-    if (!valid) // perform cross-bilateral filter in the hope to find some suitable samples somewhere
+    if (!valid)
     {
         float cnt = 0.0;
-
-        // this code performs a binary descision for each tap of the cross-bilateral filter
         const int radius = 1;
         for (int yy = -radius; yy <= radius; yy++)
         {
