@@ -1,11 +1,12 @@
 #pragma once
 
 #include "context.hpp"
+#include "pipeline/composite.hpp"
 #include "pipeline/gbuffer.hpp"
 #include "pipeline/path_tracing.hpp"
 #include "pipeline/raytrace_ao.hpp"
+#include "pipeline/raytrace_di.hpp"
 #include "pipeline/raytrace_reflection.hpp"
-#include "pipeline/composite.hpp"
 #include "pipeline/tonemap.hpp"
 #include "pipeline/ui.hpp"
 #include "scene.hpp"
@@ -76,6 +77,7 @@ class Application
 		GBufferPass         gbuffer;
 		PathTracing         path_tracing;
 		RayTracedAO         ao;
+		RayTracedDI         di;
 		RayTracedReflection reflection;
 		Tonemap             tonemap;
 		CompositePass       composite;
@@ -92,6 +94,7 @@ class Application
 		Position,
 		AO,
 		Reflection,
+		DI,
 		GI
 	} m_render_mode = RenderMode::Reflection;
 };

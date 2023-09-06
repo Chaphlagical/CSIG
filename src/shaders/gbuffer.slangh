@@ -23,7 +23,6 @@ bool get_primary_state(float2 frag_coord, int mip, out ShadeState sstate)
 
 	uint instance_id = uint(gbufferC_data.b);
 	const Instance instance = InstanceBuffer.Load(instance_id);
-	
 	Material material = MaterialBuffer.Load(instance.material);
 
 	float3 p = world_position_from_depth(frag_coord / float2(image_size), depth, ViewBuffer.view_projection_inv);
@@ -46,6 +45,40 @@ bool get_primary_state(float2 frag_coord, int mip, out ShadeState sstate)
 	sstate.primary = true;
 
 	return depth != 0;
+}
+
+bool get_prev_primary_state(float2 frag_coord, int mip, out ShadeState sstate)
+{
+    const float4 gbufferA_data = PrevGBufferA.Load(int3(int2(frag_coord), mip));
+    const float4 gbufferB_data = PrevGBufferB.Load(int3(int2(frag_coord), mip));
+    const float4 gbufferC_data = PrevGBufferC.Load(int3(int2(frag_coord), mip));
+    const float depth = PrevDepthBuffer.Load(int3(int2(frag_coord), mip)).r;
+    const int2 image_size = texture_size(PrevDepthBuffer, mip);
+
+    uint instance_id = uint(gbufferC_data.b);
+    const Instance instance = InstanceBuffer.Load(instance_id);
+    Material material = MaterialBuffer.Load(instance.material);
+
+    float3 p = world_position_from_depth(frag_coord / float2(image_size), depth, ViewBuffer.prev_view_projection_inv);
+    float3 n = octohedral_to_direction(gbufferB_data.rg);
+    material.base_color.rgb = gbufferA_data.rgb;
+    material.roughness_factor = max(0.001, gbufferC_data.r);
+    material.metallic_factor = gbufferA_data.a;
+
+    sstate.normal = n;
+    sstate.geom_normal = n;
+    sstate.ffnormal = dot(n, p - ViewBuffer.cam_pos.xyz) < 0.0 ? n : -n; ;
+    sstate.position = p;
+    sstate.mat = material;
+    sstate.depth = gbufferC_data.a;
+    sstate.motion_vector = gbufferB_data.ba;
+
+    coordinate_system(sstate.ffnormal, sstate.tangent, sstate.bitangent);
+
+    sstate.eta = dot(sstate.normal, sstate.ffnormal) > 0.0 ? 1.0 / 1.5 : 1.5;
+    sstate.primary = true;
+
+    return depth != 0;
 }
 
 #endif

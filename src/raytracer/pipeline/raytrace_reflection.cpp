@@ -17,27 +17,78 @@ RayTracedReflection::RayTracedReflection(const Context &context, const Scene &sc
 
 	m_gbuffer_mip = static_cast<uint32_t>(scale);
 
-	raytraced_image = m_context->create_texture_2d("Reflection Ray Traced Image", m_width, m_height, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-	raytraced_view  = m_context->create_texture_view("Reflection Ray Traced View", raytraced_image.vk_image, VK_FORMAT_R16G16B16A16_SFLOAT);
+	raytraced_image = m_context->create_texture_2d(
+	    "Reflection Ray Traced Image",
+	    m_width, m_height,
+	    VK_FORMAT_R16G16B16A16_SFLOAT,
+	    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+	raytraced_view = m_context->create_texture_view(
+	    "Reflection Ray Traced View",
+	    raytraced_image.vk_image,
+	    VK_FORMAT_R16G16B16A16_SFLOAT);
 
 	for (uint32_t i = 0; i < 2; i++)
 	{
-		reprojection_output_image[i] = m_context->create_texture_2d(fmt::format("Reflection Reprojection Output Image - {}", i), m_width, m_height, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
-		reprojection_output_view[i]  = m_context->create_texture_view(fmt::format("Reflection Reprojection Output View - {}", i), reprojection_output_image[i].vk_image, VK_FORMAT_R16G16B16A16_SFLOAT);
-		reprojection_moment_image[i] = m_context->create_texture_2d(fmt::format("Reflection Reprojection Moment Image - {}", i), m_width, m_height, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
-		reprojection_moment_view[i]  = m_context->create_texture_view(fmt::format("Reflection Reprojection Moment View - {}", i), reprojection_moment_image[i].vk_image, VK_FORMAT_R16G16B16A16_SFLOAT);
-		a_trous_image[i]             = m_context->create_texture_2d(fmt::format("Reflection A-Trous Image - {}", i), m_width, m_height, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
-		a_trous_view[i]              = m_context->create_texture_view(fmt::format("Reflection A-Trous View - {}", i), a_trous_image[i].vk_image, VK_FORMAT_R16G16B16A16_SFLOAT);
+		reprojection_output_image[i] = m_context->create_texture_2d(
+		    fmt::format("Reflection Reprojection Output Image - {}", i),
+		    m_width, m_height,
+		    VK_FORMAT_R16G16B16A16_SFLOAT,
+		    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+		reprojection_moment_image[i] = m_context->create_texture_2d(
+		    fmt::format("Reflection Reprojection Moment Image - {}", i),
+		    m_width, m_height,
+		    VK_FORMAT_R16G16B16A16_SFLOAT,
+		    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+		a_trous_image[i] = m_context->create_texture_2d(
+		    fmt::format("Reflection A-Trous Image - {}", i),
+		    m_width, m_height,
+		    VK_FORMAT_R16G16B16A16_SFLOAT,
+		    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+		reprojection_output_view[i] = m_context->create_texture_view(
+		    fmt::format("Reflection Reprojection Output View - {}", i),
+		    reprojection_output_image[i].vk_image,
+		    VK_FORMAT_R16G16B16A16_SFLOAT);
+		reprojection_moment_view[i] = m_context->create_texture_view(
+		    fmt::format("Reflection Reprojection Moment View - {}", i),
+		    reprojection_moment_image[i].vk_image,
+		    VK_FORMAT_R16G16B16A16_SFLOAT);
+		a_trous_view[i] = m_context->create_texture_view(
+		    fmt::format("Reflection A-Trous View - {}", i),
+		    a_trous_image[i].vk_image,
+		    VK_FORMAT_R16G16B16A16_SFLOAT);
 	}
 
-	upsampling_image = m_context->create_texture_2d("Reflection Upsampling Output Image", m_context->render_extent.width, m_context->render_extent.height, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
-	upsampling_view  = m_context->create_texture_view("Reflection Upsampling Output View", upsampling_image.vk_image, VK_FORMAT_R16G16B16A16_SFLOAT);
+	upsampling_image = m_context->create_texture_2d(
+		"Reflection Upsampling Output Image", 
+		m_context->render_extent.width, m_context->render_extent.height,
+		VK_FORMAT_R16G16B16A16_SFLOAT, 
+		VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+	upsampling_view  = m_context->create_texture_view(
+		"Reflection Upsampling Output View", 
+		upsampling_image.vk_image, 
+		VK_FORMAT_R16G16B16A16_SFLOAT);
 
-	denoise_tile_data_buffer = m_context->create_buffer("Denoise Tile Data Buffer", sizeof(glm::ivec2) * static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))) * static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	copy_tile_data_buffer    = m_context->create_buffer("Copy Tile Data Buffer", sizeof(glm::ivec2) * static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))) * static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	denoise_tile_data_buffer = m_context->create_buffer(
+		"Reflection Denoise Tile Data Buffer", 
+		sizeof(glm::ivec2) * static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))) * static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))), 
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 
+		VMA_MEMORY_USAGE_GPU_ONLY);
+	copy_tile_data_buffer    = m_context->create_buffer(
+		"Reflection Copy Tile Data Buffer", 
+		sizeof(glm::ivec2) * static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))) * static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))), 
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 
+		VMA_MEMORY_USAGE_GPU_ONLY);
 
-	denoise_tile_dispatch_args_buffer = m_context->create_buffer("Denoise Tile Dispatch Args Buffer", sizeof(int32_t) * 3, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	copy_tile_dispatch_args_buffer    = m_context->create_buffer("Copy Tile Dispatch Args Buffer", sizeof(int32_t) * 3, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	denoise_tile_dispatch_args_buffer = m_context->create_buffer(
+		"Reflection Denoise Tile Dispatch Args Buffer", 
+		sizeof(int32_t) * 3, 
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 
+		VMA_MEMORY_USAGE_GPU_ONLY);
+	copy_tile_dispatch_args_buffer    = m_context->create_buffer(
+		"Reflection Copy Tile Dispatch Args Buffer", 
+		sizeof(int32_t) * 3, 
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 
+		VMA_MEMORY_USAGE_GPU_ONLY);
 
 	m_raytrace.descriptor_set_layout = m_context->create_descriptor_layout()
 	                                       // RayTrace image
@@ -291,28 +342,24 @@ void RayTracedReflection::draw(CommandBufferRecorder &recorder, const Scene &sce
 
 	recorder
 	    .begin_marker("Raytraced Reflection")
-
 	    .begin_marker("Ray Traced")
 	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_raytrace.pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], m_raytrace.descriptor_set})
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_raytrace.pipeline)
 	    .push_constants(m_raytrace.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_raytrace.push_constants)
 	    .dispatch({m_width, m_height, 1}, {NUM_THREADS_X, NUM_THREADS_Y, 1})
 	    .end_marker()
-
 	    .insert_barrier()
 	    .add_image_barrier(
 	        raytraced_image.vk_image,
 	        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
 	        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 	    .insert(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
-
 	    .begin_marker("Reprojection")
 	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_reprojection.pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], m_reprojection.descriptor_sets[m_context->ping_pong]})
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_reprojection.pipeline)
 	    .push_constants(m_reprojection.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_reprojection.push_constants)
 	    .dispatch({m_width, m_height, 1}, {NUM_THREADS_X, NUM_THREADS_Y, 1})
 	    .end_marker()
-
 	    .insert_barrier()
 	    .add_buffer_barrier(
 	        copy_tile_dispatch_args_buffer.vk_buffer,
@@ -347,7 +394,6 @@ void RayTracedReflection::draw(CommandBufferRecorder &recorder, const Scene &sce
 	        VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT,
 	        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL)
 	    .insert(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT)
-
 	    .begin_marker("Denoise")
 	    .execute([&](CommandBufferRecorder &recorder) {
 		    bool ping_pong = false;
@@ -381,14 +427,12 @@ void RayTracedReflection::draw(CommandBufferRecorder &recorder, const Scene &sce
 		    }
 	    })
 	    .end_marker()
-
 	    .begin_marker("Upsampling")
 	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_upsampling.pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], m_upsampling.descriptor_set})
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_upsampling.pipeline)
 	    .push_constants(m_upsampling.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_upsampling.push_constants)
 	    .dispatch({m_context->render_extent.width, m_context->render_extent.height, 1}, {NUM_THREADS_X, NUM_THREADS_Y, 1})
 	    .end_marker()
-
 	    .insert_barrier()
 	    .add_image_barrier(
 	        raytraced_image.vk_image,
@@ -419,7 +463,6 @@ void RayTracedReflection::draw(CommandBufferRecorder &recorder, const Scene &sce
 	        denoise_tile_data_buffer.vk_buffer,
 	        VK_ACCESS_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
 	    .insert()
-
 	    .end_marker();
 }
 

@@ -9,6 +9,10 @@
 [[vk::binding(0, 1)]] Texture2D<float4> Reflection_Image;
 #endif
 
+#ifdef VISUALIZE_DI
+[[vk::binding(0, 1)]] Texture2D<float4> DI_Image;
+#endif
+
 #ifdef VISUALIZE_GBUFFER
 #include "gbuffer.slangh"
 #endif
@@ -32,6 +36,10 @@ void main(CSParam param)
 
 #ifdef VISUALIZE_AO
     Output[coord] = float4(float3(AO_Image[coord].r), 1.0);
+#endif
+
+#ifdef VISUALIZE_DI
+    Output[coord] = float4(pow(DI_Image[coord].rgb, 1.0 / 2.2), 1.0);
 #endif
 
 #ifdef VISUALIZE_REFLECTION

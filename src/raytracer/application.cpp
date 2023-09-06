@@ -55,9 +55,10 @@ Application::Application() :
         .gbuffer{m_context, m_scene},
         .path_tracing{m_context, m_scene, m_renderer.gbuffer},
         .ao{m_context, m_scene, m_renderer.gbuffer},
+        .di{m_context, m_scene, m_renderer.gbuffer},
         .reflection{m_context, m_scene, m_renderer.gbuffer},
         .tonemap{m_context},
-        .composite{m_context, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.reflection},
+        .composite{m_context, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.reflection},
     }
 {
 	glfwSetWindowUserPointer(m_context.window, this);
@@ -302,6 +303,7 @@ void Application::render(CommandBufferRecorder &recorder)
 	else
 	{
 		m_renderer.ao.draw(recorder, m_scene, m_renderer.gbuffer);
+		m_renderer.di.draw(recorder, m_scene, m_renderer.gbuffer);
 		m_renderer.reflection.draw(recorder, m_scene, m_renderer.gbuffer);
 		if (m_render_mode == RenderMode::AO)
 		{
@@ -310,6 +312,10 @@ void Application::render(CommandBufferRecorder &recorder)
 		else if (m_render_mode == RenderMode::Reflection)
 		{
 			m_renderer.composite.draw(recorder, m_scene, m_renderer.reflection);
+		}
+		else if (m_render_mode == RenderMode::DI)
+		{
+			m_renderer.composite.draw(recorder, m_scene, m_renderer.di);
 		}
 	}
 	m_renderer.ui.render(recorder, m_current_frame);
@@ -354,8 +360,8 @@ void Application::update_ui()
 				m_update = true;
 			}
 		}
-		const char *const render_modes[] = {"Path Tracing", "Hybrid", "Normal", "Albedo", "Roughness", "Metallic", "Position", "AO", "Reflection", "GI"};
-		if (ImGui::Combo("Render Mode", reinterpret_cast<int *>(&m_render_mode), render_modes, 10))
+		const char *const render_modes[] = {"Path Tracing", "Hybrid", "Normal", "Albedo", "Roughness", "Metallic", "Position", "AO", "Reflection", "DI", "GI"};
+		if (ImGui::Combo("Render Mode", reinterpret_cast<int *>(&m_render_mode), render_modes, 11))
 		{
 			m_context.ping_pong = false;
 			m_context.wait();

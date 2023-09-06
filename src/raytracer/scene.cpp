@@ -37,6 +37,12 @@ struct Emitter
 	glm::vec4 intensity;
 };
 
+struct Light
+{
+	glm::vec3 pos;
+	uint32_t  instance_id;
+};
+
 struct Mesh
 {
 	uint32_t vertices_offset = 0;

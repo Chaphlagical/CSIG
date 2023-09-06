@@ -4,6 +4,7 @@
 #include "pipeline/gbuffer.hpp"
 #include "pipeline/path_tracing.hpp"
 #include "pipeline/raytrace_ao.hpp"
+#include "pipeline/raytrace_di.hpp"
 #include "pipeline/raytrace_reflection.hpp"
 #include "pipeline/tonemap.hpp"
 
@@ -19,7 +20,12 @@ struct CompositePass
 	};
 
   public:
-	CompositePass(const Context &context, const Scene &scene, const GBufferPass &gbuffer, const RayTracedAO &ao, const RayTracedReflection &reflection);
+	CompositePass(const Context             &context,
+	              const Scene               &scene,
+	              const GBufferPass         &gbuffer,
+	              const RayTracedAO         &ao,
+	              const RayTracedDI         &di,
+	              const RayTracedReflection &reflection);
 
 	~CompositePass();
 
@@ -30,6 +36,8 @@ struct CompositePass
 	void draw(CommandBufferRecorder &recorder, const Scene &scene, const Tonemap &tonemap);
 
 	void draw(CommandBufferRecorder &recorder, const Scene &scene, const RayTracedAO &ao);
+
+	void draw(CommandBufferRecorder &recorder, const Scene &scene, const RayTracedDI &di);
 
 	void draw(CommandBufferRecorder &recorder, const Scene &scene, const RayTracedReflection &reflection);
 
@@ -67,4 +75,10 @@ struct CompositePass
 		VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
 		VkPipeline       pipeline        = VK_NULL_HANDLE;
 	} m_reflection;
+
+	struct
+	{
+		VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
+		VkPipeline       pipeline        = VK_NULL_HANDLE;
+	} m_di;
 };
