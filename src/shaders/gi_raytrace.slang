@@ -4,6 +4,7 @@
 #include "random.slangh"
 #include "scene.slangh"
 #include "raytrace.slangh"
+#include "lighting.slangh"
 
 #define NUM_THREADS_X 8
 #define NUM_THREADS_Y 8
@@ -47,7 +48,7 @@ float3 indirect_lighting(float3 Wo, float3 N, float3 P, float3 F0, float3 diffus
     float3 kD = 1.0 - kS;
     kD *= 1.0 - metallic;
 
-    return push_constant.gi_intensity * kD * diffuse_color * sample_irradiance(DDGIBuffer, P, N, Wo, s_Irradiance, s_Depth);
+    // return push_constant.gi_intensity * kD * diffuse_color * sample_irradiance(DDGIBuffer, P, N, Wo, s_Irradiance, s_Depth);
 }
 
 [shader("compute")]
@@ -70,7 +71,12 @@ void main(CSParam param)
 
     if (closest_hit(ray_origin, direction, RAY_FLAG_FORCE_OPAQUE))
     {
-        
+        RayDesc ray;
+        ray.Origin = ray_origin;
+        ray.Direction = direction;
+        ShadeState sstate = get_shade_state(ray, prd);
+        L += direct_lighting(sstate, -direction, T);
+
     }
     else
     {

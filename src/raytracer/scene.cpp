@@ -240,36 +240,38 @@ Scene::Scene(const Context &context) :
 	                        .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Emitter Buffer
 	                        .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        // Material Buffer
+	                        // Light Buffer
 	                        .add_descriptor_binding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        // Vertex Buffer
+	                        // Material Buffer
 	                        .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        // Index Buffer
+	                        // Vertex Buffer
 	                        .add_descriptor_binding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // Index Buffer
+	                        .add_descriptor_binding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // View Buffer
-	                        .add_descriptor_binding(6, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_binding(7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Emitter Alias Table Buffer
-	                        .add_descriptor_binding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        // Mesh Alias Table Buffer
 	                        .add_descriptor_binding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // Mesh Alias Table Buffer
+	                        .add_descriptor_binding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Scene Buffer
-	                        .add_descriptor_binding(9, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_binding(10, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Textures
-	                        .add_descriptor_bindless_binding(10, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_bindless_binding(11, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Samplers
-	                        .add_descriptor_bindless_binding(11, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_bindless_binding(12, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Env Map
-	                        .add_descriptor_binding(12, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        // Irradiance SH
 	                        .add_descriptor_binding(13, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        // Prefilter Map
+	                        // Irradiance SH
 	                        .add_descriptor_binding(14, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        // GGX Lut
+	                        // Prefilter Map
 	                        .add_descriptor_binding(15, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        // Sobel Sequence
+	                        // GGX Lut
 	                        .add_descriptor_binding(16, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        // Sobel Sequence
+	                        .add_descriptor_binding(17, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        // Scrambling Ranking Tile
-	                        .add_descriptor_bindless_binding(17, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_bindless_binding(18, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        .create();
 
 	descriptor.set = m_context->allocate_descriptor_set({descriptor.layout});
@@ -683,7 +685,7 @@ void Scene::load_scene(const std::string &filename)
 				{
 					m_context->buffer_copy_to_device(buffer.light, lights.data(), lights.size() * sizeof(Light), true);
 				}
-				//scene_info.light_count = static_cast<uint32_t>(lights.size());
+				// scene_info.light_count = static_cast<uint32_t>(lights.size());
 			}
 
 			// Build emitter alias table buffer
@@ -1308,21 +1310,22 @@ void Scene::update()
 	    .write_acceleration_structures(0, {tlas})
 	    .write_storage_buffers(1, {buffer.instance.vk_buffer})
 	    .write_storage_buffers(2, {buffer.emitter.vk_buffer})
-	    .write_storage_buffers(3, {buffer.material.vk_buffer})
-	    .write_storage_buffers(4, {buffer.vertex.vk_buffer})
-	    .write_storage_buffers(5, {buffer.index.vk_buffer})
-	    .write_uniform_buffers(6, {buffer.view.vk_buffer})
-	    .write_storage_buffers(7, {buffer.emitter_alias_table.vk_buffer})
-	    .write_storage_buffers(8, {buffer.mesh_alias_table.vk_buffer})
-	    .write_uniform_buffers(9, {buffer.scene.vk_buffer})
-	    .write_sampled_images(10, texture_views)
-	    .write_samplers(11, {linear_sampler, nearest_sampler})
-	    .write_sampled_images(12, {envmap.texture_view})
-	    .write_sampled_images(13, {envmap.irradiance_sh_view})
-	    .write_sampled_images(14, {envmap.prefilter_map_view})
-	    .write_sampled_images(15, {ggx_lut_view})
-	    .write_sampled_images(16, {sobol_image_view})
-	    .write_sampled_images(17, {scrambling_ranking_image_views})
+	    .write_storage_buffers(3, {buffer.light.vk_buffer})
+	    .write_storage_buffers(4, {buffer.material.vk_buffer})
+	    .write_storage_buffers(5, {buffer.vertex.vk_buffer})
+	    .write_storage_buffers(6, {buffer.index.vk_buffer})
+	    .write_uniform_buffers(7, {buffer.view.vk_buffer})
+	    .write_storage_buffers(8, {buffer.emitter_alias_table.vk_buffer})
+	    .write_storage_buffers(9, {buffer.mesh_alias_table.vk_buffer})
+	    .write_uniform_buffers(10, {buffer.scene.vk_buffer})
+	    .write_sampled_images(11, texture_views)
+	    .write_samplers(12, {linear_sampler, nearest_sampler})
+	    .write_sampled_images(13, {envmap.texture_view})
+	    .write_sampled_images(14, {envmap.irradiance_sh_view})
+	    .write_sampled_images(15, {envmap.prefilter_map_view})
+	    .write_sampled_images(16, {ggx_lut_view})
+	    .write_sampled_images(17, {sobol_image_view})
+	    .write_sampled_images(18, {scrambling_ranking_image_views})
 	    .update(descriptor.set);
 }
 

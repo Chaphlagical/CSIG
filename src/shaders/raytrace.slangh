@@ -253,9 +253,10 @@ ShadeState get_shade_state(RayDesc ray, RtPayload payload)
 	sstate.tangent = world_tangent;
 	sstate.bitangent = world_bitangent;
 	sstate.mat = material;
-	sstate.depth = payload.hit_t;
+    sstate.depth = payload.hit_t;
+    sstate.instance_id = instance_id;
 
-	if(dot(sstate.normal, sstate.geom_normal) <= 0)
+    if(dot(sstate.normal, sstate.geom_normal) <= 0)
 	{
 		sstate.normal *= -1.0f;
 	}

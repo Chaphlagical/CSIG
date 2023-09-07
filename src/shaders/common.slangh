@@ -111,6 +111,12 @@ struct Instance
     float area;
 };
 
+struct Light
+{
+    float3 position;
+    uint instance_id;
+};
+
 struct AliasTable
 {
 	float prob;         // The i's column's event i's prob
@@ -128,7 +134,9 @@ struct Scene
 	float3 min_extent;
 	uint emitter_count;
 	float3 max_extent;
-	uint mesh_count;
+    uint mesh_count;
+    float3 padding;
+    uint light_count;
 };
 
 struct ShadeState
@@ -142,7 +150,8 @@ struct ShadeState
 	float eta;
 	bool primary;
 	float depth;
-	float2 motion_vector;
+    float2 motion_vector;
+    uint instance_id;
 	Material mat;
 };
 

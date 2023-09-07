@@ -37,7 +37,8 @@ bool get_primary_state(float2 frag_coord, int mip, out ShadeState sstate)
 	sstate.position = p;
 	sstate.mat = material;
 	sstate.depth = gbufferC_data.a;
-	sstate.motion_vector = gbufferB_data.ba;
+    sstate.motion_vector = gbufferB_data.ba;
+    sstate.instance_id = instance_id;
 	
 	coordinate_system(sstate.ffnormal, sstate.tangent, sstate.bitangent);
 
@@ -72,6 +73,7 @@ bool get_prev_primary_state(float2 frag_coord, int mip, out ShadeState sstate)
     sstate.mat = material;
     sstate.depth = gbufferC_data.a;
     sstate.motion_vector = gbufferB_data.ba;
+    sstate.instance_id = instance_id;
 
     coordinate_system(sstate.ffnormal, sstate.tangent, sstate.bitangent);
 

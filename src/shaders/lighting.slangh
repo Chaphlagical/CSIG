@@ -1,0 +1,45 @@
+#ifndef LIGHTING_SLANGH
+#define LIGHTING_SLANGH
+
+#include "raytrace.slangh"
+#include "scene.slangh"
+#include "bsdf.slangh"
+
+float3 light_intensity(Light light, float3 p, float3 wi)
+{
+    if (closest_hit(p, wi, RAY_FLAG_FORCE_OPAQUE) &&
+        prd.instance_id != light.instance_id)
+    {
+        return 0.0;
+    }
+    RayDesc ray;
+    ray.Origin = p;
+    ray.Direction = wi;
+    ShadeState sstate = get_shade_state(ray, prd);
+    return sstate.mat.emissive_factor / (1.0 + dot(p - light.position, p - light.position));
+}
+
+float3 direct_lighting(ShadeState sstate, float3 wo, float3 T)
+{
+    uint num_light, light_stride;
+    LightBuffer.GetDimensions(num_light, light_stride);
+    float3 radiance = 0.0;
+    for (uint i = 0; i < num_light; i++)
+    {
+        Light light = LightBuffer[i];
+        if (sstate.instance_id == light.instance_id)
+        {
+            radiance += sstate.mat.emissive_factor;
+        }
+        else
+        {
+            float3 wi = normalize(light.position - sstate.position);
+            float bsdf_pdf = 0;
+            float3 f = eval_bsdf(sstate, wo, sstate.ffnormal, wi, bsdf_pdf);
+            radiance += T * f * light_intensity(light, sstate.position, wi) * abs(dot(sstate.ffnormal, wi));
+        }
+    }
+    return radiance;
+}
+
+#endif

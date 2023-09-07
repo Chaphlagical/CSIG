@@ -102,7 +102,8 @@ struct SceneData
 	uint     emitter_count;
 	vec3     max_extent;
 	uint     mesh_count;
-	// uint     light_count;
+	vec3 	 padding;
+	uint     light_count;
 	uint64_t instance_buffer_addr;
 	uint64_t emitter_buffer_addr;
 	uint64_t material_buffer_addr;

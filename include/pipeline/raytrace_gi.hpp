@@ -192,24 +192,4 @@ struct RayTracedGI
 		VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
 		VkDescriptorSet       descriptor_sets[2];
 	} m_probe_sample;
-
-	// struct
-	//{
-	//	struct
-	//	{
-	//		int32_t gbuffer_mip  = 0;
-	//		float   gi_intensity = 1.f;
-	//	} push_constants;
-
-	//	Buffer vertex_buffer;
-	//	Buffer index_buffer;
-
-	//	uint32_t vertex_count = 0;
-	//	uint32_t index_count  = 0;
-
-	//	VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
-	//	VkPipeline            pipeline              = VK_NULL_HANDLE;
-	//	VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
-	//	VkDescriptorSet       descriptor_sets[2];
-	//} m_probe_visualize;
 };
