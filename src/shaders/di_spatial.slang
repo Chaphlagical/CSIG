@@ -30,6 +30,7 @@ void main(CSParam param)
     }
 
     SpatialReservoirBuffer[pixel_id] = init_reservoir();
+
     GroupMemoryBarrierWithGroupSync();
 
     prd.seed = tea(size.x * param.DispatchThreadID.y + param.DispatchThreadID.x, uint(ViewBuffer.cam_pos.w));

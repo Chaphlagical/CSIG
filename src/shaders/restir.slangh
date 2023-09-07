@@ -11,8 +11,8 @@ struct Reservoir
     float p_hat;
     float sum_weights;
     float w;
-    uint num_samples;
     float3 padding;
+    uint num_samples;
 };
 
 Reservoir init_reservoir()
@@ -23,6 +23,7 @@ Reservoir init_reservoir()
     reservoir.sum_weights = 0;
     reservoir.w = 0;
     reservoir.num_samples = 0;
+    reservoir.padding = 0;
     return reservoir;
 }
 

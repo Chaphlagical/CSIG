@@ -1,6 +1,6 @@
 #include "pipeline/composite.hpp"
 
-CompositePass::CompositePass(const Context &context, const Scene &scene, const GBufferPass &gbuffer, const RayTracedAO &ao, const RayTracedDI &di, const RayTracedReflection &reflection) :
+CompositePass::CompositePass(const Context &context, const Scene &scene, const GBufferPass &gbuffer, const RayTracedAO &ao, const RayTracedDI &di, const RayTracedGI &gi, const RayTracedReflection &reflection) :
     m_context(&context)
 {
 	composite_image = m_context->create_texture_2d(
@@ -33,6 +33,9 @@ CompositePass::CompositePass(const Context &context, const Scene &scene, const G
 	m_di.pipeline_layout = m_context->create_pipeline_layout({scene.descriptor.layout, di.descriptor.layout, m_descriptor_layout});
 	m_di.pipeline        = m_context->create_compute_pipeline("composite.slang", m_ao.pipeline_layout, "main", {{"VISUALIZE_DI", "1"}});
 
+	m_gi.pipeline_layout = m_context->create_pipeline_layout({scene.descriptor.layout, gi.bind_descriptor.layout, m_descriptor_layout});
+	m_gi.pipeline        = m_context->create_compute_pipeline("composite.slang", m_gi.pipeline_layout, "main", {{"VISUALIZE_GI", "1"}});
+
 	init();
 }
 
@@ -52,6 +55,8 @@ CompositePass::~CompositePass()
 	    .destroy(m_ao.pipeline)
 	    .destroy(m_di.pipeline_layout)
 	    .destroy(m_di.pipeline)
+	    .destroy(m_gi.pipeline_layout)
+	    .destroy(m_gi.pipeline)
 	    .destroy(m_reflection.pipeline_layout)
 	    .destroy(m_reflection.pipeline);
 }
@@ -61,7 +66,10 @@ void CompositePass::init()
 	m_context->record_command()
 	    .begin()
 	    .insert_barrier()
-	    .add_image_barrier(composite_image.vk_image, 0, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL)
+	    .add_image_barrier(
+	        composite_image.vk_image,
+	        0, VK_ACCESS_SHADER_WRITE_BIT,
+	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL)
 	    .insert()
 	    .end()
 	    .flush();
@@ -127,6 +135,17 @@ void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, co
 	    .begin_marker("Composite")
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_di.pipeline)
 	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_di.pipeline_layout, {scene.descriptor.set, di.descriptor.set, m_descriptor_set})
+	    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {8, 8, 1})
+	    .execute([&](CommandBufferRecorder &recorder) { blit(recorder); })
+	    .end_marker();
+}
+
+void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, const RayTracedGI &gi)
+{
+	recorder
+	    .begin_marker("Composite")
+	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_gi.pipeline)
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_gi.pipeline_layout, {scene.descriptor.set, gi.bind_descriptor.set, m_descriptor_set})
 	    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {8, 8, 1})
 	    .execute([&](CommandBufferRecorder &recorder) { blit(recorder); })
 	    .end_marker();

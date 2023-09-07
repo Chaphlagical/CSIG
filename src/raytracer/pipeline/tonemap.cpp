@@ -58,6 +58,17 @@ void Tonemap::draw(CommandBufferRecorder &recorder, const PathTracing &path_trac
 	    .end_marker();
 }
 
+void Tonemap::draw(CommandBufferRecorder &recorder, const DeferredPass &deferred)
+{
+	recorder
+	    .begin_marker("Tonemapping")
+	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline)
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout, {deferred.descriptor.set, m_descriptor.output_set})
+	    .push_constants(m_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_push_constant)
+	    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {NUM_THREADS_X, NUM_THREADS_Y, 1})
+	    .end_marker();
+}
+
 bool Tonemap::draw_ui()
 {
 	bool update = false;

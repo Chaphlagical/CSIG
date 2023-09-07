@@ -40,6 +40,7 @@ struct hash<std::unordered_map<std::string, std::string>>
 }        // namespace std
 
 static VkDebugUtilsMessengerEXT vkDebugUtilsMessengerEXT;
+static uint32_t                 marker_depth = 0;
 
 inline size_t align(size_t x, size_t alignment)
 {
@@ -319,11 +320,21 @@ CommandBufferRecorder &CommandBufferRecorder::end()
 
 CommandBufferRecorder &CommandBufferRecorder::begin_marker(const std::string &name)
 {
+	static std::vector<std::array<float, 4>> colors = {
+	    {0, 1, 0, 1},
+	    {1, 0, 0, 1},
+	    {0, 0, 1, 1},
+	    {1, 1, 0, 1},
+	    {1, 0, 1, 1},
+	    {0, 1, 1, 1},
+	    {1, 1, 1, 1},
+	};
 #ifdef DEBUG
+	auto                 color = colors[marker_depth++];
 	VkDebugUtilsLabelEXT label = {
 	    .sType      = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
 	    .pLabelName = name.c_str(),
-	    .color      = {0, 1, 0, 0},
+	    .color      = {color[0], color[1], color[2], color[3]},
 	};
 	vkCmdBeginDebugUtilsLabelEXT(cmd_buffer, &label);
 #endif        // DEBUG
@@ -334,6 +345,7 @@ CommandBufferRecorder &CommandBufferRecorder::end_marker()
 {
 #ifdef DEBUG
 	vkCmdEndDebugUtilsLabelEXT(cmd_buffer);
+	marker_depth--;
 #endif        // DEBUG
 	return *this;
 }

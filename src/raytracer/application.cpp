@@ -56,9 +56,11 @@ Application::Application() :
         .path_tracing{m_context, m_scene, m_renderer.gbuffer},
         .ao{m_context, m_scene, m_renderer.gbuffer},
         .di{m_context, m_scene, m_renderer.gbuffer},
+        .gi{m_context, m_scene, m_renderer.gbuffer},
         .reflection{m_context, m_scene, m_renderer.gbuffer},
+        .deferred{m_context, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.reflection},
         .tonemap{m_context},
-        .composite{m_context, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.reflection},
+        .composite{m_context, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.gi, m_renderer.reflection},
     }
 {
 	glfwSetWindowUserPointer(m_context.window, this);
@@ -85,10 +87,12 @@ Application::Application() :
 		m_jitter_samples.push_back(glm::vec2((2.f * halton_sequence(2, i) - 1.f), (2.f * halton_sequence(3, i) - 1.f)));
 	}
 
-	// m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\default.glb)");
-	m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\Deferred\Deferred.gltf)");
+	 m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\default.glb)");
+	//m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\Deferred\Deferred.gltf)");
 	m_scene.load_envmap(R"(D:\Workspace\CSIG\assets\textures\hdr\default.hdr)");
 	m_scene.update();
+
+	m_renderer.gi.update(m_scene);
 
 	m_context.wait();
 }
@@ -209,7 +213,7 @@ void Application::update_view()
 		}
 
 		m_camera.speed += 0.1f * ImGui::GetIO().MouseWheel;
-		m_camera.velocity = smooth_step(m_camera.velocity, direction * m_camera.speed, 0.6f);
+		m_camera.velocity = smooth_step(m_camera.velocity, direction * m_camera.speed, 0.2f);
 		m_camera.position += ImGui::GetIO().DeltaTime * m_camera.velocity;
 
 		m_camera.view = glm::lookAt(m_camera.position, m_camera.position + front, up);
@@ -304,7 +308,10 @@ void Application::render(CommandBufferRecorder &recorder)
 	{
 		m_renderer.ao.draw(recorder, m_scene, m_renderer.gbuffer);
 		m_renderer.di.draw(recorder, m_scene, m_renderer.gbuffer);
+		m_renderer.gi.draw(recorder.cmd_buffer, m_scene, m_renderer.gbuffer);
 		m_renderer.reflection.draw(recorder, m_scene, m_renderer.gbuffer);
+		m_renderer.deferred.draw(recorder, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.reflection);
+		m_renderer.tonemap.draw(recorder, m_renderer.deferred);
 		if (m_render_mode == RenderMode::AO)
 		{
 			m_renderer.composite.draw(recorder, m_scene, m_renderer.ao);
@@ -316,6 +323,14 @@ void Application::render(CommandBufferRecorder &recorder)
 		else if (m_render_mode == RenderMode::DI)
 		{
 			m_renderer.composite.draw(recorder, m_scene, m_renderer.di);
+		}
+		else if (m_render_mode == RenderMode::GI)
+		{
+			m_renderer.composite.draw(recorder, m_scene, m_renderer.gi);
+		}
+		else if (m_render_mode == RenderMode::Hybrid)
+		{
+			m_renderer.composite.draw(recorder, m_scene, m_renderer.tonemap);
 		}
 	}
 	m_renderer.ui.render(recorder, m_current_frame);
@@ -340,7 +355,7 @@ void Application::update_ui()
 		if (ImGui::Button("Open Scene"))
 		{
 			char *path = nullptr;
-			if (NFD_OpenDialog("gltf,glb", PROJECT_DIR, &path) == NFD_OKAY)
+			if (NFD_OpenDialog("gltf,glb", std::filesystem::current_path().string().c_str(), &path) == NFD_OKAY)
 			{
 				m_scene.load_scene(path);
 				m_scene.update();
@@ -353,7 +368,7 @@ void Application::update_ui()
 		if (ImGui::Button("Open HDRI"))
 		{
 			char *path = nullptr;
-			if (NFD_OpenDialog("hdr", PROJECT_DIR, &path) == NFD_OKAY)
+			if (NFD_OpenDialog("hdr", std::filesystem::current_path().string().c_str(), &path) == NFD_OKAY)
 			{
 				m_scene.load_envmap(path);
 				m_scene.update();
@@ -368,7 +383,10 @@ void Application::update_ui()
 			m_renderer.gbuffer.init();
 			m_renderer.path_tracing.init();
 			m_renderer.ao.init();
+			m_renderer.di.init();
 			m_renderer.reflection.init();
+			m_renderer.deferred.init();
+			m_renderer.composite.init();
 		}
 
 		bool update = false;
@@ -384,9 +402,17 @@ void Application::update_ui()
 		{
 			update |= m_renderer.ao.draw_ui();
 		}
+		if (m_render_mode == RenderMode::Hybrid || m_render_mode == RenderMode::DI)
+		{
+			update |= m_renderer.di.draw_ui();
+		}
 		if (m_render_mode == RenderMode::Hybrid || m_render_mode == RenderMode::Reflection)
 		{
 			update |= m_renderer.reflection.draw_ui();
+		}
+		if (m_render_mode == RenderMode::Hybrid)
+		{
+			update |= m_renderer.deferred.draw_ui();
 		}
 		if (m_render_mode == RenderMode::Hybrid || m_render_mode == RenderMode::PathTracing)
 		{

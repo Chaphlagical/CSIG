@@ -2,6 +2,7 @@
 
 #include "context.hpp"
 #include "path_tracing.hpp"
+#include "deferred.hpp"
 
 struct Tonemap
 {
@@ -11,6 +12,8 @@ struct Tonemap
 	~Tonemap();
 
 	void draw(CommandBufferRecorder &recorder, const PathTracing &path_tracing);
+
+	void draw(CommandBufferRecorder &recorder, const DeferredPass &deferred);
 
 	bool draw_ui();
 

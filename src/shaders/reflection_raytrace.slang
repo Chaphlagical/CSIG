@@ -130,7 +130,7 @@ void main(CSParam param)
 
     float depth = DepthBuffer.Load(int3(current_coord, push_constant.gbuffer_mip)).r;
 
-    if (depth == 1.0f)
+    if (depth == 0.0f)
     {
         Output[current_coord] = float4(0.0f, 0.0f, 0.0f, -1.0f);
         return;

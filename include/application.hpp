@@ -2,10 +2,12 @@
 
 #include "context.hpp"
 #include "pipeline/composite.hpp"
+#include "pipeline/deferred.hpp"
 #include "pipeline/gbuffer.hpp"
 #include "pipeline/path_tracing.hpp"
 #include "pipeline/raytrace_ao.hpp"
 #include "pipeline/raytrace_di.hpp"
+#include "pipeline/raytrace_gi.hpp"
 #include "pipeline/raytrace_reflection.hpp"
 #include "pipeline/tonemap.hpp"
 #include "pipeline/ui.hpp"
@@ -78,7 +80,9 @@ class Application
 		PathTracing         path_tracing;
 		RayTracedAO         ao;
 		RayTracedDI         di;
+		RayTracedGI         gi;
 		RayTracedReflection reflection;
+		DeferredPass        deferred;
 		Tonemap             tonemap;
 		CompositePass       composite;
 	} m_renderer;
@@ -96,5 +100,5 @@ class Application
 		Reflection,
 		DI,
 		GI
-	} m_render_mode = RenderMode::Reflection;
+	} m_render_mode = RenderMode::DI;
 };

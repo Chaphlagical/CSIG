@@ -282,6 +282,7 @@ Scene::~Scene()
 	    .destroy(descriptor.set)
 	    .destroy(glsl_descriptor.layout)
 	    .destroy(glsl_descriptor.set)
+	    .destroy(buffer.view)
 	    .destroy(ggx_lut)
 	    .destroy(ggx_lut_view)
 	    .destroy(scrambling_ranking_images)
@@ -297,6 +298,7 @@ Scene::~Scene()
 void Scene::load_scene(const std::string &filename)
 {
 	m_context->wait();
+	destroy_scene();
 
 	cgltf_options options  = {};
 	cgltf_data   *raw_data = nullptr;
@@ -318,6 +320,7 @@ void Scene::load_scene(const std::string &filename)
 	std::unordered_map<cgltf_mesh *, std::vector<uint32_t>> mesh_map;
 
 	std::vector<Emitter>  emitters;
+	std::vector<Light>    lights;
 	std::vector<Material> materials;
 	std::vector<Mesh>     meshes;
 	std::vector<Instance> instances;
@@ -613,6 +616,10 @@ void Scene::load_scene(const std::string &filename)
 						int32_t emitter_offset = static_cast<int32_t>(emitters.size());
 						if (materials[mesh.material].emissive_factor != glm::vec3(0.f))
 						{
+							lights.push_back(Light{
+							    .pos         = glm::vec3(instance.transform[3]),
+							    .instance_id = mesh_id,
+							});
 							for (uint32_t tri_idx = 0; tri_idx < mesh.indices_count / 3; tri_idx++)
 							{
 								const uint32_t i0 = indices[mesh.indices_offset + tri_idx * 3 + 0];
@@ -667,6 +674,16 @@ void Scene::load_scene(const std::string &filename)
 				}
 				scene_info.emitter_count       = static_cast<uint32_t>(emitters.size());
 				scene_info.emitter_buffer_addr = buffer.emitter.device_address;
+			}
+
+			// Build light buffer
+			{
+				buffer.light = m_context->create_buffer("Light Buffer", std::max(lights.size(), 1ull) * sizeof(Light), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+				if (!lights.empty())
+				{
+					m_context->buffer_copy_to_device(buffer.light, lights.data(), lights.size() * sizeof(Light), true);
+				}
+				//scene_info.light_count = static_cast<uint32_t>(lights.size());
 			}
 
 			// Build emitter alias table buffer
@@ -1320,7 +1337,6 @@ void Scene::destroy_scene()
 	    .destroy(buffer.vertex)
 	    .destroy(buffer.index)
 	    .destroy(buffer.indirect_draw)
-	    .destroy(buffer.view)
 	    .destroy(buffer.emitter_alias_table)
 	    .destroy(buffer.mesh_alias_table)
 	    .destroy(buffer.scene)

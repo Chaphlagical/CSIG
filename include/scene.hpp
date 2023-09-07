@@ -27,6 +27,7 @@ struct Scene
 		uint32_t  emitter_count  = 0;
 		glm::vec3 max_extent     = -glm::vec3(std::numeric_limits<float>::max());
 		uint32_t  mesh_count     = 0;
+		//uint32_t  light_count    = 0;
 		uint64_t  instance_buffer_addr;
 		uint64_t  emitter_buffer_addr;
 		uint64_t  material_buffer_addr;

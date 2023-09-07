@@ -72,7 +72,7 @@ struct RayTracedDI
 			struct
 			{
 				int32_t  gbuffer_mip     = 0;
-				uint32_t temporal_reuse  = 0;
+				uint32_t temporal_reuse  = 1;
 				int32_t  M               = 4;
 				int32_t  clamp_threshold = 4;
 			} push_constants;
@@ -88,7 +88,7 @@ struct RayTracedDI
 			struct
 			{
 				int32_t  gbuffer_mip   = 0;
-				uint32_t spatial_reuse = 0;
+				uint32_t spatial_reuse = 1;
 				float    radius        = 10.f;
 				int32_t  samples       = 5;
 			} push_constants;
