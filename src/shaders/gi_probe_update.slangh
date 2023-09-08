@@ -1,0 +1,177 @@
+#ifndef GI_PROBE_UPDATE_SLANGH
+#define GI_PROBE_UPDATE_SLANGH
+
+#include "ddgi.slangh"
+#include "gbuffer.slangh"
+
+#define CACHE_SIZE 64
+
+#if defined(DEPTH_PROBE_UPDATE)
+#define NUM_THREADS_X 16
+#define NUM_THREADS_Y 16
+#else
+#define NUM_THREADS_X 8
+#define NUM_THREADS_Y 8
+#endif
+
+struct PushConstant
+{
+    uint frame_count;
+};
+
+[[vk::binding(0, 1)]] RWTexture2D<float4> OutputIrradiance;
+[[vk::binding(1, 1)]] RWTexture2D<float4> OutputDepth;
+[[vk::binding(2, 1)]] Texture2D<float4> InputIrradiance;
+[[vk::binding(3, 1)]] Texture2D<float4> InputDepth;
+[[vk::binding(4, 1)]] Texture2D<float4> InputRadiance;
+[[vk::binding(5, 1)]] Texture2D<float4> InputDirectionDepth;
+[[vk::binding(6, 1)]] ConstantBuffer<DDGIUniforms> DDGIBuffer;
+[[vk::push_constant]] ConstantBuffer<PushConstant> push_constant;
+
+groupshared float4 g_ray_direction_depth[CACHE_SIZE];
+#if !defined(DEPTH_PROBE_UPDATE)
+groupshared float3 g_ray_hit_radiance[CACHE_SIZE];
+#endif
+
+static const float FLT_EPS = 0.00000001;
+
+void populate_cache(CSParam param, int relative_probe_id, uint offset, uint num_rays)
+{
+    if (param.GroupIndex < num_rays)
+    {
+        int2 C = int2(offset + uint(param.GroupIndex), relative_probe_id);
+
+        g_ray_direction_depth[param.GroupIndex] = InputDirectionDepth.Load(int3(C, 0));
+#if !defined(DEPTH_PROBE_UPDATE)
+        g_ray_hit_radiance[param.GroupIndex] = InputRadiance.Load(int3(C, 0)).rgb;
+#endif
+    }
+}
+
+// ------------------------------------------------------------------
+
+void gather_rays(int2 current_coord, uint num_rays, inout float3 result, inout float total_weight)
+{
+    const float energy_conservation = 0.95f;
+
+    // For each ray
+    for (int r = 0; r < num_rays; ++r)
+    {
+        float4 ray_direction_depth = g_ray_direction_depth[r];
+
+        float3 ray_direction = ray_direction_depth.xyz;
+
+#if defined(DEPTH_PROBE_UPDATE)
+        float ray_probe_distance = min(DDGIBuffer.max_distance, ray_direction_depth.w - 0.01f);
+
+        // Detect misses and force depth
+        if (ray_probe_distance == -1.0f)
+            ray_probe_distance = DDGIBuffer.max_distance;
+#else
+        float3 ray_hit_radiance = g_ray_hit_radiance[r] * energy_conservation;
+#endif
+
+#if defined(DEPTH_PROBE_UPDATE)
+        uint probe_side_length = DDGIBuffer.depth_probe_side_length;
+#else
+        uint probe_side_length = DDGIBuffer.irradiance_probe_side_length;
+#endif
+        float3 texel_direction = oct_decode(normalized_oct_coord(current_coord, probe_side_length));
+
+        float weight = 0.0f;
+
+#if defined(DEPTH_PROBE_UPDATE)
+        weight = pow(max(0.0, dot(texel_direction, ray_direction)), DDGIBuffer.depth_sharpness);
+#else
+        weight = max(0.0, dot(texel_direction, ray_direction));
+#endif
+
+        if (weight >= FLT_EPS)
+        {
+#if defined(DEPTH_PROBE_UPDATE)
+            result += float3(ray_probe_distance * weight, square(ray_probe_distance) * weight, 0.0);
+#else
+            result += float3(ray_hit_radiance * weight);
+#endif
+
+            total_weight += weight;
+        }
+    }
+}
+
+[shader("compute")]
+[numthreads(NUM_THREADS_X, NUM_THREADS_Y, 1)]
+void main(CSParam param)
+{
+
+#if defined(DEPTH_PROBE_UPDATE)
+    int2 tex_size = int2(DDGIBuffer.depth_texture_width, DDGIBuffer.depth_texture_height);
+    uint probe_side_length = DDGIBuffer.depth_probe_side_length;
+#else
+    int2 tex_size = int2(DDGIBuffer.irradiance_texture_width, DDGIBuffer.irradiance_texture_height);
+    uint probe_side_length = DDGIBuffer.irradiance_probe_side_length;
+#endif
+
+    const int2 current_coord = int2(param.DispatchThreadID.xy) + (int2(param.GroupID.xy) * int2(2)) + int2(2);
+
+    const int relative_probe_id = probe_id(current_coord, tex_size.x, probe_side_length);
+
+    float3 result = float3(0.0f);
+    float total_weight = 0.0f;
+
+    int remaining_rays = DDGIBuffer.rays_per_probe;
+    uint offset = 0;
+
+    while (remaining_rays > 0)
+    {
+        int num_rays = min(CACHE_SIZE, remaining_rays);
+
+        populate_cache(param, relative_probe_id, offset, num_rays);
+
+        GroupMemoryBarrierWithGroupSync();
+
+        gather_rays(current_coord, num_rays, result, total_weight);
+
+        GroupMemoryBarrierWithGroupSync();
+
+        remaining_rays -= num_rays;
+        offset += num_rays;
+    }
+
+    if (total_weight > FLT_EPS)
+        result /= total_weight;
+
+    // Temporal Accumulation
+    float3 prev_result;
+
+#if defined(DEPTH_PROBE_UPDATE)
+    prev_result = InputDepth.Load(int3(current_coord, 0)).rgb;
+#else
+    prev_result = InputIrradiance.Load(int3(current_coord, 0)).rgb;
+#endif
+
+    if (push_constant.frame_count != 0)
+        result = lerp(result, prev_result, DDGIBuffer.hysteresis);
+
+    float lum = dot(result, float3(0.212671, 0.715160, 0.072169));
+    if (lum > 1.0)
+    {
+        result *= 1.0 / lum;
+    }
+
+    if (any(isnan(result)))
+    {
+        result = prev_result;
+    }
+
+#if defined(DEPTH_PROBE_UPDATE)
+    OutputDepth[current_coord] = float4(result, 1.0);
+#else
+    OutputIrradiance[current_coord] = float4(result, 1.0);
+#endif
+}
+
+// ------------------------------------------------------------------
+
+
+#endif

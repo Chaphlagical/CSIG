@@ -5,6 +5,8 @@
 #include "scene.slangh"
 #include "bsdf.slangh"
 
+#define MAX_NUM_LIGHTS 15
+
 float3 light_intensity(Light light, float3 p, float3 wi)
 {
     if (closest_hit(p, wi, RAY_FLAG_FORCE_OPAQUE) &&
@@ -19,17 +21,20 @@ float3 light_intensity(Light light, float3 p, float3 wi)
     return sstate.mat.emissive_factor / (1.0 + dot(p - light.position, p - light.position));
 }
 
-float3 direct_lighting(ShadeState sstate, float3 wo, float3 T, float2 rng)
+float3 direct_lighting(ShadeState sstate, float3 wo, float3 T, inout uint seed)
 {
     uint num_light, light_stride;
     LightBuffer.GetDimensions(num_light, light_stride);
     float3 radiance = 0.0;
-    for (uint i = 0; i < num_light; i++)
+    uint light_count = min(num_light, MAX_NUM_LIGHTS);
+    float pdf = float(MAX_NUM_LIGHTS) / float(num_light);
+    for (uint i = 0; i < light_count; i++)
     {
-        Light light = LightBuffer[i];
+        uint light_idx = uint(float(num_light) * rand(seed));
+        Light light = LightBuffer[light_idx];
         if (sstate.instance_id == light.instance_id)
         {
-            radiance += sstate.mat.emissive_factor;
+            radiance += sstate.mat.emissive_factor / pdf;
         }
         else
         {
@@ -43,7 +48,7 @@ float3 direct_lighting(ShadeState sstate, float3 wo, float3 T, float2 rng)
 #ifdef SAMPLE_ENVMMAP
     // Sample Envmap
     {
-        float3 wi = sample_cosine_lobe(sstate.normal, rng);
+        float3 wi = sample_cosine_lobe(sstate.normal, rand2(seed));
         float3 Li = EnvMap.SampleLevel(Samplers[int(SamplerType::Linear)], wi, 0.0).rgb;
         float pdf = pdf_cosine_lobe(dot(sstate.normal, wi));
         float3 wh = normalize(wo + wi);

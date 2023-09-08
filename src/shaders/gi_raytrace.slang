@@ -22,8 +22,8 @@ struct PushConstant
 [[vk::binding(0, 2)]] ConstantBuffer<DDGIUniforms> DDGIBuffer;
 [[vk::binding(1, 2)]] RWTexture2D<float4> Radiance;
 [[vk::binding(2, 2)]] RWTexture2D<float4> DirectionDistance;
-[[vk::binding(3, 2)]] Texture2D<float4> ProbeGridRadiance;
-[[vk::binding(4, 2)]] Texture2D<float4> ProbeGridDirectionDistance;
+[[vk::binding(3, 2)]] Texture2D<float4> ProbeGridIrradiance;
+[[vk::binding(4, 2)]] Texture2D<float4> ProbeGridDepth;
 [[vk::push_constant]] ConstantBuffer<PushConstant> push_constant;
 
 float3 spherical_fibonacci(float i, float n)
@@ -51,7 +51,7 @@ float3 indirect_lighting(float3 Wo, float3 N, float3 P, float3 F0, float3 diffus
     float3 kS = F;
     float3 kD = 1.0 - kS;
     kD *= 1.0 - metallic;
-    return push_constant.gi_intensity * kD * diffuse_color * sample_irradiance(DDGIBuffer, P, N, Wo, ProbeGridRadiance, ProbeGridDirectionDistance);
+    return push_constant.gi_intensity * kD * diffuse_color * sample_irradiance(DDGIBuffer, P, N, Wo, ProbeGridIrradiance, ProbeGridDepth);
 }
 
 [shader("compute")]
@@ -78,7 +78,7 @@ void main(CSParam param)
         ray.Origin = ray_origin;
         ray.Direction = direction;
         ShadeState sstate = get_shade_state(ray, prd);
-        Lo += direct_lighting(sstate, -direction, T, rand2(seed));
+        Lo += direct_lighting(sstate, -direction, T, seed);
         if (push_constant.infinite_bounces == 1)
         {
             const float3 F0 = lerp(float3(0.04f), sstate.mat.base_color.rgb, sstate.mat.metallic_factor);

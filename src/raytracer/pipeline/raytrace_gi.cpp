@@ -4,6 +4,8 @@
 
 #include <imgui.h>
 
+#include <spdlog/fmt/fmt.h>
+
 static const uint32_t NUM_THREADS_X = 8;
 static const uint32_t NUM_THREADS_Y = 8;
 
@@ -61,18 +63,18 @@ RayTracedGI::RayTracedGI(const Context &context, const Scene &scene, const GBuff
 	                                        // Direction Depth
 	                                        .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                        // Probe Irradiance
-	                                        .add_descriptor_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                        .add_descriptor_binding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                        // Probe Depth
-	                                        .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                        .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                        .create();
 	m_raytraced.descriptor_sets = m_context->allocate_descriptor_sets<2>(m_raytraced.descriptor_set_layout);
 	m_raytraced.pipeline_layout = m_context->create_pipeline_layout({
-	                                                                    scene.glsl_descriptor.layout,
-	                                                                    gbuffer_pass.glsl_descriptor.layout,
+	                                                                    scene.descriptor.layout,
+	                                                                    gbuffer_pass.descriptor.layout,
 	                                                                    m_raytraced.descriptor_set_layout,
 	                                                                },
 	                                                                sizeof(m_raytraced.push_constants), VK_SHADER_STAGE_COMPUTE_BIT);
-	m_raytraced.pipeline        = m_context->create_compute_pipeline((uint32_t *) g_gi_raytraced_comp_spv_data, sizeof(g_gi_raytraced_comp_spv_data), m_raytraced.pipeline_layout);
+	m_raytraced.pipeline        = m_context->create_compute_pipeline("gi_raytrace.slang", m_raytraced.pipeline_layout);
 
 	m_probe_update.update_probe.descriptor_set_layout = m_context->create_descriptor_layout()
 	                                                        // Output irradiance
@@ -80,25 +82,24 @@ RayTracedGI::RayTracedGI(const Context &context, const Scene &scene, const GBuff
 	                                                        // Output depth
 	                                                        .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                                        // Input irradiance
-	                                                        .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                                        .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                                        // Input depth
-	                                                        .add_descriptor_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                                        .add_descriptor_binding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                                        // Input radiance
-	                                                        .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                                        .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                                        // Input direction depth
-	                                                        .add_descriptor_binding(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                                        .add_descriptor_binding(5, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                                        // DDGI uniform buffer
 	                                                        .add_descriptor_binding(6, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
-	                                                        // Probe data buffer
-	                                                        .add_descriptor_binding(7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                                        .create();
 	m_probe_update.update_probe.descriptor_sets     = m_context->allocate_descriptor_sets<2>(m_probe_update.update_probe.descriptor_set_layout);
 	m_probe_update.update_probe.pipeline_layout     = m_context->create_pipeline_layout({
+                                                                                        scene.descriptor.layout,
                                                                                         m_probe_update.update_probe.descriptor_set_layout,
                                                                                     },
 	                                                                                    sizeof(m_probe_update.update_probe.push_constants), VK_SHADER_STAGE_COMPUTE_BIT);
-	m_probe_update.update_probe.irradiance_pipeline = m_context->create_compute_pipeline((uint32_t *) g_gi_probe_update_irradiance_comp_spv_data, sizeof(g_gi_probe_update_irradiance_comp_spv_data), m_probe_update.update_probe.pipeline_layout);
-	m_probe_update.update_probe.depth_pipeline      = m_context->create_compute_pipeline((uint32_t *) g_gi_probe_update_depth_comp_spv_data, sizeof(g_gi_probe_update_depth_comp_spv_data), m_probe_update.update_probe.pipeline_layout);
+	m_probe_update.update_probe.irradiance_pipeline = m_context->create_compute_pipeline("gi_probe_update_irradiance.slang", m_probe_update.update_probe.pipeline_layout);
+	m_probe_update.update_probe.depth_pipeline      = m_context->create_compute_pipeline("gi_probe_update_depth.slang", m_probe_update.update_probe.pipeline_layout);
 
 	m_probe_update.update_border.descriptor_set_layout = m_context->create_descriptor_layout()
 	                                                         // Output irradiance
@@ -108,29 +109,58 @@ RayTracedGI::RayTracedGI(const Context &context, const Scene &scene, const GBuff
 	                                                         .create();
 	m_probe_update.update_border.descriptor_sets     = m_context->allocate_descriptor_sets<2>(m_probe_update.update_border.descriptor_set_layout);
 	m_probe_update.update_border.pipeline_layout     = m_context->create_pipeline_layout({m_probe_update.update_border.descriptor_set_layout});
-	m_probe_update.update_border.irradiance_pipeline = m_context->create_compute_pipeline((uint32_t *) g_gi_border_update_irradiance_comp_spv_data, sizeof(g_gi_border_update_irradiance_comp_spv_data), m_probe_update.update_border.pipeline_layout);
-	m_probe_update.update_border.depth_pipeline      = m_context->create_compute_pipeline((uint32_t *) g_gi_border_update_depth_comp_spv_data, sizeof(g_gi_border_update_depth_comp_spv_data), m_probe_update.update_border.pipeline_layout);
+	m_probe_update.update_border.irradiance_pipeline = m_context->create_compute_pipeline("gi_border_update_irradiance.slang", m_probe_update.update_border.pipeline_layout);
+	m_probe_update.update_border.depth_pipeline      = m_context->create_compute_pipeline("gi_border_update_depth.slang", m_probe_update.update_border.pipeline_layout);
 
 	m_probe_sample.descriptor_set_layout = m_context->create_descriptor_layout()
 	                                           // DDGI buffer
 	                                           .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                           // Probe irradiance
-	                                           .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                           .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                           // Probe depth
-	                                           .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+	                                           .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                           // Output GI
 	                                           .add_descriptor_binding(3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
-	                                           // Probe data
-	                                           .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                           .create();
 	m_probe_sample.descriptor_sets = m_context->allocate_descriptor_sets<2>(m_probe_sample.descriptor_set_layout);
 	m_probe_sample.pipeline_layout = m_context->create_pipeline_layout({
-	                                                                       scene.glsl_descriptor.layout,
-	                                                                       gbuffer_pass.glsl_descriptor.layout,
+	                                                                       scene.descriptor.layout,
+	                                                                       gbuffer_pass.descriptor.layout,
 	                                                                       m_probe_sample.descriptor_set_layout,
 	                                                                   },
 	                                                                   sizeof(m_probe_sample.push_constants), VK_SHADER_STAGE_COMPUTE_BIT);
-	m_probe_sample.pipeline        = m_context->create_compute_pipeline((uint32_t *) g_gi_probe_sample_comp_spv_data, sizeof(g_gi_probe_sample_comp_spv_data), m_probe_sample.pipeline_layout);
+	m_probe_sample.pipeline        = m_context->create_compute_pipeline("gi_sample_probe_grid.slang", m_probe_sample.pipeline_layout);
+
+	m_probe_visualize.descriptor_set_layout = m_context->create_descriptor_layout()
+	                                              // DDGI buffer
+	                                              .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+	                                              // Probe irradiance
+	                                              .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+	                                              .create();
+	m_probe_visualize.descriptor_sets = m_context->allocate_descriptor_sets<2>(m_probe_visualize.descriptor_set_layout);
+	m_probe_visualize.pipeline_layout = m_context->create_pipeline_layout({
+	                                                                          scene.descriptor.layout,
+	                                                                          m_probe_visualize.descriptor_set_layout,
+	                                                                      },
+	                                                                      sizeof(m_probe_visualize.push_constants), VK_SHADER_STAGE_VERTEX_BIT);
+	m_probe_visualize.pipeline        = m_context->create_graphics_pipeline(m_probe_visualize.pipeline_layout)
+	                                 .add_color_attachment(VK_FORMAT_R16G16B16A16_SFLOAT)
+	                                 .add_depth_stencil(VK_FORMAT_D32_SFLOAT, true, false)
+	                                 .add_viewport({
+	                                     .x        = 0,
+	                                     .y        = 0,
+	                                     .width    = (float) m_context->render_extent.width,
+	                                     .height   = (float) m_context->render_extent.height,
+	                                     .minDepth = 0.f,
+	                                     .maxDepth = 1.f,
+	                                 })
+	                                 .add_scissor({.offset = {0, 0}, .extent = {m_context->render_extent.width, m_context->render_extent.height}})
+	                                 .add_shader(VK_SHADER_STAGE_VERTEX_BIT, "gi_probe_visualization.slang", "vs_main")
+	                                 .add_shader(VK_SHADER_STAGE_FRAGMENT_BIT, "gi_probe_visualization.slang", "fs_main")
+	                                 .add_vertex_input_attribute(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0)
+	                                 .add_vertex_input_attribute(1, 0, VK_FORMAT_R32G32B32_SFLOAT, sizeof(glm::vec3))
+	                                 .add_vertex_input_binding(0, 2 * sizeof(glm::vec3))
+	                                 .create();
 
 	bind_descriptor.layout = m_context->create_descriptor_layout()
 	                             .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
@@ -168,6 +198,11 @@ RayTracedGI::~RayTracedGI()
 
 	    .destroy(descriptor.layout)
 	    .destroy(descriptor.sets)
+
+	    .destroy(m_probe_visualize.pipeline)
+	    .destroy(m_probe_visualize.pipeline_layout)
+	    .destroy(m_probe_visualize.descriptor_set_layout)
+	    .destroy(m_probe_visualize.descriptor_sets)
 
 	    ;
 }
@@ -226,10 +261,11 @@ void RayTracedGI::update(const Scene &scene)
 		m_scene_min_extent = min_extent;
 		m_scene_max_extent = max_extent;
 
-		glm::vec3 scene_length = max_extent - min_extent;
+		glm::vec3 scene_length = (max_extent - min_extent) * 1.2f;
+		glm::vec3 scene_center = (max_extent + min_extent) * 0.5f;
 
 		m_probe_update.params.probe_count  = glm::ivec3(scene_length / m_probe_update.params.probe_distance) + glm::ivec3(2);
-		m_probe_update.params.grid_start   = min_extent;
+		m_probe_update.params.grid_start   = scene_center - 0.5f * scene_length;
 		m_probe_update.params.max_distance = m_probe_update.params.probe_distance * 1.5f;
 
 		create_resource();
@@ -245,17 +281,17 @@ void RayTracedGI::update(const Scene &scene)
 		    .write_uniform_buffers(0, {uniform_buffer.vk_buffer})
 		    .write_storage_images(1, {radiance_view})
 		    .write_storage_images(2, {direction_depth_view})
-		    .write_combine_sampled_images(3, scene.linear_sampler, {probe_grid_irradiance_view[i]})
-		    .write_combine_sampled_images(4, scene.linear_sampler, {probe_grid_depth_view[i]})
+		    .write_sampled_images(3, {probe_grid_irradiance_view[i]})
+		    .write_sampled_images(4, {probe_grid_depth_view[i]})
 		    .update(m_raytraced.descriptor_sets[i]);
 
 		m_context->update_descriptor()
 		    .write_storage_images(0, {probe_grid_irradiance_view[!i]})
 		    .write_storage_images(1, {probe_grid_depth_view[!i]})
-		    .write_combine_sampled_images(2, scene.linear_sampler, {probe_grid_irradiance_view[i]})
-		    .write_combine_sampled_images(3, scene.linear_sampler, {probe_grid_depth_view[i]})
-		    .write_combine_sampled_images(4, scene.linear_sampler, {radiance_view})
-		    .write_combine_sampled_images(5, scene.linear_sampler, {direction_depth_view})
+		    .write_sampled_images(2, {probe_grid_irradiance_view[i]})
+		    .write_sampled_images(3, {probe_grid_depth_view[i]})
+		    .write_sampled_images(4, {radiance_view})
+		    .write_sampled_images(5, {direction_depth_view})
 		    .write_uniform_buffers(6, {uniform_buffer.vk_buffer})
 		    .update(m_probe_update.update_probe.descriptor_sets[i]);
 
@@ -266,10 +302,15 @@ void RayTracedGI::update(const Scene &scene)
 
 		m_context->update_descriptor()
 		    .write_uniform_buffers(0, {uniform_buffer.vk_buffer})
-		    .write_combine_sampled_images(1, scene.linear_sampler, {probe_grid_irradiance_view[!i]})
-		    .write_combine_sampled_images(2, scene.linear_sampler, {probe_grid_depth_view[!i]})
+		    .write_sampled_images(1, {probe_grid_irradiance_view[!i]})
+		    .write_sampled_images(2, {probe_grid_depth_view[!i]})
 		    .write_storage_images(3, {sample_probe_grid_view})
 		    .update(m_probe_sample.descriptor_sets[i]);
+
+		m_context->update_descriptor()
+		    .write_uniform_buffers(0, {uniform_buffer.vk_buffer})
+		    .write_sampled_images(1, {probe_grid_irradiance_view[!i]})
+		    .update(m_probe_visualize.descriptor_sets[i]);
 	}
 }
 
@@ -309,6 +350,9 @@ void RayTracedGI::draw(CommandBufferRecorder &recorder, const Scene &scene, cons
 	{
 		recorder
 		    .begin_marker("RayTraced GI")
+		    .insert_barrier()
+		    .add_buffer_barrier(uniform_buffer.vk_buffer, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT)
+		    .insert(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT)
 		    .update_buffer(uniform_buffer.vk_buffer, &ubo, sizeof(UBO))
 		    .insert_barrier()
 		    .add_buffer_barrier(uniform_buffer.vk_buffer, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
@@ -316,8 +360,8 @@ void RayTracedGI::draw(CommandBufferRecorder &recorder, const Scene &scene, cons
 		    .begin_marker("Ray Traced")
 		    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_raytraced.pipeline_layout,
 		                         {
-		                             scene.glsl_descriptor.set,
-		                             gbuffer_pass.glsl_descriptor.sets[m_context->ping_pong],
+		                             scene.descriptor.set,
+		                             gbuffer_pass.descriptor.sets[m_context->ping_pong],
 		                             m_raytraced.descriptor_sets[m_context->ping_pong],
 		                         })
 		    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_raytraced.pipeline)
@@ -340,7 +384,11 @@ void RayTracedGI::draw(CommandBufferRecorder &recorder, const Scene &scene, cons
 		    .insert()
 
 		    .begin_marker("Probe Update")
-		    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_probe_update.update_probe.pipeline_layout, {m_probe_update.update_probe.descriptor_sets[m_context->ping_pong]})
+		    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_probe_update.update_probe.pipeline_layout,
+		                         {
+		                             scene.descriptor.set,
+		                             m_probe_update.update_probe.descriptor_sets[m_context->ping_pong],
+		                         })
 		    .push_constants(m_probe_update.update_probe.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_probe_update.update_probe.push_constants)
 		    .begin_marker("Update Irradiance")
 		    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_probe_update.update_probe.irradiance_pipeline)
@@ -352,22 +400,16 @@ void RayTracedGI::draw(CommandBufferRecorder &recorder, const Scene &scene, cons
 		    .end_marker()
 
 		    .insert_barrier()
-		    .add_image_barrier(
-		        probe_grid_irradiance_image[!m_context->ping_pong].vk_image,
-		        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
-		        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL)
-		    .add_image_barrier(
-		        probe_grid_depth_image[!m_context->ping_pong].vk_image,
-		        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
-		        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL)
+		    .add_image_barrier(probe_grid_irradiance_image[!m_context->ping_pong].vk_image, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL)
+		    .add_image_barrier(probe_grid_depth_image[!m_context->ping_pong].vk_image, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL)
 		    .insert(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
 
 		    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_probe_update.update_border.pipeline_layout, {m_probe_update.update_border.descriptor_sets[m_context->ping_pong]})
-		    .begin_marker("Update Irradiance")
+		    .begin_marker("Update Irradiance Border")
 		    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_probe_update.update_border.irradiance_pipeline)
 		    .dispatch({m_probe_update.params.probe_count.x * m_probe_update.params.probe_count.y, m_probe_update.params.probe_count.z, 1}, {1, 1, 1})
 		    .end_marker()
-		    .begin_marker("Update Depth Direction")
+		    .begin_marker("Update Depth Direction Border")
 		    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_probe_update.update_border.depth_pipeline)
 		    .dispatch({m_probe_update.params.probe_count.x * m_probe_update.params.probe_count.y, m_probe_update.params.probe_count.z, 1}, {1, 1, 1})
 		    .end_marker()
@@ -375,21 +417,15 @@ void RayTracedGI::draw(CommandBufferRecorder &recorder, const Scene &scene, cons
 		    .end_marker()
 
 		    .insert_barrier()
-		    .add_image_barrier(
-		        probe_grid_irradiance_image[!m_context->ping_pong].vk_image,
-		        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-		        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-		    .add_image_barrier(
-		        probe_grid_depth_image[!m_context->ping_pong].vk_image,
-		        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-		        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+		    .add_image_barrier(probe_grid_irradiance_image[!m_context->ping_pong].vk_image, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+		    .add_image_barrier(probe_grid_depth_image[!m_context->ping_pong].vk_image, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 		    .insert(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
 
 		    .begin_marker("Sample Probe Grid")
 		    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_probe_sample.pipeline_layout,
 		                         {
-		                             scene.glsl_descriptor.set,
-		                             gbuffer_pass.glsl_descriptor.sets[m_context->ping_pong],
+		                             scene.descriptor.set,
+		                             gbuffer_pass.descriptor.sets[m_context->ping_pong],
 		                             m_probe_sample.descriptor_sets[m_context->ping_pong],
 		                         })
 		    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_probe_sample.pipeline)
@@ -399,32 +435,33 @@ void RayTracedGI::draw(CommandBufferRecorder &recorder, const Scene &scene, cons
 
 		    .insert_barrier()
 		    .add_buffer_barrier(uniform_buffer.vk_buffer, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT)
-		    .add_image_barrier(
-		        probe_grid_irradiance_image[m_context->ping_pong].vk_image,
-		        VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT,
-		        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL)
-		    .add_image_barrier(
-		        probe_grid_depth_image[m_context->ping_pong].vk_image,
-		        VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT,
-		        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL)
-		    .add_image_barrier(
-		        radiance_image.vk_image,
-		        VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT,
-		        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL)
-		    .add_image_barrier(
-		        direction_depth_image.vk_image,
-		        VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT,
-		        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL)
-		    .add_image_barrier(
-		        sample_probe_grid_image.vk_image,
-		        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-		        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+		    .add_image_barrier(probe_grid_irradiance_image[m_context->ping_pong].vk_image, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL)
+		    .add_image_barrier(probe_grid_depth_image[m_context->ping_pong].vk_image, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL)
+		    .add_image_barrier(radiance_image.vk_image, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL)
+		    .add_image_barrier(direction_depth_image.vk_image, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL)
+		    .add_image_barrier(sample_probe_grid_image.vk_image, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 		    .insert(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
 
 		    .end_marker();
 	}
 
 	m_frame_count++;
+}
+
+void RayTracedGI::draw_probe(CommandBufferRecorder &recorder, const VkImageView &render_target, const VkImageView &depth_buffer, const Scene &scene) const
+{
+	recorder.begin_marker("Probe Visualization")
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_GRAPHICS, m_probe_visualize.pipeline_layout, {scene.descriptor.set, m_probe_visualize.descriptor_sets[m_context->ping_pong]})
+	    .bind_pipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, m_probe_visualize.pipeline)
+	    .push_constants(m_probe_visualize.pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, m_probe_visualize.push_constants.scale)
+	    .add_color_attachment(render_target, VK_ATTACHMENT_LOAD_OP_LOAD)
+	    .add_depth_attachment(depth_buffer, VK_ATTACHMENT_LOAD_OP_LOAD)
+	    .begin_rendering(m_context->render_extent.width, m_context->render_extent.height)
+	    .bind_vertex_buffers({m_probe_visualize.vertex_buffer.vk_buffer})
+	    .bind_index_buffer(m_probe_visualize.index_buffer.vk_buffer)
+	    .draw_indexed(m_probe_visualize.index_count, m_probe_update.params.probe_count.x * m_probe_update.params.probe_count.y * m_probe_update.params.probe_count.z)
+	    .end_rendering()
+	    .end_marker();
 }
 
 bool RayTracedGI::draw_ui()
@@ -484,12 +521,12 @@ void RayTracedGI::create_resource()
 		for (uint32_t i = 0; i < 2; i++)
 		{
 			probe_grid_irradiance_image[i] = m_context->create_texture_2d(
-			    "GI Probe Grid Irradiance Image",
+			    fmt::format("GI Probe Grid Irradiance Image - {}", i),
 			    m_probe_update.params.irradiance_width, m_probe_update.params.irradiance_height,
 			    VK_FORMAT_R16G16B16A16_SFLOAT,
 			    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 			probe_grid_irradiance_view[i] = m_context->create_texture_view(
-			    "GI Probe Grid Irradiance View",
+			    fmt::format("GI Probe Grid Irradiance View - {}", i),
 			    probe_grid_irradiance_image[i].vk_image,
 			    VK_FORMAT_R16G16B16A16_SFLOAT);
 		}
@@ -502,32 +539,84 @@ void RayTracedGI::create_resource()
 		for (uint32_t i = 0; i < 2; i++)
 		{
 			probe_grid_depth_image[i] = m_context->create_texture_2d(
-			    "GI Probe Grid Depth Image",
+			    fmt::format("GI Probe Grid Depth Image - {}", i),
 			    m_probe_update.params.depth_width, m_probe_update.params.depth_height,
 			    VK_FORMAT_R16G16B16A16_SFLOAT,
 			    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 			probe_grid_depth_view[i] = m_context->create_texture_view(
-			    "GI Probe Grid Depth View",
+			    fmt::format("GI Probe Grid Depth View - {}", i),
 			    probe_grid_depth_image[i].vk_image,
 			    VK_FORMAT_R16G16B16A16_SFLOAT);
 		}
 	}
 
-	{
-		sample_probe_grid_image = m_context->create_texture_2d(
-		    "GI Sample Probe Grid Image",
-		    m_width, m_height,
-		    VK_FORMAT_R16G16B16A16_SFLOAT,
-		    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
-		sample_probe_grid_view = m_context->create_texture_view(
-		    "GI Sample Probe Grid View",
-		    sample_probe_grid_image.vk_image,
-		    VK_FORMAT_R16G16B16A16_SFLOAT);
-	}
+	sample_probe_grid_image = m_context->create_texture_2d(
+	    "GI Sample Probe Grid Image",
+	    m_width, m_height,
+	    VK_FORMAT_R16G16B16A16_SFLOAT,
+	    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
+	sample_probe_grid_view = m_context->create_texture_view(
+	    "GI Sample Probe Grid View",
+	    sample_probe_grid_image.vk_image,
+	    VK_FORMAT_R16G16B16A16_SFLOAT);
 
 	uniform_buffer = m_context->create_buffer("GI Uniform Buffer", sizeof(UBO), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
-	init();
+	// Probe sphere
+	{
+		struct Vertex
+		{
+			glm::vec3 position;
+			glm::vec3 normal;
+		};
+		std::vector<Vertex>    vertices;
+		std::vector<uint32_t>  indices;
+		std::vector<glm::vec2> grids;
+
+		const uint32_t samples = 50;
+		const float    radius  = 0.1f;
+
+		for (uint32_t i = 0; i < samples; i++)
+		{
+			for (uint32_t j = 0; j < samples; j++)
+			{
+				grids.push_back(glm::vec2((float) i / (float) samples, (float) j / (float) samples));
+			}
+		}
+		uint32_t quad_indices[6] = {0, samples + 1, samples + 2, 0, samples + 2, 1};
+		for (uint32_t k = 0; k < (samples + 1) * samples; k++)
+		{
+			for (uint32_t i = 0; i < 6; i++)
+			{
+				if ((k + 1) % (samples + 1) > 0)
+				{
+					indices.push_back(quad_indices[i] + k);
+				}
+			}
+		}
+		for (auto &p : grids)
+		{
+			float phi   = glm::radians(360.0f * p.y);
+			float theta = glm::radians(180.0f * p.x - 90.0f);
+
+			Vertex v;
+			v.position = glm::vec4(radius * std::cos(theta) * std::cos(phi), radius * std::sin(theta), radius * std::cos(theta) * std::sin(phi), p.x);
+			v.normal   = glm::vec4(v.position.x, v.position.y, v.position.z, p.y);
+
+			vertices.push_back(v);
+		}
+
+		m_probe_visualize.vertex_count = static_cast<uint32_t>(vertices.size());
+		m_probe_visualize.index_count  = static_cast<uint32_t>(indices.size());
+
+		m_probe_visualize.vertex_buffer = m_context->create_buffer("GI Probe Vertex Buffer", sizeof(Vertex) * vertices.size(), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+		m_probe_visualize.index_buffer  = m_context->create_buffer("GI Probe Index Buffer", sizeof(uint32_t) * indices.size(), VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+
+		m_context->buffer_copy_to_device(m_probe_visualize.vertex_buffer, vertices.data(), sizeof(Vertex) * vertices.size(), true);
+		m_context->buffer_copy_to_device(m_probe_visualize.index_buffer, indices.data(), sizeof(uint32_t) * indices.size(), true);
+
+		init();
+	}
 }
 
 void RayTracedGI::destroy_resource()
@@ -546,5 +635,7 @@ void RayTracedGI::destroy_resource()
 	    .destroy(probe_grid_depth_view[1])
 	    .destroy(sample_probe_grid_image)
 	    .destroy(sample_probe_grid_view)
+	    .destroy(m_probe_visualize.vertex_buffer)
+	    .destroy(m_probe_visualize.index_buffer)
 	    .destroy(uniform_buffer);
 }

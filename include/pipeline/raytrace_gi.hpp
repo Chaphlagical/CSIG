@@ -17,7 +17,9 @@ struct RayTracedGI
 
 	void update(const Scene &scene);
 
-	void draw(CommandBufferRecorder& recorder, const Scene &scene, const GBufferPass &gbuffer_pass);
+	void draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass);
+
+	void draw_probe(CommandBufferRecorder &recorder, const VkImageView &render_target, const VkImageView &depth_buffer, const Scene &scene) const;
 
 	bool draw_ui();
 
@@ -38,7 +40,7 @@ struct RayTracedGI
 	Texture     probe_grid_depth_image[2];
 	VkImageView probe_grid_depth_view[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
 
-	// sample probee grid
+	// sample probe grid
 	Texture     sample_probe_grid_image;
 	VkImageView sample_probe_grid_view = VK_NULL_HANDLE;
 
@@ -102,7 +104,7 @@ struct RayTracedGI
 		struct
 		{
 			bool    infinite_bounces          = true;
-			float   infinite_bounce_intensity = 0.3f;
+			float   infinite_bounce_intensity = 1.7f;
 			int32_t rays_per_probe            = 256;
 		} params;
 
@@ -125,7 +127,7 @@ struct RayTracedGI
 		struct
 		{
 			bool       visibility_test               = true;
-			float      probe_distance                = 0.6f;
+			float      probe_distance                = 1.0f;
 			float      recursive_energy_preservation = 0.85f;
 			uint32_t   irradiance_oct_size           = 8;
 			uint32_t   depth_oct_size                = 16;
@@ -184,4 +186,23 @@ struct RayTracedGI
 		VkDescriptorSetLayout          descriptor_set_layout = VK_NULL_HANDLE;
 		std::array<VkDescriptorSet, 2> descriptor_sets       = {VK_NULL_HANDLE, VK_NULL_HANDLE};
 	} m_probe_sample;
+
+	struct
+	{
+		struct
+		{
+			float scale = 2.f;
+		} push_constants;
+
+		Buffer vertex_buffer;
+		Buffer index_buffer;
+
+		uint32_t vertex_count = 0;
+		uint32_t index_count  = 0;
+
+		VkPipelineLayout               pipeline_layout       = VK_NULL_HANDLE;
+		VkPipeline                     pipeline              = VK_NULL_HANDLE;
+		VkDescriptorSetLayout          descriptor_set_layout = VK_NULL_HANDLE;
+		std::array<VkDescriptorSet, 2> descriptor_sets       = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+	} m_probe_visualize;
 };

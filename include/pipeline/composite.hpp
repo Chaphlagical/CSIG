@@ -43,6 +43,8 @@ struct CompositePass
 
 	void draw(CommandBufferRecorder &recorder, const Scene &scene, const RayTracedGI &gi);
 
+	void draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer, const RayTracedGI &gi);
+
 	void draw(CommandBufferRecorder &recorder, const Scene &scene, const RayTracedReflection &reflection);
 
   private:

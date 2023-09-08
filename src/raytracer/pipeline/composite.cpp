@@ -151,6 +151,52 @@ void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, co
 	    .end_marker();
 }
 
+void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer, const RayTracedGI &gi)
+{
+	recorder
+	    .insert_barrier()
+	    .add_image_barrier(
+	        gbuffer.depth_buffer[m_context->ping_pong].vk_image,
+	        VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+	        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+	        {
+	            .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
+	            .baseMipLevel   = 0,
+	            .levelCount     = 3,
+	            .baseArrayLayer = 0,
+	            .layerCount     = 1,
+	        })
+	    .add_image_barrier(
+	        gi.sample_probe_grid_image.vk_image,
+	        VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+	        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+	    .insert()
+
+		.execute([&]() { gi.draw_probe(recorder, gi.sample_probe_grid_view, gbuffer.depth_buffer_view[m_context->ping_pong], scene); })
+
+	    .insert_barrier()
+	    .add_image_barrier(
+	        gbuffer.depth_buffer[m_context->ping_pong].vk_image,
+	        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
+	        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	        {
+	            .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
+	            .baseMipLevel   = 0,
+	            .levelCount     = 3,
+	            .baseArrayLayer = 0,
+	            .layerCount     = 1,
+	        })
+	    .add_image_barrier(
+	        gi.sample_probe_grid_image.vk_image,
+	        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+	        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+	    .insert()
+
+	    ;
+
+		draw(recorder, scene, gi);
+}
+
 void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, const RayTracedReflection &reflection)
 {
 	recorder

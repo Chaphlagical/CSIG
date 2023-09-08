@@ -7,21 +7,21 @@
 struct DDGIUniforms
 {
     float3 grid_start_position;
-    float3 grid_step;
-    int3 probe_counts;
     float max_distance;
+    float3 grid_step;
     float depth_sharpness;
+    int3 probe_counts;
     float hysteresis;
     float normal_bias;
     float energy_preservation;
-    int irradiance_probe_side_length;
-    int irradiance_texture_width;
-    int irradiance_texture_height;
-    int depth_probe_side_length;
-    int depth_texture_width;
-    int depth_texture_height;
-    int rays_per_probe;
-    int visibility_test;
+    uint rays_per_probe;
+    uint visibility_test;
+    uint irradiance_probe_side_length;
+    uint irradiance_texture_width;
+    uint irradiance_texture_height;
+    uint depth_probe_side_length;
+    uint depth_texture_width;
+    uint depth_texture_height;
 };
 
 int3 base_grid_coord(in DDGIUniforms ddgi, float3 X)
@@ -66,7 +66,7 @@ int3 probe_index_to_grid_coord(in DDGIUniforms ddgi, int index)
 
 // ------------------------------------------------------------------------
 
-float3 probe_location(DDGIUniforms ddgi, int index)
+float3 probe_location(in DDGIUniforms ddgi, int index)
 {
     // Compute grid coord from instance ID.
     int3 grid_coord = probe_index_to_grid_coord(ddgi, index);
@@ -170,7 +170,7 @@ float2 texture_coord_from_direction(float3 dir, int probe_index, int full_textur
 
     // Add (2,2) back to texCoord within larger texture. Compensates for 1 pix
     // border around texture and further 1 pix border around top left probe.
-    float2 probe_top_left_position = float2((probe_index % probes_per_row) * probe_with_border_side,
+    float2 probe_top_left_position = float2(fmod(probe_index, probes_per_row) * probe_with_border_side,
                                         (probe_index / probes_per_row) * probe_with_border_side) + float2(2.0f, 2.0f);
 
     float2 normalized_probe_top_left_position = float2(probe_top_left_position) / float2(float(full_texture_width), float(full_texture_height));
@@ -179,7 +179,8 @@ float2 texture_coord_from_direction(float3 dir, int probe_index, int full_textur
 }
 
 // ------------------------------------------------------------------------
-float3 sample_irradiance(in DDGIUniforms ddgi, float3 P, float3 N, float3 Wo, Texture2D<float4> irradiance_texture, Texture2D<float4> depth_texture)
+
+float3 sample_irradiance(in DDGIUniforms ddgi, float3 P, float3 N, float3 Wo, Texture2D irradiance_texture, Texture2D depth_texture)
 {
     int3 base_grid_coord = base_grid_coord(ddgi, P);
     float3 base_probe_pos = grid_coord_to_position(ddgi, base_grid_coord);
@@ -253,7 +254,7 @@ float3 sample_irradiance(in DDGIUniforms ddgi, float3 P, float3 N, float3 Wo, Te
 
             float dist_to_probe = length(probe_to_point);
 
-            float2 temp = depth_texture.SampleLevel(Samplers[int(SamplerType::Linear)], tex_coord, 0.0).rg;
+            float2 temp = depth_texture.SampleLevel(Samplers[int(SamplerType::Linear)], tex_coord, 0.0f).rg;
             float mean = temp.x;
             float variance = abs(square(temp.x) - temp.y);
 
@@ -274,12 +275,12 @@ float3 sample_irradiance(in DDGIUniforms ddgi, float3 P, float3 N, float3 Wo, Te
 
         float2 tex_coord = texture_coord_from_direction(normalize(irradiance_dir), p, ddgi.irradiance_texture_width, ddgi.irradiance_texture_height, ddgi.irradiance_probe_side_length);
 
-        float3 probe_irradiance = irradiance_texture.SampleLevel(Samplers[int(SamplerType::Linear)], tex_coord, 0.0).rgb;
+        float3 probe_irradiance = irradiance_texture.SampleLevel(Samplers[int(SamplerType::Linear)], tex_coord, 0.0f).rgb;
 
         // A tiny bit of light is really visible due to log perception, so
         // crush tiny weights but keep the curve continuous. This must be done
         // before the trilinear weights, because those should be preserved.
-        const float crush_threshold = 0.2f;
+        const float crush_threshold = 0.6f;
         if (weight < crush_threshold)
             weight *= weight * weight * (1.0f / square(crush_threshold));
 
@@ -290,12 +291,13 @@ float3 sample_irradiance(in DDGIUniforms ddgi, float3 P, float3 N, float3 Wo, Te
         // This softens the transitions between probes with respect to translation.
         // It makes little difference most of the time, but when there are radical transitions
         // between probes this helps soften the ramp.
-#if LINEAR_BLENDING == 0
         probe_irradiance = sqrt(probe_irradiance);
-#endif
 
-        sum_irradiance += weight * probe_irradiance;
-        sum_weight += weight;
+        if(any(probe_irradiance != 0) && all(!isnan(probe_irradiance)))
+        {
+            sum_irradiance += weight * probe_irradiance;
+            sum_weight += weight;
+        }
     }
 
     float3 net_irradiance = sum_irradiance / sum_weight;
@@ -305,9 +307,7 @@ float3 sample_irradiance(in DDGIUniforms ddgi, float3 P, float3 N, float3 Wo, Te
     net_irradiance.z = isnan(net_irradiance.z) ? 0.5f : net_irradiance.z;
 
     // Go back to linear irradiance
-#if LINEAR_BLENDING == 0
     net_irradiance = square(net_irradiance);
-#endif
     net_irradiance *= ddgi.energy_preservation;
 
     return 0.5f * PI * net_irradiance;
