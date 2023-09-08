@@ -8,9 +8,21 @@ int main(int argc, char **argv)
 {
 	ApplicationConfig config;
 
-	Application application(config);
+	while (true)
+	{
+		Application application(config);
 
-	application.run();
+		auto restartParams = application.run();
+		if (restartParams.has_value())
+		{
+			config = restartParams.value();
+		}
+		else
+		{
+			break;
+		}
+	}
+
 
 	return 0;
 }

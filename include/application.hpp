@@ -16,6 +16,7 @@
 #include "render/scene.hpp"
 
 #include <memory>
+#include <optional>
 
 struct ApplicationConfig
 {
@@ -32,7 +33,7 @@ class Application
 
 	~Application();
 
-	void run();
+	std::optional<ApplicationConfig> run();
 
   private:
 	void begin_render();
@@ -103,4 +104,7 @@ class Application
 		Hybrid,
 		PathTracing,
 	} m_render_mode = RenderMode::Hybrid;
+
+	ApplicationConfig m_restart_params;
+	bool              shouldRestart = false;
 };

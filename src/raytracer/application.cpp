@@ -58,7 +58,8 @@ Application::Application(const ApplicationConfig &config) :
         .taa{m_context, m_scene, m_renderer.gbuffer_pass},
         .tonemap{m_context},
         .fsr{m_context}
-    }
+    },
+    m_restart_params{config}
 {
 	m_scene.load_scene(config.scene_file);
 	m_scene.load_envmap(config.hdr_file);
@@ -183,7 +184,7 @@ Application::~Application()
 	vkDeviceWaitIdle(m_context.vk_device);
 }
 
-void Application::run()
+std::optional<ApplicationConfig> Application::run()
 {
 	while (!glfwWindowShouldClose(m_context.window))
 	{
@@ -208,6 +209,15 @@ void Application::run()
 		m_current_frame     = (m_current_frame + 1) % 3;
 		m_context.ping_pong = !m_context.ping_pong;
 		m_num_frames++;
+	}
+
+	if (shouldRestart)
+	{
+		return m_restart_params;
+	}
+	else
+	{
+		return {};
 	}
 }
 
@@ -282,6 +292,7 @@ void Application::update_ui()
 			char *path = nullptr;
 			if (NFD_OpenDialog("gltf,glb", std::filesystem::current_path().string().c_str(), &path) == NFD_OKAY)
 			{
+				m_restart_params.scene_file = path;
 				m_scene.load_scene(path);
 				m_scene.update_descriptor();
 				m_update = true;
@@ -295,6 +306,7 @@ void Application::update_ui()
 			char *path = nullptr;
 			if (NFD_OpenDialog("hdr", std::filesystem::current_path().string().c_str(), &path) == NFD_OKAY)
 			{
+				m_restart_params.hdr_file = path;
 				m_scene.load_envmap(path);
 				m_scene.update_descriptor();
 				m_update = true;
@@ -328,6 +340,27 @@ void Application::update_ui()
 		}
 		m_renderer.tonemap.draw_ui();
 		m_renderer.fsr.draw_ui();
+
+		// Mode changes
+		if (ImGui::CollapsingHeader("Resolution & Swapchain Change"))
+		{
+			ImGui::Checkbox("Fullscreen", &m_restart_params.context_config.fullscreen);
+			ImGui::InputInt("Width", (int *) & m_restart_params.context_config.width);
+			ImGui::InputInt("Height", (int *) &m_restart_params.context_config.height);
+
+			ImGui::Checkbox("Enable FSR", &m_restart_params.context_config.useFSR);
+			if (m_restart_params.context_config.useFSR)
+			{
+				ImGui::SliderFloat("FSR Scale factor", &m_restart_params.context_config.FSRScaleFactor, 1.3f, 2.0f);
+			}
+			
+			if (ImGui::Button("Apply"))
+			{
+				shouldRestart = true;
+				glfwSetWindowShouldClose(m_context.window, 1);
+			}
+		}
+
 		ImGui::End();
 	}
 	m_renderer.ui.end_frame();
