@@ -386,6 +386,7 @@ bool PathTracing::draw_ui()
 		ImGui::Text("Iteration: %d", m_push_constant.frame_count);
 		update |= ImGui::SliderInt("Max Depth", reinterpret_cast<int32_t *>(&m_push_constant.max_depth), 1, 100);
 		update |= ImGui::DragFloat("Bias", &m_push_constant.bias, 0.00001f, -1.f, 1.f, "%.10f");
+		ImGui::TreePop();
 	}
 	return update;
 }
