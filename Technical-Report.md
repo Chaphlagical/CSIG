@@ -49,7 +49,7 @@ graph LR
 
 ### GI (Global Illumination)
 
-```MERMAID
+```mermaid
 graph LR
     subgraph "GI"
         gi_raytraced[GI Raytrace] --> gi_probe_update[GI Probe Update]
@@ -64,7 +64,7 @@ graph LR
 
 ### Reflection
 
-```MERMAID
+```mermaid
 graph LR
     subgraph "Reflection"
         refl_trace[Reflection Raytrace] --> refl_reproj[Reflection Reprojection]
@@ -78,7 +78,7 @@ graph LR
 
 ### AO (Ambient Occlusion)
 
-```MERMAID
+```mermaid
 graph LR
     subgraph "AO"
         ao_trace[AO Raytrace] --> ao_temporal[AO Temporal Accumulation]
