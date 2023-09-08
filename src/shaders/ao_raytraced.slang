@@ -24,30 +24,6 @@ float2 random_sample(int2 coord, uint num_frames)
                   sample_blue_noise(coord, int(num_frames), 1, SobelSequence, ScramblingRankingTile[0]));
 }
 
-float3x3 make_rotation_matrix(float3 z)
-{
-    const float3 ref = abs(dot(z, float3(0, 1, 0))) > 0.99f ? float3(0, 0, 1) : float3(0, 1, 0);
-
-    const float3 x = normalize(cross(ref, z));
-    const float3 y = cross(z, x);
-
-    return float3x3(x, y, z);
-}
-
-float3 sample_cosine_lobe(in float3 n, in float2 r)
-{
-    float2 rand_sample = max(float2(0.00001f), r);
-
-    const float phi = 2.0f * PI * rand_sample.y;
-
-    const float cos_theta = sqrt(rand_sample.x);
-    const float sin_theta = sqrt(1 - rand_sample.x);
-
-    float3 t = float3(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta);
-
-    return normalize(mul(transpose(make_rotation_matrix(n)), t));
-}
-
 bool any_hit(float3 org, float3 dir, float max_dist)
 {
     RayDesc ray;

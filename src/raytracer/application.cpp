@@ -308,7 +308,7 @@ void Application::render(CommandBufferRecorder &recorder)
 	{
 		m_renderer.ao.draw(recorder, m_scene, m_renderer.gbuffer);
 		m_renderer.di.draw(recorder, m_scene, m_renderer.gbuffer);
-		m_renderer.gi.draw(recorder.cmd_buffer, m_scene, m_renderer.gbuffer);
+		m_renderer.gi.draw(recorder, m_scene, m_renderer.gbuffer);
 		m_renderer.reflection.draw(recorder, m_scene, m_renderer.gbuffer);
 		m_renderer.deferred.draw(recorder, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.reflection);
 		m_renderer.tonemap.draw(recorder, m_renderer.deferred);
@@ -384,6 +384,7 @@ void Application::update_ui()
 			m_renderer.path_tracing.init();
 			m_renderer.ao.init();
 			m_renderer.di.init();
+			m_renderer.gi.init();
 			m_renderer.reflection.init();
 			m_renderer.deferred.init();
 			m_renderer.composite.init();

@@ -2,8 +2,10 @@
 #include "ddgi.slangh"
 #include "gbuffer.slangh"
 #include "random.slangh"
-#include "scene.slangh"
 #include "raytrace.slangh"
+#include "scene.slangh"
+
+#define SAMPLE_ENVMMAP
 #include "lighting.slangh"
 
 #define NUM_THREADS_X 8
@@ -17,9 +19,11 @@ struct PushConstant
     float gi_intensity;
 };
 
-[[vk::binding(0, 2)]] RWTexture2D<float4> Radiance;
-[[vk::binding(1, 2)]] RWTexture2D<float4> DirectionDistance;
-[[vk::binding(2, 2)]] ConstantBuffer<DDGIUniforms> DDGIBuffer;
+[[vk::binding(0, 2)]] ConstantBuffer<DDGIUniforms> DDGIBuffer;
+[[vk::binding(1, 2)]] RWTexture2D<float4> Radiance;
+[[vk::binding(2, 2)]] RWTexture2D<float4> DirectionDistance;
+[[vk::binding(3, 2)]] Texture2D<float4> ProbeGridRadiance;
+[[vk::binding(4, 2)]] Texture2D<float4> ProbeGridDirectionDistance;
 [[vk::push_constant]] ConstantBuffer<PushConstant> push_constant;
 
 float3 spherical_fibonacci(float i, float n)
@@ -47,8 +51,7 @@ float3 indirect_lighting(float3 Wo, float3 N, float3 P, float3 F0, float3 diffus
     float3 kS = F;
     float3 kD = 1.0 - kS;
     kD *= 1.0 - metallic;
-
-    // return push_constant.gi_intensity * kD * diffuse_color * sample_irradiance(DDGIBuffer, P, N, Wo, s_Irradiance, s_Depth);
+    return push_constant.gi_intensity * kD * diffuse_color * sample_irradiance(DDGIBuffer, P, N, Wo, ProbeGridRadiance, ProbeGridDirectionDistance);
 }
 
 [shader("compute")]
@@ -65,7 +68,7 @@ void main(CSParam param)
     float3 ray_origin = probe_location(DDGIBuffer, probe_id);
     float3 direction = normalize(mul(float3x3(push_constant.random_orientation), spherical_fibonacci(ray_id, DDGIBuffer.rays_per_probe)));
 
-    float3 L = 0.0;
+    float3 Lo = 0.0;
     float3 T = 1.0;
     float hit_distance = Infinity;
 
@@ -75,14 +78,19 @@ void main(CSParam param)
         ray.Origin = ray_origin;
         ray.Direction = direction;
         ShadeState sstate = get_shade_state(ray, prd);
-        L += direct_lighting(sstate, -direction, T);
-
+        Lo += direct_lighting(sstate, -direction, T, rand2(seed));
+        if (push_constant.infinite_bounces == 1)
+        {
+            const float3 F0 = lerp(float3(0.04f), sstate.mat.base_color.rgb, sstate.mat.metallic_factor);
+            const float3 c_diffuse = lerp(sstate.mat.base_color.rgb * (float3(1.0f) - F0), float3(0.0f), sstate.mat.metallic_factor);
+            Lo += indirect_lighting(-direction, sstate.normal, sstate.position, F0, c_diffuse, sstate.mat.roughness_factor, sstate.mat.metallic_factor);
+        }
     }
     else
     {
-        L = EnvMap.SampleLevel(Samplers[int(SamplerType::Linear)], direction, 0.0).rgb;
+        Lo = EnvMap.SampleLevel(Samplers[int(SamplerType::Linear)], direction, 0.0).rgb;
     }
 
-    Radiance[coord] = float4(L, 0.0);
+    Radiance[coord] = float4(Lo, 0.0);
     DirectionDistance[coord] = float4(direction, hit_distance);
 }

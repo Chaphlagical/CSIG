@@ -179,7 +179,6 @@ float2 texture_coord_from_direction(float3 dir, int probe_index, int full_textur
 }
 
 // ------------------------------------------------------------------------
-
 float3 sample_irradiance(in DDGIUniforms ddgi, float3 P, float3 N, float3 Wo, Texture2D<float4> irradiance_texture, Texture2D<float4> depth_texture)
 {
     int3 base_grid_coord = base_grid_coord(ddgi, P);

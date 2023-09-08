@@ -17,7 +17,7 @@ struct RayTracedGI
 
 	void update(const Scene &scene);
 
-	void draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBufferPass &gbuffer_pass);
+	void draw(CommandBufferRecorder& recorder, const Scene &scene, const GBufferPass &gbuffer_pass);
 
 	bool draw_ui();
 
@@ -46,8 +46,8 @@ struct RayTracedGI
 
 	struct
 	{
-		VkDescriptorSetLayout layout  = VK_NULL_HANDLE;
-		VkDescriptorSet       sets[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+		VkDescriptorSetLayout          layout = VK_NULL_HANDLE;
+		std::array<VkDescriptorSet, 2> sets   = {VK_NULL_HANDLE, VK_NULL_HANDLE};
 	} descriptor;
 
 	struct
@@ -149,29 +149,21 @@ struct RayTracedGI
 				uint32_t frame_count;
 			} push_constants;
 
-			VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
-			VkPipeline            irradiance_pipeline   = VK_NULL_HANDLE;
-			VkPipeline            depth_pipeline        = VK_NULL_HANDLE;
-			VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
-			VkDescriptorSet       descriptor_sets[2];
+			VkPipelineLayout               pipeline_layout       = VK_NULL_HANDLE;
+			VkPipeline                     irradiance_pipeline   = VK_NULL_HANDLE;
+			VkPipeline                     depth_pipeline        = VK_NULL_HANDLE;
+			VkDescriptorSetLayout          descriptor_set_layout = VK_NULL_HANDLE;
+			std::array<VkDescriptorSet, 2> descriptor_sets       = {VK_NULL_HANDLE, VK_NULL_HANDLE};
 		} update_probe;
 
 		struct
 		{
-			VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
-			VkPipeline            irradiance_pipeline   = VK_NULL_HANDLE;
-			VkPipeline            depth_pipeline        = VK_NULL_HANDLE;
-			VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
-			VkDescriptorSet       descriptor_sets[2];
+			VkPipelineLayout               pipeline_layout       = VK_NULL_HANDLE;
+			VkPipeline                     irradiance_pipeline   = VK_NULL_HANDLE;
+			VkPipeline                     depth_pipeline        = VK_NULL_HANDLE;
+			VkDescriptorSetLayout          descriptor_set_layout = VK_NULL_HANDLE;
+			std::array<VkDescriptorSet, 2> descriptor_sets       = {VK_NULL_HANDLE, VK_NULL_HANDLE};
 		} update_border;
-
-		struct
-		{
-			VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
-			VkPipeline            pipeline              = VK_NULL_HANDLE;
-			VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
-			VkDescriptorSet       descriptor_sets[2];
-		} classification;
 	} m_probe_update;
 
 	struct
@@ -187,9 +179,9 @@ struct RayTracedGI
 			float   gi_intensity = 1.f;
 		} push_constants;
 
-		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;
-		VkPipeline            pipeline              = VK_NULL_HANDLE;
-		VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
-		VkDescriptorSet       descriptor_sets[2];
+		VkPipelineLayout               pipeline_layout       = VK_NULL_HANDLE;
+		VkPipeline                     pipeline              = VK_NULL_HANDLE;
+		VkDescriptorSetLayout          descriptor_set_layout = VK_NULL_HANDLE;
+		std::array<VkDescriptorSet, 2> descriptor_sets       = {VK_NULL_HANDLE, VK_NULL_HANDLE};
 	} m_probe_sample;
 };

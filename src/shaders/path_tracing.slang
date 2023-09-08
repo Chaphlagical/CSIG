@@ -4,6 +4,7 @@
 #include "random.slangh"
 #include "raytrace.slangh"
 #include "bsdf.slangh"
+#include "lighting.slangh"
 
 struct PushConstant
 {

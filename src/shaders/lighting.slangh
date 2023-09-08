@@ -19,7 +19,7 @@ float3 light_intensity(Light light, float3 p, float3 wi)
     return sstate.mat.emissive_factor / (1.0 + dot(p - light.position, p - light.position));
 }
 
-float3 direct_lighting(ShadeState sstate, float3 wo, float3 T)
+float3 direct_lighting(ShadeState sstate, float3 wo, float3 T, float2 rng)
 {
     uint num_light, light_stride;
     LightBuffer.GetDimensions(num_light, light_stride);
@@ -39,6 +39,22 @@ float3 direct_lighting(ShadeState sstate, float3 wo, float3 T)
             radiance += T * f * light_intensity(light, sstate.position, wi) * abs(dot(sstate.ffnormal, wi));
         }
     }
+
+#ifdef SAMPLE_ENVMMAP
+    // Sample Envmap
+    {
+        float3 wi = sample_cosine_lobe(sstate.normal, rng);
+        float3 Li = EnvMap.SampleLevel(Samplers[int(SamplerType::Linear)], wi, 0.0).rgb;
+        float pdf = pdf_cosine_lobe(dot(sstate.normal, wi));
+        float3 wh = normalize(wo + wi);
+        if (!any_hit(sstate.position, wi, 1e32))
+        {
+            float bsdf_pdf = 0;
+            float3 f = eval_bsdf(sstate, wo, sstate.ffnormal, wi, bsdf_pdf);
+            radiance += T * f * Li * abs(dot(sstate.ffnormal, wi));
+        }
+    }
+#endif
     return radiance;
 }
 
