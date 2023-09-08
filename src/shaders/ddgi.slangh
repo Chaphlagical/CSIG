@@ -310,6 +310,12 @@ float3 sample_irradiance(in DDGIUniforms ddgi, float3 P, float3 N, float3 Wo, Te
     net_irradiance = square(net_irradiance);
     net_irradiance *= ddgi.energy_preservation;
 
+    float lum = dot(net_irradiance, float3(0.212671, 0.715160, 0.072169));
+    if (lum > 1.0)
+    {
+        net_irradiance *= 1.0 / lum;
+    }
+
     return 0.5f * PI * net_irradiance;
 }
 

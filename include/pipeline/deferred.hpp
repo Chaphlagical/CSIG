@@ -4,6 +4,7 @@
 #include "pipeline/gbuffer.hpp"
 #include "pipeline/raytrace_ao.hpp"
 #include "pipeline/raytrace_di.hpp"
+#include "pipeline/raytrace_gi.hpp"
 #include "pipeline/raytrace_reflection.hpp"
 
 struct DeferredPass
@@ -14,6 +15,7 @@ struct DeferredPass
 	             const GBufferPass         &gbuffer,
 	             const RayTracedAO         &ao,
 	             const RayTracedDI         &di,
+	             const RayTracedGI         &gi,
 	             const RayTracedReflection &reflection);
 
 	~DeferredPass();
@@ -25,6 +27,7 @@ struct DeferredPass
 	          const GBufferPass         &gbuffer,
 	          const RayTracedAO         &ao,
 	          const RayTracedDI         &di,
+	          const RayTracedGI         &gi,
 	          const RayTracedReflection &reflection);
 
 	bool draw_ui();
@@ -46,7 +49,7 @@ struct DeferredPass
 	{
 		uint32_t enable_ao                  = 1;
 		uint32_t enable_reflection          = 1;
-		uint32_t enable_gi                  = 0;
+		uint32_t enable_gi                  = 1;
 		float    indirect_specular_strength = 1.f;
 	} m_push_constant;
 

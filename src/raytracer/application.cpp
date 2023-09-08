@@ -57,8 +57,9 @@ Application::Application() :
         .ao{m_context, m_scene, m_renderer.gbuffer},
         .di{m_context, m_scene, m_renderer.gbuffer},
         .gi{m_context, m_scene, m_renderer.gbuffer},
-        .reflection{m_context, m_scene, m_renderer.gbuffer},
-        .deferred{m_context, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.reflection},
+        .reflection{m_context, m_scene, m_renderer.gbuffer, m_renderer.gi},
+        .deferred{m_context, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.gi, m_renderer.reflection},
+        .taa{m_context, m_scene, m_renderer.gbuffer, m_renderer.deferred},
         .tonemap{m_context},
         .composite{m_context, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.gi, m_renderer.reflection},
     }
@@ -87,7 +88,7 @@ Application::Application() :
 		m_jitter_samples.push_back(glm::vec2((2.f * halton_sequence(2, i) - 1.f), (2.f * halton_sequence(3, i) - 1.f)));
 	}
 
-	 //m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\default.glb)");
+	// m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\default.glb)");
 	m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\Deferred\Deferred.gltf)");
 	m_scene.load_envmap(R"(D:\Workspace\CSIG\assets\textures\hdr\default.hdr)");
 	m_scene.update();
@@ -309,8 +310,9 @@ void Application::render(CommandBufferRecorder &recorder)
 		m_renderer.ao.draw(recorder, m_scene, m_renderer.gbuffer);
 		m_renderer.di.draw(recorder, m_scene, m_renderer.gbuffer);
 		m_renderer.gi.draw(recorder, m_scene, m_renderer.gbuffer);
-		m_renderer.reflection.draw(recorder, m_scene, m_renderer.gbuffer);
-		m_renderer.deferred.draw(recorder, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.reflection);
+		m_renderer.reflection.draw(recorder, m_scene, m_renderer.gbuffer, m_renderer.gi);
+		m_renderer.deferred.draw(recorder, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.gi, m_renderer.reflection);
+		m_renderer.taa.draw(recorder.cmd_buffer, m_scene, m_renderer.gbuffer, m_renderer.deferred);
 		m_renderer.tonemap.draw(recorder, m_renderer.deferred);
 		if (m_render_mode == RenderMode::AO)
 		{
@@ -327,7 +329,7 @@ void Application::render(CommandBufferRecorder &recorder)
 		else if (m_render_mode == RenderMode::GI)
 		{
 			m_renderer.composite.draw(recorder, m_scene, m_renderer.gi);
-			//m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, m_renderer.gi);
+			// m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, m_renderer.gi);
 		}
 		else if (m_render_mode == RenderMode::Hybrid)
 		{

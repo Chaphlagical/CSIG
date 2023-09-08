@@ -162,20 +162,29 @@ RayTracedGI::RayTracedGI(const Context &context, const Scene &scene, const GBuff
 	                                 .add_vertex_input_binding(0, 2 * sizeof(glm::vec3))
 	                                 .create();
 
-	bind_descriptor.layout = m_context->create_descriptor_layout()
+	descriptor.layout = m_context->create_descriptor_layout()
+	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+	                        .create();
+	descriptor.set = m_context->allocate_descriptor_set(descriptor.layout);
+
+	ddgi_descriptor.layout = m_context->create_descriptor_layout()
 	                             .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+	                             .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+	                             // DDGI uniform buffer
+	                             .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
 	                             .create();
-	bind_descriptor.set = m_context->allocate_descriptor_set(bind_descriptor.layout);
+	ddgi_descriptor.sets = m_context->allocate_descriptor_sets<2>(ddgi_descriptor.layout);
 }
 
 RayTracedGI::~RayTracedGI()
 {
 	destroy_resource();
 
-	m_context->destroy(bind_descriptor.layout)
-	    .destroy(bind_descriptor.set);
-
-	m_context->destroy(m_raytraced.pipeline)
+	m_context->destroy(descriptor.layout)
+	    .destroy(descriptor.set)
+	    .destroy(ddgi_descriptor.layout)
+	    .destroy(ddgi_descriptor.sets)
+	    .destroy(m_raytraced.pipeline)
 	    .destroy(m_raytraced.pipeline_layout)
 	    .destroy(m_raytraced.descriptor_set_layout)
 	    .destroy(m_raytraced.descriptor_sets)
@@ -184,27 +193,19 @@ RayTracedGI::~RayTracedGI()
 	    .destroy(m_probe_update.update_probe.pipeline_layout)
 	    .destroy(m_probe_update.update_probe.descriptor_set_layout)
 	    .destroy(m_probe_update.update_probe.descriptor_sets)
-
 	    .destroy(m_probe_update.update_border.irradiance_pipeline)
 	    .destroy(m_probe_update.update_border.depth_pipeline)
 	    .destroy(m_probe_update.update_border.pipeline_layout)
 	    .destroy(m_probe_update.update_border.descriptor_set_layout)
 	    .destroy(m_probe_update.update_border.descriptor_sets)
-
 	    .destroy(m_probe_sample.pipeline)
 	    .destroy(m_probe_sample.pipeline_layout)
 	    .destroy(m_probe_sample.descriptor_set_layout)
 	    .destroy(m_probe_sample.descriptor_sets)
-
-	    .destroy(descriptor.layout)
-	    .destroy(descriptor.sets)
-
 	    .destroy(m_probe_visualize.pipeline)
 	    .destroy(m_probe_visualize.pipeline_layout)
 	    .destroy(m_probe_visualize.descriptor_set_layout)
-	    .destroy(m_probe_visualize.descriptor_sets)
-
-	    ;
+	    .destroy(m_probe_visualize.descriptor_sets);
 }
 
 void RayTracedGI::init()
@@ -273,7 +274,7 @@ void RayTracedGI::update(const Scene &scene)
 
 	m_context->update_descriptor()
 	    .write_sampled_images(0, {sample_probe_grid_view})
-	    .update(bind_descriptor.set);
+	    .update(descriptor.set);
 
 	for (uint32_t i = 0; i < 2; i++)
 	{
@@ -311,6 +312,12 @@ void RayTracedGI::update(const Scene &scene)
 		    .write_uniform_buffers(0, {uniform_buffer.vk_buffer})
 		    .write_sampled_images(1, {probe_grid_irradiance_view[!i]})
 		    .update(m_probe_visualize.descriptor_sets[i]);
+
+		m_context->update_descriptor()
+		    .write_sampled_images(0, {probe_grid_irradiance_view[!i]})
+		    .write_sampled_images(1, {probe_grid_depth_view[!i]})
+		    .write_uniform_buffers(2, {uniform_buffer.vk_buffer})
+		    .update(ddgi_descriptor.sets[i]);
 	}
 }
 

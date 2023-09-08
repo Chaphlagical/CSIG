@@ -5,7 +5,7 @@
 #include "scene.slangh"
 #include "bsdf.slangh"
 
-#define MAX_NUM_LIGHTS 15
+#define MAX_NUM_LIGHTS 10
 
 float3 light_intensity(Light light, float3 p, float3 wi)
 {

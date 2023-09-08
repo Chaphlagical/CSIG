@@ -1,13 +1,13 @@
 #include "common.slangh"
+#include "ddgi.slangh"
 #include "gbuffer.slangh"
-#include "scene.slangh"
+#include "lighting.slangh"
 #include "raytrace.slangh"
+#include "scene.slangh"
+
 
 #define NUM_THREADS_X 8
 #define NUM_THREADS_Y 8
-
-#define MIRROR_REFLECTIONS_ROUGHNESS_THRESHOLD 0.05f
-#define DDGI_REFLECTIONS_ROUGHNESS_THRESHOLD 0.75f
 
 struct PushConstant
 {
@@ -20,6 +20,9 @@ struct PushConstant
 };
 
 [[vk::binding(0, 2)]] RWTexture2D<float4> Output;
+[[vk::binding(0, 3)]] Texture2D<float4> ProbeGridIrradiance;
+[[vk::binding(1, 3)]] Texture2D<float4> ProbeGridDepth;
+[[vk::binding(2, 3)]] ConstantBuffer<DDGIUniforms> DDGIBuffer;
 [[vk::push_constant]] ConstantBuffer<PushConstant> push_constant;
 
 float4 importance_sample_ggx(float2 E, float3 N, float Roughness)
@@ -63,6 +66,7 @@ float3 fresnel_schlick_roughness(float cosTheta, float3 F0, float roughness)
 float3 indirect_lighting(float3 Wo, float3 N, float3 P, float3 F0, float3 diffuse_color, float roughness, float metallic)
 {
     const float3 R = reflect(-Wo, N);
+    float3 specular = 0;
 
     float3 F = fresnel_schlick_roughness(max(dot(N, Wo), 0.0), F0, roughness);
 
@@ -70,16 +74,17 @@ float3 indirect_lighting(float3 Wo, float3 N, float3 P, float3 F0, float3 diffus
     float3 kD = 1.0 - kS;
     kD *= 1.0 - metallic;
 
-    const float MAX_REFLECTION_LOD = 4.0;
+    if (!any_hit(P, R, 1e32))
+    {
+        const float MAX_REFLECTION_LOD = 4.0;
 
-    float3 prefiltered_color = PrefilterMap.SampleLevel(Samplers[int(SamplerType::Linear)], R, roughness * MAX_REFLECTION_LOD).rgb;
-    float2 brdf = GGXLut.Sample(Samplers[int(SamplerType::Linear)], float2(max(dot(N, Wo), 0.0), roughness)).rg;
+        float3 prefiltered_color = PrefilterMap.SampleLevel(Samplers[int(SamplerType::Linear)], R, roughness * MAX_REFLECTION_LOD).rgb;
+        float2 brdf = GGXLut.Sample(Samplers[int(SamplerType::Linear)], float2(max(dot(N, Wo), 0.0), roughness)).rg;
 
-    float3 specular = prefiltered_color * (F * brdf.x + brdf.y);
+        specular = prefiltered_color * (F * brdf.x + brdf.y);
+    }
 
-    // TODO: DDGI
-    // float3 diffuse = push_constant.gi_intensity * diffuse_color * sample_irradiance(ddgi, P, N, Wo, s_Irradiance, s_Depth);
-    float3 diffuse = 0;
+    float3 diffuse = push_constant.gi_intensity * diffuse_color * sample_irradiance(DDGIBuffer, P, N, Wo, ProbeGridIrradiance, ProbeGridDepth);
 
     return kD * diffuse + specular;
 }
@@ -100,9 +105,7 @@ void ray_trace(RayDesc ray, out float3 color, out float ray_length)
         const float3 F0 = lerp(float3(0.04f), albedo, metallic);
         const float3 c_diffuse = lerp(albedo * (float3(1.0f) - F0), float3(0.0f), metallic);
 
-        float3 Lo = float3(0.0f);
-
-        // Lo += direct_lighting(ubo.light, wo, N, sstate.position.xyz, F0, c_diffuse, roughness);
+        float3 Lo = direct_lighting(sstate, wo, 1.0, prd.seed);
 
         if (push_constant.sample_gi == 1)
         {
@@ -127,6 +130,8 @@ void main(CSParam param)
     const int2 current_coord = int2(param.DispatchThreadID.xy);
     const float2 pixel_center = float2(current_coord) + float2(0.5);
     const float2 tex_coord = pixel_center / float2(size);
+
+    prd.seed = tea(size.x * param.DispatchThreadID.y + param.DispatchThreadID.x, uint(ViewBuffer.cam_pos.w));
 
     float depth = DepthBuffer.Load(int3(current_coord, push_constant.gbuffer_mip)).r;
 
@@ -156,7 +161,7 @@ void main(CSParam param)
     else if (roughness > DDGI_REFLECTIONS_ROUGHNESS_THRESHOLD && push_constant.approximate_with_ddgi == 1)
     {
         float3 R = reflect(-Wo, N.xyz);
-        // color = push_constant.rough_ddgi_intensity * sample_irradiance(ddgi, P, R, Wo, s_Irradiance, s_Depth);
+        color = push_constant.rough_ddgi_intensity * sample_irradiance(DDGIBuffer, P, R, Wo, ProbeGridIrradiance, ProbeGridDepth);
     }
     else
     {

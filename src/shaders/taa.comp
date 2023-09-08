@@ -24,9 +24,9 @@ layout (local_size_x = NUM_THREADS_X, local_size_y = NUM_THREADS_Y, local_size_z
 #include "scene.glsl"
 #include "random.glsl"
 
-layout(set = 2, binding = 0, rgba16f) uniform writeonly image2D output_image;
-layout(set = 2, binding = 1) uniform sampler2D input_image;
-layout(set = 2, binding = 1) uniform sampler2D prev_output_image;
+layout(set = 2, binding = 0) uniform sampler2D input_image;
+layout(set = 3, binding = 0, rgba16f) uniform writeonly image2D output_image;
+layout(set = 3, binding = 1) uniform sampler2D prev_output_image;
 
 layout(push_constant) uniform PushConstants
 {

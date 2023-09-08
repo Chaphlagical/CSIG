@@ -7,7 +7,7 @@
 #define NUM_THREADS_X 8
 #define NUM_THREADS_Y 8
 
-RayTracedReflection::RayTracedReflection(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, RayTracedScale scale) :
+RayTracedReflection::RayTracedReflection(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, const RayTracedGI &raytraced_gi, RayTracedScale scale) :
     m_context(&context)
 {
 	float scale_divisor = powf(2.0f, float(scale));
@@ -99,6 +99,7 @@ RayTracedReflection::RayTracedReflection(const Context &context, const Scene &sc
 	                                                                   scene.descriptor.layout,
 	                                                                   gbuffer_pass.descriptor.layout,
 	                                                                   m_raytrace.descriptor_set_layout,
+																	   raytraced_gi.ddgi_descriptor.layout,
 	                                                               },
 	                                                               sizeof(m_raytrace.push_constants), VK_SHADER_STAGE_COMPUTE_BIT);
 	m_raytrace.pipeline        = m_context->create_compute_pipeline("reflection_raytrace.slang", m_raytrace.pipeline_layout);
@@ -333,7 +334,7 @@ void RayTracedReflection::init()
 	    .flush();
 }
 
-void RayTracedReflection::draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass)
+void RayTracedReflection::draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass, const RayTracedGI &raytraced_gi)
 {
 	m_raytrace.push_constants.gbuffer_mip        = m_gbuffer_mip;
 	m_reprojection.push_constants.gbuffer_mip    = m_gbuffer_mip;
@@ -343,7 +344,7 @@ void RayTracedReflection::draw(CommandBufferRecorder &recorder, const Scene &sce
 	recorder
 	    .begin_marker("Raytraced Reflection")
 	    .begin_marker("Ray Traced")
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_raytrace.pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], m_raytrace.descriptor_set})
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_raytrace.pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], m_raytrace.descriptor_set, raytraced_gi.ddgi_descriptor.sets[m_context->ping_pong]})
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_raytrace.pipeline)
 	    .push_constants(m_raytrace.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_raytrace.push_constants)
 	    .dispatch({m_width, m_height, 1}, {NUM_THREADS_X, NUM_THREADS_Y, 1})

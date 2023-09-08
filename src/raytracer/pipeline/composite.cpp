@@ -33,7 +33,7 @@ CompositePass::CompositePass(const Context &context, const Scene &scene, const G
 	m_di.pipeline_layout = m_context->create_pipeline_layout({scene.descriptor.layout, di.descriptor.layout, m_descriptor_layout});
 	m_di.pipeline        = m_context->create_compute_pipeline("composite.slang", m_ao.pipeline_layout, "main", {{"VISUALIZE_DI", "1"}});
 
-	m_gi.pipeline_layout = m_context->create_pipeline_layout({scene.descriptor.layout, gi.bind_descriptor.layout, m_descriptor_layout});
+	m_gi.pipeline_layout = m_context->create_pipeline_layout({scene.descriptor.layout, gi.descriptor.layout, m_descriptor_layout});
 	m_gi.pipeline        = m_context->create_compute_pipeline("composite.slang", m_gi.pipeline_layout, "main", {{"VISUALIZE_GI", "1"}});
 
 	init();
@@ -145,7 +145,7 @@ void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, co
 	recorder
 	    .begin_marker("Composite")
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_gi.pipeline)
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_gi.pipeline_layout, {scene.descriptor.set, gi.bind_descriptor.set, m_descriptor_set})
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_gi.pipeline_layout, {scene.descriptor.set, gi.descriptor.set, m_descriptor_set})
 	    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {8, 8, 1})
 	    .execute([&](CommandBufferRecorder &recorder) { blit(recorder); })
 	    .end_marker();

@@ -48,15 +48,15 @@ struct RayTracedGI
 
 	struct
 	{
-		VkDescriptorSetLayout          layout = VK_NULL_HANDLE;
-		std::array<VkDescriptorSet, 2> sets   = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+		VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+		VkDescriptorSet       set    = VK_NULL_HANDLE;
 	} descriptor;
 
 	struct
 	{
-		VkDescriptorSetLayout layout = VK_NULL_HANDLE;
-		VkDescriptorSet       set    = VK_NULL_HANDLE;
-	} bind_descriptor;
+		VkDescriptorSetLayout          layout = VK_NULL_HANDLE;
+		std::array<VkDescriptorSet, 2> sets   = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+	} ddgi_descriptor;
 
   private:
 	void create_resource();

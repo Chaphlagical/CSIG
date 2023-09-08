@@ -2,7 +2,7 @@
 
 #include <imgui.h>
 
-DeferredPass::DeferredPass(const Context &context, const Scene &scene, const GBufferPass &gbuffer, const RayTracedAO &ao, const RayTracedDI &di, const RayTracedReflection &reflection) :
+DeferredPass::DeferredPass(const Context &context, const Scene &scene, const GBufferPass &gbuffer, const RayTracedAO &ao, const RayTracedDI &di, const RayTracedGI &gi, const RayTracedReflection &reflection) :
     m_context(&context)
 {
 	deferred_image = m_context->create_texture_2d(
@@ -19,15 +19,18 @@ DeferredPass::DeferredPass(const Context &context, const Scene &scene, const GBu
 	    .write_storage_images(0, {deferred_view})
 	    .update(m_descriptor_set);
 
-	m_pipeline_layout = m_context->create_pipeline_layout({
-	    scene.descriptor.layout,
-	    gbuffer.descriptor.layout,
-	    ao.descriptor.layout,
-	    di.descriptor.layout,
-	    reflection.descriptor.layout,
-	    m_descriptor_layout,
-	}, sizeof(m_push_constant), VK_SHADER_STAGE_COMPUTE_BIT);
-	m_pipeline        = m_context->create_compute_pipeline("deferred.slang", m_pipeline_layout);
+	m_pipeline_layout = m_context->create_pipeline_layout(
+	    {
+	        scene.descriptor.layout,
+	        gbuffer.descriptor.layout,
+	        ao.descriptor.layout,
+	        di.descriptor.layout,
+	        gi.descriptor.layout,
+	        reflection.descriptor.layout,
+	        m_descriptor_layout,
+	    },
+	    sizeof(m_push_constant), VK_SHADER_STAGE_COMPUTE_BIT);
+	m_pipeline = m_context->create_compute_pipeline("deferred.slang", m_pipeline_layout);
 
 	descriptor.layout = m_context->create_descriptor_layout()
 	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
@@ -58,15 +61,15 @@ void DeferredPass::init()
 	    .begin()
 	    .insert_barrier()
 	    .add_image_barrier(
-	        deferred_image.vk_image, 
-			0, VK_ACCESS_SHADER_READ_BIT, 
-			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+	        deferred_image.vk_image,
+	        0, VK_ACCESS_SHADER_READ_BIT,
+	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 	    .insert()
 	    .end()
 	    .flush();
 }
 
-void DeferredPass::draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer, const RayTracedAO &ao, const RayTracedDI &di, const RayTracedReflection &reflection)
+void DeferredPass::draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer, const RayTracedAO &ao, const RayTracedDI &di, const RayTracedGI &gi, const RayTracedReflection &reflection)
 {
 	recorder
 	    .begin_marker("Deferred")
@@ -77,9 +80,16 @@ void DeferredPass::draw(CommandBufferRecorder &recorder, const Scene &scene, con
 	        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL)
 	    .insert()
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline)
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout, {scene.descriptor.set, gbuffer.descriptor.sets[m_context->ping_pong], ao.descriptor.set, di.descriptor.set, reflection.descriptor.set, m_descriptor_set})
+	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout,
+	                         {scene.descriptor.set,
+	                          gbuffer.descriptor.sets[m_context->ping_pong],
+	                          ao.descriptor.set,
+	                          di.descriptor.set,
+	                          gi.descriptor.set,
+	                          reflection.descriptor.set,
+	                          m_descriptor_set})
 	    .push_constants(m_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_push_constant)
-		.dispatch({m_context->extent.width, m_context->extent.height, 1}, {8, 8, 1})
+	    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {8, 8, 1})
 	    .insert_barrier()
 	    .add_image_barrier(
 	        deferred_image.vk_image,

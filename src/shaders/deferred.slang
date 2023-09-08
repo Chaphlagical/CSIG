@@ -15,8 +15,9 @@ struct PushConstant
 
 [[vk::binding(0, 2)]] Texture2D<float> AO_Image;
 [[vk::binding(0, 3)]] Texture2D<float4> DI_Image;
-[[vk::binding(0, 4)]] Texture2D<float4> Reflection_Image;
-[[vk::binding(0, 5)]] RWTexture2D<float4> Output_Image;
+[[vk::binding(0, 4)]] Texture2D<float4> GI_Image;
+[[vk::binding(0, 5)]] Texture2D<float4> Reflection_Image;
+[[vk::binding(0, 6)]] RWTexture2D<float4> Output_Image;
 [[vk::push_constant]] ConstantBuffer<PushConstant> push_constant;
 
 float3 fresnel_schlick_roughness(float cosTheta, float3 F0, float roughness)
@@ -34,7 +35,7 @@ float3 indirect_lighting(float2 uv, float3 N, float3 diffuse_color, float roughn
     float3 kD = 1.0 - kS;
     kD *= 1.0 - metallic;
 
-    float3 irradiance = push_constant.enable_gi == 1 ? 0.0 /*textureLod(s_GI, FS_IN_TexCoord, 0.0f).rgb*/ : evaluate_sh_irradiance(N, IrradianceSH);
+    float3 irradiance = push_constant.enable_gi == 1 ? GI_Image.SampleLevel(Samplers[int(SamplerType::Linear)], uv, 0).rgb : evaluate_sh_irradiance(N, IrradianceSH);
     float3 diffuse = irradiance * diffuse_color;
 
     const float MAX_REFLECTION_LOD = 4.0;

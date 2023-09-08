@@ -10,6 +10,7 @@
 #include "pipeline/raytrace_gi.hpp"
 #include "pipeline/raytrace_reflection.hpp"
 #include "pipeline/tonemap.hpp"
+#include "pipeline/taa.hpp"
 #include "pipeline/ui.hpp"
 #include "scene.hpp"
 
@@ -83,6 +84,7 @@ class Application
 		RayTracedGI         gi;
 		RayTracedReflection reflection;
 		DeferredPass        deferred;
+		TAA                 taa;
 		Tonemap             tonemap;
 		CompositePass       composite;
 	} m_renderer;

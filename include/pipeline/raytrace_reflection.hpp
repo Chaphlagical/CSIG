@@ -2,18 +2,19 @@
 
 #include "context.hpp"
 #include "pipeline/gbuffer.hpp"
+#include "pipeline/raytrace_gi.hpp"
 #include "scene.hpp"
 
 struct RayTracedReflection
 {
   public:
-	RayTracedReflection(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass /*, const RayTracedGI &raytraced_gi*/, RayTracedScale scale = RayTracedScale::Half_Res);
+	RayTracedReflection(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, const RayTracedGI &raytraced_gi, RayTracedScale scale = RayTracedScale::Full_Res);
 
 	~RayTracedReflection();
 
 	void init();
 
-	void draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass /*, const RayTracedGI &raytraced_gi*/);
+	void draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass, const RayTracedGI &raytraced_gi);
 
 	bool draw_ui();
 
