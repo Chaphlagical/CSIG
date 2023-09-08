@@ -14,13 +14,19 @@ struct TAA
 
 	void init();
 
-	void draw(VkCommandBuffer cmd_buffer, const Scene &scene, const GBufferPass &gbuffer_pass, const DeferredPass &deferred);
+	void draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass, const DeferredPass &deferred);
 
 	bool draw_ui();
 
   public:
 	std::array<Texture, 2>     output_image;
 	std::array<VkImageView, 2> output_view = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+
+	struct
+	{
+		VkDescriptorSetLayout          layout = VK_NULL_HANDLE;
+		std::array<VkDescriptorSet, 2> sets   = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+	} descriptor;
 
   private:
 	const Context *m_context = nullptr;
@@ -31,9 +37,9 @@ struct TAA
 	{
 		glm::vec4 time_params   = {};
 		glm::vec4 texel_size    = {};
-		float    feed_back_min = 0.88f;
-		float    feed_back_max = 0.97f;
-		uint32_t sharpen       = 1;
+		float     feed_back_min = 0.88f;
+		float     feed_back_max = 0.97f;
+		uint32_t  sharpen       = 1;
 	} m_push_constants;
 
 	VkPipelineLayout               m_pipeline_layout       = VK_NULL_HANDLE;

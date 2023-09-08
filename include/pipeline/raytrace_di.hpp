@@ -4,9 +4,6 @@
 #include "gbuffer.hpp"
 #include "scene.hpp"
 
-#define NUM_THREADS_X 8
-#define NUM_THREADS_Y 8
-
 struct RayTracedDI
 {
   public:

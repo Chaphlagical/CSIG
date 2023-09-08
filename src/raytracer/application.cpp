@@ -61,6 +61,7 @@ Application::Application() :
         .deferred{m_context, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.gi, m_renderer.reflection},
         .taa{m_context, m_scene, m_renderer.gbuffer, m_renderer.deferred},
         .tonemap{m_context},
+        .fsr{m_context, m_renderer.tonemap},
         .composite{m_context, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.gi, m_renderer.reflection},
     }
 {
@@ -312,8 +313,9 @@ void Application::render(CommandBufferRecorder &recorder)
 		m_renderer.gi.draw(recorder, m_scene, m_renderer.gbuffer);
 		m_renderer.reflection.draw(recorder, m_scene, m_renderer.gbuffer, m_renderer.gi);
 		m_renderer.deferred.draw(recorder, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.gi, m_renderer.reflection);
-		m_renderer.taa.draw(recorder.cmd_buffer, m_scene, m_renderer.gbuffer, m_renderer.deferred);
+		m_renderer.taa.draw(recorder, m_scene, m_renderer.gbuffer, m_renderer.deferred);
 		m_renderer.tonemap.draw(recorder, m_renderer.deferred);
+		m_renderer.fsr.draw(recorder);
 		if (m_render_mode == RenderMode::AO)
 		{
 			m_renderer.composite.draw(recorder, m_scene, m_renderer.ao);
@@ -390,6 +392,8 @@ void Application::update_ui()
 			m_renderer.gi.init();
 			m_renderer.reflection.init();
 			m_renderer.deferred.init();
+			m_renderer.taa.init();
+			m_renderer.fsr.init();
 			m_renderer.composite.init();
 		}
 

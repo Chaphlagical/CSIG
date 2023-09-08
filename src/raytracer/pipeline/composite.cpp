@@ -10,11 +10,15 @@ CompositePass::CompositePass(const Context &context, const Scene &scene, const G
 	composite_view = m_context->create_texture_view("Composite View", composite_image.vk_image, VK_FORMAT_R8G8B8A8_UNORM);
 
 	m_descriptor_layout = m_context->create_descriptor_layout()
+	                          // Output Image
 	                          .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+	                          // Sampler
+	                          .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
 	                          .create();
 	m_descriptor_set = m_context->allocate_descriptor_set(m_descriptor_layout);
 	m_context->update_descriptor()
 	    .write_storage_images(0, {composite_view})
+	    .write_samplers(1, {scene.nearest_sampler})
 	    .update(m_descriptor_set);
 
 	m_gbuffer.pipeline_layout    = m_context->create_pipeline_layout({scene.descriptor.layout, gbuffer.descriptor.layout, m_descriptor_layout});
@@ -100,8 +104,8 @@ void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, co
 	    .begin_marker("Composite")
 	    .insert_barrier()
 	    .add_image_barrier(tonemap.render_target.vk_image,
-	                       VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-	                       VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+	                       VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+	                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
 	    .add_image_barrier(m_context->swapchain_images[m_context->image_index],
 	                       VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
 	                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
@@ -109,8 +113,8 @@ void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, co
 	m_context->blit_back_buffer(recorder.cmd_buffer, tonemap.render_target.vk_image);
 	recorder.insert_barrier()
 	    .add_image_barrier(tonemap.render_target.vk_image,
-	                       VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT,
-	                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL)
+	                       VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
+	                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 	    .add_image_barrier(m_context->swapchain_images[m_context->image_index],
 	                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
 	                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
@@ -172,7 +176,7 @@ void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, co
 	        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
 	    .insert()
 
-		.execute([&]() { gi.draw_probe(recorder, gi.sample_probe_grid_view, gbuffer.depth_buffer_view[m_context->ping_pong], scene); })
+	    .execute([&]() { gi.draw_probe(recorder, gi.sample_probe_grid_view, gbuffer.depth_buffer_view[m_context->ping_pong], scene); })
 
 	    .insert_barrier()
 	    .add_image_barrier(
@@ -194,7 +198,7 @@ void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, co
 
 	    ;
 
-		draw(recorder, scene, gi);
+	draw(recorder, scene, gi);
 }
 
 void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, const RayTracedReflection &reflection)

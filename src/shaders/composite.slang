@@ -22,6 +22,7 @@
 #endif
 
 [[vk::binding(0, 2)]] RWTexture2D<float4> Output;
+[[vk::binding(1, 2)]] SamplerState Sampler;
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
@@ -39,38 +40,38 @@ void main(CSParam param)
     }
 
 #ifdef VISUALIZE_AO
-    Output[coord] = float4(float3(AO_Image[coord].r), 1.0);
+    Output[coord] = float4(float3(AO_Image.SampleLevel(Sampler, uv, 0).r), 1.0);
 #endif
 
 #ifdef VISUALIZE_DI
-    Output[coord] = float4(pow(DI_Image[coord].rgb, 1.0 / 2.2), 1.0);
+    Output[coord] = float4(pow(DI_Image.SampleLevel(Sampler, uv, 0).rgb, 1.0 / 2.2), 1.0);
 #endif
 
 #ifdef VISUALIZE_GI
-    Output[coord] = float4(pow(GI_Image[coord].rgb, 1.0 / 2.2), 1.0);
+    Output[coord] = float4(pow(GI_Image.SampleLevel(Sampler, uv, 0).rgb, 1.0 / 2.2), 1.0);
 #endif
 
 #ifdef VISUALIZE_REFLECTION
-    Output[coord] = float4(pow(Reflection_Image[coord].rgb, 1.0 / 2.2), 1.0);
+    Output[coord] = float4(pow(Reflection_Image.SampleLevel(Sampler, uv, 0).rgb, 1.0 / 2.2), 1.0);
 #endif
 
 #ifdef VISUALIZE_ALBEDO
-    Output[coord] = float4(GBufferA[coord].xyz, 1.0);
+    Output[coord] = float4(GBufferA.SampleLevel(Sampler, uv, 0).xyz, 1.0);
 #endif
 
 #ifdef VISUALIZE_NORMAL
-    Output[coord] = float4(octohedral_to_direction(GBufferB[coord].rg), 1.0);
+    Output[coord] = float4(octohedral_to_direction(GBufferB.SampleLevel(Sampler, uv, 0).rg), 1.0);
 #endif
 
 #ifdef VISUALIZE_METALLIC
-    Output[coord] = float4(float3(GBufferA[coord].a), 1.0);
+    Output[coord] = float4(float3(GBufferA.SampleLevel(Sampler, uv, 0).a), 1.0);
 #endif
 
 #ifdef VISUALIZE_ROUGHNESS
-    Output[coord] = float4(float3(GBufferC[coord].r), 1.0);
+    Output[coord] = float4(float3(GBufferC.SampleLevel(Sampler, uv, 0).r), 1.0);
 #endif
 
 #ifdef VISUALIZE_POSITION
-    Output[coord] = float4(world_position_from_depth(float2(coord) / float2(tex_size), DepthBuffer[coord].r, ViewBuffer.view_projection_inv), 1.0);
+    Output[coord] = float4(world_position_from_depth(float2(coord) / float2(tex_size), DepthBuffer.SampleLevel(Sampler, uv, 0).r, ViewBuffer.view_projection_inv), 1.0);
 #endif
 }

@@ -3,14 +3,15 @@
 #include "context.hpp"
 #include "pipeline/composite.hpp"
 #include "pipeline/deferred.hpp"
+#include "pipeline/fsr.hpp"
 #include "pipeline/gbuffer.hpp"
 #include "pipeline/path_tracing.hpp"
 #include "pipeline/raytrace_ao.hpp"
 #include "pipeline/raytrace_di.hpp"
 #include "pipeline/raytrace_gi.hpp"
 #include "pipeline/raytrace_reflection.hpp"
-#include "pipeline/tonemap.hpp"
 #include "pipeline/taa.hpp"
+#include "pipeline/tonemap.hpp"
 #include "pipeline/ui.hpp"
 #include "scene.hpp"
 
@@ -86,6 +87,7 @@ class Application
 		DeferredPass        deferred;
 		TAA                 taa;
 		Tonemap             tonemap;
+		FSR1Pass            fsr;
 		CompositePass       composite;
 	} m_renderer;
 

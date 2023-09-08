@@ -359,6 +359,11 @@ struct Context
 
 	VkPhysicalDeviceProperties physical_device_properties;
 
+	// VkPhysicalDevice16BitStorageFeatures.storageBuffer16BitAccess &&
+	// VkPhysicalDeviceFloat16Int8FeaturesKHR.shaderFloat16
+	// TODO: check this according to https://github.com/GPUOpen-LibrariesAndSDKs/Cauldron/blob/b92d559bd083f44df9f8f42a6ad149c1584ae94c/src/VK/base/ExtFp16.cpp#L31
+	bool FsrFp16Enabled = true;
+
 	explicit Context(uint32_t width = 0, uint32_t height = 0, float upscale_factor = 1.f);
 
 	~Context();

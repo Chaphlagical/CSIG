@@ -7,7 +7,7 @@ DeferredPass::DeferredPass(const Context &context, const Scene &scene, const GBu
 {
 	deferred_image = m_context->create_texture_2d(
 	    "Deferred Image",
-	    m_context->extent.width, m_context->extent.height,
+	    m_context->render_extent.width, m_context->render_extent.height,
 	    VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 	deferred_view = m_context->create_texture_view("Deferred View", deferred_image.vk_image, VK_FORMAT_R16G16B16A16_SFLOAT);
 
@@ -89,7 +89,7 @@ void DeferredPass::draw(CommandBufferRecorder &recorder, const Scene &scene, con
 	                          reflection.descriptor.set,
 	                          m_descriptor_set})
 	    .push_constants(m_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_push_constant)
-	    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {8, 8, 1})
+	    .dispatch({m_context->render_extent.width, m_context->render_extent.height, 1}, {8, 8, 1})
 	    .insert_barrier()
 	    .add_image_barrier(
 	        deferred_image.vk_image,

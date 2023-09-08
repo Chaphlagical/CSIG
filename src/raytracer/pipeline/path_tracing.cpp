@@ -16,7 +16,7 @@ PathTracing::PathTracing(const Context &context, const Scene &scene, const GBuff
 {
 	for (uint32_t i = 0; i < 2; i++)
 	{
-		render_target[i]      = m_context->create_texture_2d(fmt::format("Path Tracing Image - {}", i), m_context->extent.width, m_context->extent.height, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+		render_target[i]      = m_context->create_texture_2d(fmt::format("Path Tracing Image - {}", i), m_context->render_extent.width, m_context->render_extent.height, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 		render_target_view[i] = m_context->create_texture_view(fmt::format("Path Tracing Image View - {}", i), render_target[i].vk_image, VK_FORMAT_R32G32B32A32_SFLOAT);
 	}
 
@@ -82,7 +82,7 @@ void PathTracing::draw(CommandBufferRecorder &recorder, const Scene &scene, cons
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline)
 	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout, {scene.descriptor.set, gbuffer_pass.glsl_descriptor.sets[m_context->ping_pong], m_descriptor_sets[m_context->ping_pong]})
 	    .push_constants(m_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_push_constant)
-	    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {RAY_TRACE_NUM_THREADS_X, RAY_TRACE_NUM_THREADS_Y, 1})
+	    .dispatch({m_context->render_extent.width, m_context->render_extent.height, 1}, {RAY_TRACE_NUM_THREADS_X, RAY_TRACE_NUM_THREADS_Y, 1})
 	    .insert_barrier()
 	    .add_image_barrier(render_target[m_context->ping_pong].vk_image,
 	                       VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
