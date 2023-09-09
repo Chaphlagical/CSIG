@@ -14,6 +14,8 @@ class UIPass
 
 	void render(CommandBufferRecorder &recorder, uint32_t frame_idx);
 
+	void resize();
+
 	void begin_frame();
 
 	void end_frame();
@@ -30,5 +32,5 @@ class UIPass
 
 	VkRenderPass m_render_pass = VK_NULL_HANDLE;
 
-	std::array<VkFramebuffer, 3> m_frame_buffers = {VK_NULL_HANDLE};
+	std::array<VkFramebuffer, 3> m_frame_buffers = {VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE};
 };

@@ -15,6 +15,8 @@ struct RayTracedGI
 
 	void init();
 
+	void resize();
+
 	void update(const Scene &scene);
 
 	void draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass);
@@ -22,6 +24,13 @@ struct RayTracedGI
 	void draw_probe(CommandBufferRecorder &recorder, const VkImageView &render_target, const VkImageView &depth_buffer, const Scene &scene) const;
 
 	bool draw_ui();
+
+  private:
+	void create_resource();
+
+	void update_descriptor();
+
+	void destroy_resource();
 
   public:
 	// ray trace radiance
@@ -33,12 +42,12 @@ struct RayTracedGI
 	VkImageView direction_depth_view = VK_NULL_HANDLE;
 
 	// probe grid irradiance image
-	Texture     probe_grid_irradiance_image[2];
-	VkImageView probe_grid_irradiance_view[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+	std::array<Texture, 2>     probe_grid_irradiance_image;
+	std::array<VkImageView, 2> probe_grid_irradiance_view = {VK_NULL_HANDLE, VK_NULL_HANDLE};
 
 	// probe grid depth image
-	Texture     probe_grid_depth_image[2];
-	VkImageView probe_grid_depth_view[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+	std::array<Texture, 2>     probe_grid_depth_image;
+	std::array<VkImageView, 2> probe_grid_depth_view = {VK_NULL_HANDLE, VK_NULL_HANDLE};
 
 	// sample probe grid
 	Texture     sample_probe_grid_image;
@@ -59,15 +68,12 @@ struct RayTracedGI
 	} ddgi_descriptor;
 
   private:
-	void create_resource();
-	void destroy_resource();
-
-  private:
 	const Context *m_context = nullptr;
 
-	uint32_t m_width       = 0;
-	uint32_t m_height      = 0;
-	uint32_t m_gbuffer_mip = 0;
+	RayTracedScale m_scale       = RayTracedScale::Full_Res;
+	uint32_t       m_width       = 0;
+	uint32_t       m_height      = 0;
+	uint32_t       m_gbuffer_mip = 0;
 
 	glm::vec3 m_scene_min_extent = glm::vec3(0.f);
 	glm::vec3 m_scene_max_extent = glm::vec3(0.f);

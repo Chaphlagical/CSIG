@@ -208,31 +208,6 @@ Scene::Scene(const Context &context) :
 	linear_sampler  = m_context->create_sampler(VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_REPEAT);
 	nearest_sampler = m_context->create_sampler(VK_FILTER_NEAREST, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_REPEAT);
 
-	glsl_descriptor.layout = m_context->create_descriptor_layout()
-	                             // View Buffer
-	                             .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                             // TLAS
-	                             .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                             // Scene Buffer
-	                             .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                             // Textures
-	                             .add_descriptor_bindless_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                             // Envmap Texture
-	                             .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                             // Irradiance SH Texture
-	                             .add_descriptor_binding(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                             // Prefilter Map Texture
-	                             .add_descriptor_binding(6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                             // GGX LUT
-	                             .add_descriptor_binding(7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                             // Sobel Image
-	                             .add_descriptor_binding(8, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                             // Scrambling Ranking Image
-	                             .add_descriptor_bindless_binding(9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                             .create();
-
-	glsl_descriptor.set = m_context->allocate_descriptor_set({glsl_descriptor.layout});
-
 	descriptor.layout = m_context->create_descriptor_layout()
 	                        // TLAS
 	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
@@ -282,8 +257,6 @@ Scene::~Scene()
 	m_context->wait();
 	m_context->destroy(descriptor.layout)
 	    .destroy(descriptor.set)
-	    .destroy(glsl_descriptor.layout)
-	    .destroy(glsl_descriptor.set)
 	    .destroy(buffer.view)
 	    .destroy(ggx_lut)
 	    .destroy(ggx_lut_view)
@@ -1293,19 +1266,6 @@ void Scene::update_view(CommandBufferRecorder &recorder)
 
 void Scene::update()
 {
-	m_context->update_descriptor()
-	    .write_uniform_buffers(0, {buffer.view.vk_buffer})
-	    .write_acceleration_structures(1, {tlas})
-	    .write_uniform_buffers(2, {buffer.scene.vk_buffer})
-	    .write_combine_sampled_images(3, linear_sampler, texture_views)
-	    .write_combine_sampled_images(4, linear_sampler, {envmap.texture_view})
-	    .write_combine_sampled_images(5, linear_sampler, {envmap.irradiance_sh_view})
-	    .write_combine_sampled_images(6, linear_sampler, {envmap.prefilter_map_view})
-	    .write_combine_sampled_images(7, linear_sampler, {ggx_lut_view})
-	    .write_combine_sampled_images(8, nearest_sampler, {sobol_image_view})
-	    .write_combine_sampled_images(9, nearest_sampler, scrambling_ranking_image_views)
-	    .update(glsl_descriptor.set);
-
 	m_context->update_descriptor()
 	    .write_acceleration_structures(0, {tlas})
 	    .write_storage_buffers(1, {buffer.instance.vk_buffer})

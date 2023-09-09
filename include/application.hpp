@@ -1,6 +1,7 @@
 #pragma once
 
 #include "context.hpp"
+#include "pipeline/bloom.hpp"
 #include "pipeline/composite.hpp"
 #include "pipeline/deferred.hpp"
 #include "pipeline/fsr.hpp"
@@ -51,8 +52,10 @@ class Application
 	glm::vec2 m_current_jitter = glm::vec2(0.f);
 	glm::vec2 m_prev_jitter    = glm::vec2(0.f);
 
-	bool m_update    = true;
-	bool m_enable_ui = true;
+	bool m_update     = true;
+	bool m_enable_ui  = true;
+	bool m_enable_taa = true;
+	bool m_resize     = false;
 
 	struct
 	{
@@ -86,6 +89,7 @@ class Application
 		RayTracedReflection reflection;
 		DeferredPass        deferred;
 		TAA                 taa;
+		Bloom               bloom;
 		Tonemap             tonemap;
 		FSR1Pass            fsr;
 		CompositePass       composite;
@@ -95,14 +99,5 @@ class Application
 	{
 		PathTracing,
 		Hybrid,
-		Normal,
-		Albedo,
-		Roughness,
-		Metallic,
-		Position,
-		AO,
-		Reflection,
-		DI,
-		GI
-	} m_render_mode = RenderMode::DI;
+	} m_render_mode = RenderMode::Hybrid;
 };

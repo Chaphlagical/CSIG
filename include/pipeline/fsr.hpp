@@ -6,15 +6,24 @@
 struct FSR1Pass
 {
   public:
-	FSR1Pass(const Context &context, const Tonemap& tonemap);
+	FSR1Pass(const Context &context, const Tonemap &tonemap);
 
 	~FSR1Pass();
 
+	void resize();
+
 	void init();
 
-	void draw(CommandBufferRecorder &recorder);
+	void draw(CommandBufferRecorder &recorder, const Tonemap &tonemap);
 
 	bool draw_ui();
+
+  public:
+	void create_resource();
+
+	void update_descriptor();
+
+	void destroy_resource();
 
   public:
 	Texture upsampled_image;
@@ -24,6 +33,21 @@ struct FSR1Pass
 	VkImageView intermediate_image_view = VK_NULL_HANDLE;
 
 	VkSampler sampler = VK_NULL_HANDLE;
+
+	struct
+	{
+		VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+		VkDescriptorSet       set    = VK_NULL_HANDLE;
+	} descriptor;
+
+	enum class FSROption : int32_t
+	{
+		Disable,             // 1.f
+		UltraQuality,        // 1.3f
+		Quality,             // 1.5f
+		Balanced,            // 1.7f
+		Performance,         // 2.f
+	} option = FSROption::UltraQuality;
 
   private:
 	const Context *m_context = nullptr;
@@ -46,14 +70,19 @@ struct FSR1Pass
 
 	Buffer m_fsr_params_buffer;
 
-	VkPipelineLayout      m_pipeline_layout       = VK_NULL_HANDLE;
-	VkPipeline            m_pipeline_easu         = VK_NULL_HANDLE;
-	VkPipeline            m_pipeline_rcas         = VK_NULL_HANDLE;
-	VkDescriptorSetLayout m_descriptor_set_layout = VK_NULL_HANDLE;
+	struct
+	{
+		VkPipelineLayout      pipeline_layout   = VK_NULL_HANDLE;
+		VkPipeline            pipeline          = VK_NULL_HANDLE;
+		VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
+		VkDescriptorSet       descriptor_set    = VK_NULL_HANDLE;
+	} m_easu;
 
-	// prev -(easu)-> intermediate image
-	VkDescriptorSet m_easu_descriptor_set = VK_NULL_HANDLE;
-
-	// intermediate image -(rcas)-> final image (that is, upsampled_image)
-	VkDescriptorSet m_rcas_descriptor_set = VK_NULL_HANDLE;
+	struct
+	{
+		VkPipelineLayout      pipeline_layout   = VK_NULL_HANDLE;
+		VkPipeline            pipeline          = VK_NULL_HANDLE;
+		VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
+		VkDescriptorSet       descriptor_set    = VK_NULL_HANDLE;
+	} m_rcas;
 };

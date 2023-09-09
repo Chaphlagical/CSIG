@@ -1279,7 +1279,8 @@ VkPipeline GraphicsPipelineBuilder::create()
 	return pipeline;
 }
 
-Context::Context(uint32_t width, uint32_t height, float upscale_factor)
+Context::Context(uint32_t width, uint32_t height, float upscale_factor):
+    upscale_factor(upscale_factor)
 {
 	// Init window
 	{
@@ -1304,12 +1305,12 @@ Context::Context(uint32_t width, uint32_t height, float upscale_factor)
 		}
 
 		render_extent = VkExtent2D{
-		    .width  = (uint32_t) ((float) extent.width * upscale_factor),
-		    .height = (uint32_t) ((float) extent.height * upscale_factor),
+		    .width  = (uint32_t) ((float) extent.width / upscale_factor),
+		    .height = (uint32_t) ((float) extent.height / upscale_factor),
 		};
 
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+		//glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
 		window = glfwCreateWindow(extent.width, extent.height, "CSIG Renderer", NULL, NULL);
 		if (!window)
@@ -1763,7 +1764,7 @@ Context::Context(uint32_t width, uint32_t height, float upscale_factor)
 			vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, &format_count, formats.data());
 		}
 
-		VkSurfaceFormatKHR surface_format = {};
+		surface_format = {};
 		for (const auto &format : formats)
 		{
 			if (format.format == VK_FORMAT_B8G8R8A8_UNORM &&
@@ -1791,6 +1792,11 @@ Context::Context(uint32_t width, uint32_t height, float upscale_factor)
 
 			extent = actualExtent;
 		}
+
+		render_extent = VkExtent2D{
+		    .width  = (uint32_t) ((float) extent.width / upscale_factor),
+		    .height = (uint32_t) ((float) extent.height / upscale_factor),
+		};
 
 		assert(capabilities.maxImageCount >= 3);
 
@@ -1893,6 +1899,95 @@ Context::~Context()
 	vkDestroyDebugUtilsMessengerEXT(vk_instance, vkDebugUtilsMessengerEXT, nullptr);
 #endif        // DEBUG
 	vkDestroyInstance(vk_instance, nullptr);
+}
+
+void Context::resize()
+{
+	wait();
+
+	for (auto &view : swapchain_image_views)
+	{
+		vkDestroyImageView(vk_device, view, nullptr);
+	}
+
+	VkSurfaceCapabilitiesKHR capabilities;
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device, vk_surface, &capabilities);
+
+	if (capabilities.currentExtent.width != UINT32_MAX)
+	{
+		extent = capabilities.currentExtent;
+	}
+	else
+	{
+		VkExtent2D actualExtent = extent;
+
+		actualExtent.width  = std::clamp(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
+		actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+
+		extent = actualExtent;
+	}
+
+	render_extent = VkExtent2D{
+	    .width  = (uint32_t) ((float) extent.width / upscale_factor),
+	    .height = (uint32_t) ((float) extent.height / upscale_factor),
+	};
+
+	VkSwapchainKHR old_swapchain = vk_swapchain;
+
+	VkSwapchainCreateInfoKHR createInfo = {};
+	createInfo.sType                    = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+	createInfo.surface                  = vk_surface;
+
+	createInfo.minImageCount    = 3;
+	createInfo.imageFormat      = surface_format.format;
+	createInfo.imageColorSpace  = surface_format.colorSpace;
+	createInfo.imageExtent      = extent;
+	createInfo.imageArrayLayers = 1;
+	createInfo.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+
+	uint32_t queueFamilyIndices[] = {present_family.value()};
+
+	createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	createInfo.preTransform     = capabilities.currentTransform;
+	createInfo.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+	createInfo.presentMode      = VK_PRESENT_MODE_FIFO_KHR;
+	createInfo.clipped          = VK_TRUE;
+	createInfo.oldSwapchain     = old_swapchain;
+
+	vkCreateSwapchainKHR(vk_device, &createInfo, nullptr, &vk_swapchain);
+	vkDestroySwapchainKHR(vk_device, old_swapchain, nullptr);
+
+	uint32_t image_count = 3;
+	vkGetSwapchainImagesKHR(vk_device, vk_swapchain, &image_count, swapchain_images.data());
+
+	// Create image view
+	for (size_t i = 0; i < 3; i++)
+	{
+		set_object_name(VK_OBJECT_TYPE_IMAGE, (uint64_t) swapchain_images[i], fmt::format("Swapchain Image {}", i).c_str());
+		swapchain_image_views[i] = create_texture_view(fmt::format("Swapchain Image View {}", i), swapchain_images[i], vk_format);
+	}
+
+	record_command()
+	    .begin()
+	    .insert_barrier()
+	    .add_image_barrier(
+	        swapchain_images[0],
+	        0, VK_ACCESS_MEMORY_READ_BIT,
+	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+	    .add_image_barrier(
+	        swapchain_images[1],
+	        0, VK_ACCESS_MEMORY_READ_BIT,
+	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+	    .add_image_barrier(
+	        swapchain_images[2],
+	        0, VK_ACCESS_MEMORY_READ_BIT,
+	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+	    .insert()
+	    .end()
+	    .flush();
+
+	image_index = 0;
+	ping_pong   = false;
 }
 
 CommandBufferRecorder Context::record_command(bool compute) const
@@ -2574,10 +2669,11 @@ void Context::wait() const
 	vkDeviceWaitIdle(vk_device);
 }
 
-void Context::acquire_next_image(VkSemaphore semaphore)
+bool Context::acquire_next_image(VkSemaphore semaphore)
 {
 	image_index = 0;
-	vkAcquireNextImageKHR(vk_device, vk_swapchain, UINT64_MAX, semaphore, nullptr, &image_index);
+	auto result = vkAcquireNextImageKHR(vk_device, vk_swapchain, UINT64_MAX, semaphore, nullptr, &image_index);
+	return result == VK_SUCCESS;
 }
 
 void Context::blit_back_buffer(VkCommandBuffer cmd_buffer, VkImage image, VkExtent2D extent_) const

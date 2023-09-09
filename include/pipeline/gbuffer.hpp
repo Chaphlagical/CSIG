@@ -12,15 +12,18 @@ class GBufferPass
 
 	void init();
 
+	void resize();
+
 	void draw(CommandBufferRecorder &recorder, const Scene &scene);
 
-  public:
-	struct
-	{
-		VkDescriptorSetLayout          layout = VK_NULL_HANDLE;
-		std::array<VkDescriptorSet, 2> sets;
-	} glsl_descriptor;
+  private:
+	void create_resource();
 
+	void update_descriptor();
+
+	void destroy_resource();
+
+  public:
 	struct
 	{
 		VkDescriptorSetLayout          layout = VK_NULL_HANDLE;

@@ -2,179 +2,32 @@
 
 #include <spdlog/fmt/fmt.h>
 
-//static unsigned char g_gbuffer_vert_spv_data[] = {
-//#include "gbuffer.vert.spv.h"
-//};
-//
-//static unsigned char g_gbuffer_frag_spv_data[] = {
-//#include "gbuffer.frag.spv.h"
-//};
-
 GBufferPass::GBufferPass(const Context &context, const Scene &scene) :
     m_context(&context),
     m_width(context.render_extent.width),
     m_height(context.render_extent.height),
     m_mip_level(std::min(static_cast<uint32_t>(std::floor(std::log2(std::max(m_width, m_height))) + 1), 4u))
 {
-	// Create Texture
-	for (uint32_t i = 0; i < 2; i++)
-	{
-		gbufferA[i] = m_context->create_texture_2d(
-		    fmt::format("GBuffer A - {}", i),
-		    m_width, m_height, VK_FORMAT_R8G8B8A8_UNORM,
-		    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-		    true);
-		gbufferB[i] = m_context->create_texture_2d(
-		    fmt::format("GBuffer B - {}", i),
-		    m_width, m_height, VK_FORMAT_R16G16B16A16_SFLOAT,
-		    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-		    true);
-		gbufferC[i] = m_context->create_texture_2d(
-		    fmt::format("GBuffer C - {}", i),
-		    m_width, m_height, VK_FORMAT_R16G16B16A16_SFLOAT,
-		    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-		    true);
-		depth_buffer[i] = m_context->create_texture_2d(
-		    fmt::format("Depth Buffer - {}", i),
-		    m_width, m_height, VK_FORMAT_D32_SFLOAT,
-		    VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-		    true);
-		gbufferA_view[i] = m_context->create_texture_view(
-		    fmt::format("GBuffer A - {} View", i),
-		    gbufferA[i].vk_image,
-		    VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_VIEW_TYPE_2D,
-		    {
-		        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-		        .baseMipLevel   = 0,
-		        .levelCount     = m_mip_level,
-		        .baseArrayLayer = 0,
-		        .layerCount     = 1,
-		    });
-		gbufferB_view[i] = m_context->create_texture_view(
-		    fmt::format("GBuffer B - {} View", i),
-		    gbufferB[i].vk_image,
-		    VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_VIEW_TYPE_2D,
-		    {
-		        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-		        .baseMipLevel   = 0,
-		        .levelCount     = m_mip_level,
-		        .baseArrayLayer = 0,
-		        .layerCount     = 1,
-		    });
-		gbufferC_view[i] = m_context->create_texture_view(
-		    fmt::format("GBuffer C - {} View", i),
-		    gbufferC[i].vk_image,
-		    VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_VIEW_TYPE_2D,
-		    {
-		        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-		        .baseMipLevel   = 0,
-		        .levelCount     = m_mip_level,
-		        .baseArrayLayer = 0,
-		        .layerCount     = 1,
-		    });
-		depth_buffer_view[i] = m_context->create_texture_view(
-		    fmt::format("Depth Buffer - {} View", i),
-		    depth_buffer[i].vk_image,
-		    VK_FORMAT_D32_SFLOAT, VK_IMAGE_VIEW_TYPE_2D,
-		    {
-		        .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
-		        .baseMipLevel   = 0,
-		        .levelCount     = m_mip_level,
-		        .baseArrayLayer = 0,
-		        .layerCount     = 1,
-		    });
-	}
-
 	m_pipeline_layout = m_context->create_pipeline_layout({scene.descriptor.layout});
-	m_pipeline        = m_context->create_graphics_pipeline(m_pipeline_layout)
-	                 .add_color_attachment(VK_FORMAT_R8G8B8A8_UNORM)
-	                 .add_color_attachment(VK_FORMAT_R16G16B16A16_SFLOAT)
-	                 .add_color_attachment(VK_FORMAT_R16G16B16A16_SFLOAT)
-	                 .add_depth_stencil(VK_FORMAT_D32_SFLOAT)
-	                 .add_viewport({
-	                     .x        = 0,
-	                     .y        = 0,
-	                     .width    = (float) m_width,
-	                     .height   = (float) m_height,
-	                     .minDepth = 0.f,
-	                     .maxDepth = 1.f,
-	                 })
-	                 .add_scissor({.offset = {0, 0}, .extent = {m_width, m_height}})
-	                 .add_shader(VK_SHADER_STAGE_VERTEX_BIT, "gbuffer.slang", "vs_main")
-	                 .add_shader(VK_SHADER_STAGE_FRAGMENT_BIT, "gbuffer.slang", "fs_main")
-	                 .add_vertex_input_attribute(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 0)
-	                 .add_vertex_input_attribute(1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, sizeof(glm::vec4))
-	                 .add_vertex_input_binding(0, 2 * sizeof(glm::vec4))
-	                 .create();
-
-	glsl_descriptor.layout = m_context->create_descriptor_layout()
-	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        .add_descriptor_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        .add_descriptor_binding(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        .add_descriptor_binding(6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                        .add_descriptor_binding(7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	descriptor.layout = m_context->create_descriptor_layout()
+	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_binding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_binding(5, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_binding(6, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
+	                        .add_descriptor_binding(7, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
 	                        .create();
-	glsl_descriptor.sets = m_context->allocate_descriptor_sets<2>(glsl_descriptor.layout);
-
-	for (uint32_t i = 0; i < 2; i++)
-	{
-		m_context->update_descriptor()
-		    .write_combine_sampled_images(0, scene.linear_sampler, {gbufferA_view[i]})
-		    .write_combine_sampled_images(1, scene.nearest_sampler, {gbufferB_view[i]})
-		    .write_combine_sampled_images(2, scene.linear_sampler, {gbufferC_view[i]})
-		    .write_combine_sampled_images(3, scene.linear_sampler, {depth_buffer_view[i]})
-		    .write_combine_sampled_images(4, scene.linear_sampler, {gbufferA_view[!i]})
-		    .write_combine_sampled_images(5, scene.nearest_sampler, {gbufferB_view[!i]})
-		    .write_combine_sampled_images(6, scene.linear_sampler, {gbufferC_view[!i]})
-		    .write_combine_sampled_images(7, scene.linear_sampler, {depth_buffer_view[!i]})
-		    .update(glsl_descriptor.sets[i]);
-	}
-
-		descriptor.layout = m_context->create_descriptor_layout()
-	                             .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                             .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                             .add_descriptor_binding(2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                             .add_descriptor_binding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                             .add_descriptor_binding(4, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                             .add_descriptor_binding(5, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                             .add_descriptor_binding(6, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                             .add_descriptor_binding(7, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS)
-	                             .create();
 	descriptor.sets = m_context->allocate_descriptor_sets<2>(descriptor.layout);
 
-	for (uint32_t i = 0; i < 2; i++)
-	{
-		m_context->update_descriptor()
-		    .write_sampled_images(0, {gbufferA_view[i]})
-		    .write_sampled_images(1,  {gbufferB_view[i]})
-		    .write_sampled_images(2, {gbufferC_view[i]})
-		    .write_sampled_images(3, {depth_buffer_view[i]})
-		    .write_sampled_images(4, {gbufferA_view[!i]})
-		    .write_sampled_images(5,  {gbufferB_view[!i]})
-		    .write_sampled_images(6, {gbufferC_view[!i]})
-		    .write_sampled_images(7, {depth_buffer_view[!i]})
-		    .update(descriptor.sets[i]);
-	}
-
-	init();
+	create_resource();
 }
 
 GBufferPass::~GBufferPass()
 {
-	m_context->destroy(gbufferA)
-	    .destroy(gbufferB)
-	    .destroy(gbufferC)
-	    .destroy(depth_buffer)
-	    .destroy(gbufferA_view)
-	    .destroy(gbufferB_view)
-	    .destroy(gbufferC_view)
-	    .destroy(depth_buffer_view)
-	    .destroy(glsl_descriptor.layout)
-	    .destroy(glsl_descriptor.sets)
-	    .destroy(descriptor.layout)
+	destroy_resource();
+	m_context->destroy(descriptor.layout)
 	    .destroy(descriptor.sets)
 	    .destroy(m_pipeline_layout)
 	    .destroy(m_pipeline);
@@ -236,6 +89,13 @@ void GBufferPass::init()
 	barrier_builder.insert()
 	    .end()
 	    .flush();
+}
+
+void GBufferPass::resize()
+{
+	m_context->wait();
+	destroy_resource();
+	create_resource();
 }
 
 void GBufferPass::draw(CommandBufferRecorder &recorder, const Scene &scene)
@@ -399,4 +259,134 @@ void GBufferPass::draw(CommandBufferRecorder &recorder, const Scene &scene)
 	    .insert()
 	    .end_marker()
 	    .end_marker();
+}
+
+void GBufferPass::create_resource()
+{
+	m_width     = m_context->render_extent.width;
+	m_height    = m_context->render_extent.height;
+	m_mip_level = std::min(static_cast<uint32_t>(std::floor(std::log2(std::max(m_width, m_height))) + 1), 4u);
+
+	// Create Texture
+	for (uint32_t i = 0; i < 2; i++)
+	{
+		gbufferA[i] = m_context->create_texture_2d(
+		    fmt::format("GBuffer A - {}", i),
+		    m_width, m_height, VK_FORMAT_R8G8B8A8_UNORM,
+		    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+		    true);
+		gbufferB[i] = m_context->create_texture_2d(
+		    fmt::format("GBuffer B - {}", i),
+		    m_width, m_height, VK_FORMAT_R16G16B16A16_SFLOAT,
+		    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+		    true);
+		gbufferC[i] = m_context->create_texture_2d(
+		    fmt::format("GBuffer C - {}", i),
+		    m_width, m_height, VK_FORMAT_R16G16B16A16_SFLOAT,
+		    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+		    true);
+		depth_buffer[i] = m_context->create_texture_2d(
+		    fmt::format("Depth Buffer - {}", i),
+		    m_width, m_height, VK_FORMAT_D32_SFLOAT,
+		    VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+		    true);
+		gbufferA_view[i] = m_context->create_texture_view(
+		    fmt::format("GBuffer A - {} View", i),
+		    gbufferA[i].vk_image,
+		    VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_VIEW_TYPE_2D,
+		    {
+		        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		        .baseMipLevel   = 0,
+		        .levelCount     = m_mip_level,
+		        .baseArrayLayer = 0,
+		        .layerCount     = 1,
+		    });
+		gbufferB_view[i] = m_context->create_texture_view(
+		    fmt::format("GBuffer B - {} View", i),
+		    gbufferB[i].vk_image,
+		    VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_VIEW_TYPE_2D,
+		    {
+		        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		        .baseMipLevel   = 0,
+		        .levelCount     = m_mip_level,
+		        .baseArrayLayer = 0,
+		        .layerCount     = 1,
+		    });
+		gbufferC_view[i] = m_context->create_texture_view(
+		    fmt::format("GBuffer C - {} View", i),
+		    gbufferC[i].vk_image,
+		    VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_VIEW_TYPE_2D,
+		    {
+		        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+		        .baseMipLevel   = 0,
+		        .levelCount     = m_mip_level,
+		        .baseArrayLayer = 0,
+		        .layerCount     = 1,
+		    });
+		depth_buffer_view[i] = m_context->create_texture_view(
+		    fmt::format("Depth Buffer - {} View", i),
+		    depth_buffer[i].vk_image,
+		    VK_FORMAT_D32_SFLOAT, VK_IMAGE_VIEW_TYPE_2D,
+		    {
+		        .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
+		        .baseMipLevel   = 0,
+		        .levelCount     = m_mip_level,
+		        .baseArrayLayer = 0,
+		        .layerCount     = 1,
+		    });
+	}
+
+	m_pipeline = m_context->create_graphics_pipeline(m_pipeline_layout)
+	                 .add_color_attachment(VK_FORMAT_R8G8B8A8_UNORM)
+	                 .add_color_attachment(VK_FORMAT_R16G16B16A16_SFLOAT)
+	                 .add_color_attachment(VK_FORMAT_R16G16B16A16_SFLOAT)
+	                 .add_depth_stencil(VK_FORMAT_D32_SFLOAT)
+	                 .add_viewport({
+	                     .x        = 0,
+	                     .y        = 0,
+	                     .width    = (float) m_width,
+	                     .height   = (float) m_height,
+	                     .minDepth = 0.f,
+	                     .maxDepth = 1.f,
+	                 })
+	                 .add_scissor({.offset = {0, 0}, .extent = {m_width, m_height}})
+	                 .add_shader(VK_SHADER_STAGE_VERTEX_BIT, "gbuffer.slang", "vs_main")
+	                 .add_shader(VK_SHADER_STAGE_FRAGMENT_BIT, "gbuffer.slang", "fs_main")
+	                 .add_vertex_input_attribute(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 0)
+	                 .add_vertex_input_attribute(1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, sizeof(glm::vec4))
+	                 .add_vertex_input_binding(0, 2 * sizeof(glm::vec4))
+	                 .create();
+
+	update_descriptor();
+	init();
+}
+
+void GBufferPass::update_descriptor()
+{
+	for (uint32_t i = 0; i < 2; i++)
+	{
+		m_context->update_descriptor()
+		    .write_sampled_images(0, {gbufferA_view[i]})
+		    .write_sampled_images(1, {gbufferB_view[i]})
+		    .write_sampled_images(2, {gbufferC_view[i]})
+		    .write_sampled_images(3, {depth_buffer_view[i]})
+		    .write_sampled_images(4, {gbufferA_view[!i]})
+		    .write_sampled_images(5, {gbufferB_view[!i]})
+		    .write_sampled_images(6, {gbufferC_view[!i]})
+		    .write_sampled_images(7, {depth_buffer_view[!i]})
+		    .update(descriptor.sets[i]);
+	}
+}
+
+void GBufferPass::destroy_resource()
+{
+	m_context->destroy(gbufferA)
+	    .destroy(gbufferB)
+	    .destroy(gbufferC)
+	    .destroy(depth_buffer)
+	    .destroy(gbufferA_view)
+	    .destroy(gbufferB_view)
+	    .destroy(gbufferC_view)
+	    .destroy(depth_buffer_view)
+		.destroy(m_pipeline);
 }

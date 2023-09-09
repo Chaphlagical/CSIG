@@ -22,7 +22,6 @@
 #endif
 
 [[vk::binding(0, 2)]] RWTexture2D<float4> Output;
-[[vk::binding(1, 2)]] SamplerState Sampler;
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
@@ -33,6 +32,8 @@ void main(CSParam param)
     const int2 coord = int2(param.DispatchThreadID.xy);
     const float2 pixel = float2(coord) + float2(0.5);
     const float2 uv = pixel / float2(tex_size);
+
+    SamplerState Sampler = Samplers[int(SamplerType::Nearest)];
 
     if (coord.x >= tex_size.x || coord.y >= tex_size.y)
     {

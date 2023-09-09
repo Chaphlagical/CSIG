@@ -22,6 +22,8 @@ struct DeferredPass
 
 	void init();
 
+	void resize();
+
 	void draw(CommandBufferRecorder     &recorder,
 	          const Scene               &scene,
 	          const GBufferPass         &gbuffer,
@@ -31,6 +33,13 @@ struct DeferredPass
 	          const RayTracedReflection &reflection);
 
 	bool draw_ui();
+
+  private:
+	void create_resource();
+
+	void update_descriptor();
+
+	void destroy_resource();
 
   public:
 	Texture     deferred_image;

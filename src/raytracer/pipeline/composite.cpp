@@ -1,14 +1,10 @@
 #include "pipeline/composite.hpp"
 
+#include <imgui.h>
+
 CompositePass::CompositePass(const Context &context, const Scene &scene, const GBufferPass &gbuffer, const RayTracedAO &ao, const RayTracedDI &di, const RayTracedGI &gi, const RayTracedReflection &reflection) :
     m_context(&context)
 {
-	composite_image = m_context->create_texture_2d(
-	    "Composite Image",
-	    m_context->extent.width, m_context->extent.height,
-	    VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
-	composite_view = m_context->create_texture_view("Composite View", composite_image.vk_image, VK_FORMAT_R8G8B8A8_UNORM);
-
 	m_descriptor_layout = m_context->create_descriptor_layout()
 	                          // Output Image
 	                          .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
@@ -16,10 +12,6 @@ CompositePass::CompositePass(const Context &context, const Scene &scene, const G
 	                          .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
 	                          .create();
 	m_descriptor_set = m_context->allocate_descriptor_set(m_descriptor_layout);
-	m_context->update_descriptor()
-	    .write_storage_images(0, {composite_view})
-	    .write_samplers(1, {scene.nearest_sampler})
-	    .update(m_descriptor_set);
 
 	m_gbuffer.pipeline_layout    = m_context->create_pipeline_layout({scene.descriptor.layout, gbuffer.descriptor.layout, m_descriptor_layout});
 	m_gbuffer.albedo_pipeline    = m_context->create_compute_pipeline("composite.slang", m_gbuffer.pipeline_layout, "main", {{"VISUALIZE_GBUFFER", "1"}, {"VISUALIZE_ALBEDO", "1"}});
@@ -40,7 +32,7 @@ CompositePass::CompositePass(const Context &context, const Scene &scene, const G
 	m_gi.pipeline_layout = m_context->create_pipeline_layout({scene.descriptor.layout, gi.descriptor.layout, m_descriptor_layout});
 	m_gi.pipeline        = m_context->create_compute_pipeline("composite.slang", m_gi.pipeline_layout, "main", {{"VISUALIZE_GI", "1"}});
 
-	init();
+	create_resource();
 }
 
 CompositePass::~CompositePass()
@@ -79,137 +71,143 @@ void CompositePass::init()
 	    .flush();
 }
 
-void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer, GBufferOption option)
+void CompositePass::resize()
 {
-	VkPipeline pipelines[] = {
-	    m_gbuffer.albedo_pipeline,
-	    m_gbuffer.normal_pipeline,
-	    m_gbuffer.metallic_pipeline,
-	    m_gbuffer.roughness_pipeline,
-	    m_gbuffer.position_pipeline,
+	m_context->wait();
+	destroy_resource();
+	create_resource();
+}
+
+void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer, const RayTracedAO &ao, const RayTracedDI &di, const RayTracedGI &gi, const RayTracedReflection &reflection, const FSR1Pass &fsr)
+{
+	recorder.begin_marker("Composite");
+	switch (option)
+	{
+		case Option::Result: {
+			recorder
+			    .insert_barrier()
+			    .add_image_barrier(fsr.upsampled_image.vk_image,
+			                       VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+			                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+			    .add_image_barrier(m_context->swapchain_images[m_context->image_index],
+			                       VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+			                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+			    .insert();
+			m_context->blit_back_buffer(recorder.cmd_buffer, fsr.upsampled_image.vk_image);
+			recorder.insert_barrier()
+			    .add_image_barrier(fsr.upsampled_image.vk_image,
+			                       VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
+			                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+			    .add_image_barrier(m_context->swapchain_images[m_context->image_index],
+			                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
+			                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+			    .insert();
+		}
+		break;
+		case Option::Normal:
+		case Option::Albedo:
+		case Option::Roughness:
+		case Option::Metallic:
+		case Option::Position: {
+			VkPipeline pipelines[] = {
+			    m_gbuffer.albedo_pipeline,
+			    m_gbuffer.normal_pipeline,
+			    m_gbuffer.metallic_pipeline,
+			    m_gbuffer.roughness_pipeline,
+			    m_gbuffer.position_pipeline,
+			};
+			recorder
+			    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, pipelines[(size_t) option - 1])
+			    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_gbuffer.pipeline_layout, {scene.descriptor.set, gbuffer.descriptor.sets[m_context->ping_pong], m_descriptor_set})
+			    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {8, 8, 1})
+			    .execute([&](CommandBufferRecorder &recorder) { blit(recorder); });
+		}
+		break;
+		case Option::AO: {
+			recorder
+			    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_ao.pipeline)
+			    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_ao.pipeline_layout, {scene.descriptor.set, ao.descriptor.set, m_descriptor_set})
+			    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {8, 8, 1})
+			    .execute([&](CommandBufferRecorder &recorder) { blit(recorder); });
+		}
+		break;
+		case Option::Reflection: {
+			recorder
+			    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_reflection.pipeline)
+			    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_reflection.pipeline_layout, {scene.descriptor.set, reflection.descriptor.set, m_descriptor_set})
+			    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {8, 8, 1})
+			    .execute([&](CommandBufferRecorder &recorder) { blit(recorder); });
+		}
+		break;
+		case Option::DI: {
+			recorder
+			    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_di.pipeline)
+			    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_di.pipeline_layout, {scene.descriptor.set, di.descriptor.set, m_descriptor_set})
+			    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {8, 8, 1})
+			    .execute([&](CommandBufferRecorder &recorder) { blit(recorder); });
+		}
+		break;
+		case Option::GI: {
+			recorder
+			    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_gi.pipeline)
+			    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_gi.pipeline_layout, {scene.descriptor.set, gi.descriptor.set, m_descriptor_set})
+			    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {8, 8, 1})
+			    .execute([&](CommandBufferRecorder &recorder) { blit(recorder); });
+		}
+		break;
+		default:
+			break;
+	}
+	recorder.end_marker();
+}
+
+bool CompositePass::draw_ui()
+{
+	bool update = false;
+
+	const char *const debug_views[] = {
+	    "Result",
+	    "Albedo",
+	    "Normal",
+	    "Metallic",
+	    "Roughness",
+	    "Position",
+	    "AO",
+	    "Reflection",
+	    "DI",
+	    "GI",
 	};
-
-	recorder
-	    .begin_marker("Composite")
-	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, pipelines[(size_t) option])
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_gbuffer.pipeline_layout, {scene.descriptor.set, gbuffer.descriptor.sets[m_context->ping_pong], m_descriptor_set})
-	    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {8, 8, 1})
-	    .execute([&](CommandBufferRecorder &recorder) { blit(recorder); })
-	    .end_marker();
+	if (ImGui::TreeNode("Composite"))
+	{
+		update |= ImGui::Combo("Debug View", reinterpret_cast<int32_t *>(&option), debug_views, 10);
+		ImGui::TreePop();
+	}
+	return update;
 }
 
-void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, const Tonemap &tonemap)
+void CompositePass::create_resource()
 {
-	recorder
-	    .begin_marker("Composite")
-	    .insert_barrier()
-	    .add_image_barrier(tonemap.render_target.vk_image,
-	                       VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-	                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
-	    .add_image_barrier(m_context->swapchain_images[m_context->image_index],
-	                       VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
-	                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-	    .insert();
-	m_context->blit_back_buffer(recorder.cmd_buffer, tonemap.render_target.vk_image);
-	recorder.insert_barrier()
-	    .add_image_barrier(tonemap.render_target.vk_image,
-	                       VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
-	                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-	    .add_image_barrier(m_context->swapchain_images[m_context->image_index],
-	                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
-	                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
-	    .insert()
-	    .end_marker();
+	composite_image = m_context->create_texture_2d(
+	    "Composite Image",
+	    m_context->extent.width, m_context->extent.height,
+	    VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+	composite_view = m_context->create_texture_view("Composite View", composite_image.vk_image, VK_FORMAT_R8G8B8A8_UNORM);
+
+	update_descriptor();
+	init();
 }
 
-void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, const RayTracedAO &ao)
+void CompositePass::update_descriptor()
 {
-	recorder
-	    .begin_marker("Composite")
-	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_ao.pipeline)
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_ao.pipeline_layout, {scene.descriptor.set, ao.descriptor.set, m_descriptor_set})
-	    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {8, 8, 1})
-	    .execute([&](CommandBufferRecorder &recorder) { blit(recorder); })
-	    .end_marker();
+	m_context->update_descriptor()
+	    .write_storage_images(0, {composite_view})
+	    .update(m_descriptor_set);
 }
 
-void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, const RayTracedDI &di)
+void CompositePass::destroy_resource()
 {
-	recorder
-	    .begin_marker("Composite")
-	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_di.pipeline)
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_di.pipeline_layout, {scene.descriptor.set, di.descriptor.set, m_descriptor_set})
-	    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {8, 8, 1})
-	    .execute([&](CommandBufferRecorder &recorder) { blit(recorder); })
-	    .end_marker();
-}
-
-void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, const RayTracedGI &gi)
-{
-	recorder
-	    .begin_marker("Composite")
-	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_gi.pipeline)
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_gi.pipeline_layout, {scene.descriptor.set, gi.descriptor.set, m_descriptor_set})
-	    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {8, 8, 1})
-	    .execute([&](CommandBufferRecorder &recorder) { blit(recorder); })
-	    .end_marker();
-}
-
-void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer, const RayTracedGI &gi)
-{
-	recorder
-	    .insert_barrier()
-	    .add_image_barrier(
-	        gbuffer.depth_buffer[m_context->ping_pong].vk_image,
-	        VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
-	        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-	        {
-	            .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
-	            .baseMipLevel   = 0,
-	            .levelCount     = 3,
-	            .baseArrayLayer = 0,
-	            .layerCount     = 1,
-	        })
-	    .add_image_barrier(
-	        gi.sample_probe_grid_image.vk_image,
-	        VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-	        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-	    .insert()
-
-	    .execute([&]() { gi.draw_probe(recorder, gi.sample_probe_grid_view, gbuffer.depth_buffer_view[m_context->ping_pong], scene); })
-
-	    .insert_barrier()
-	    .add_image_barrier(
-	        gbuffer.depth_buffer[m_context->ping_pong].vk_image,
-	        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
-	        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-	        {
-	            .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
-	            .baseMipLevel   = 0,
-	            .levelCount     = 3,
-	            .baseArrayLayer = 0,
-	            .layerCount     = 1,
-	        })
-	    .add_image_barrier(
-	        gi.sample_probe_grid_image.vk_image,
-	        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-	        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-	    .insert()
-
-	    ;
-
-	draw(recorder, scene, gi);
-}
-
-void CompositePass::draw(CommandBufferRecorder &recorder, const Scene &scene, const RayTracedReflection &reflection)
-{
-	recorder
-	    .begin_marker("Composite")
-	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_reflection.pipeline)
-	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_reflection.pipeline_layout, {scene.descriptor.set, reflection.descriptor.set, m_descriptor_set})
-	    .dispatch({m_context->extent.width, m_context->extent.height, 1}, {8, 8, 1})
-	    .execute([&](CommandBufferRecorder &recorder) { blit(recorder); })
-	    .end_marker();
+	m_context->destroy(composite_image)
+	    .destroy(composite_view);
 }
 
 void CompositePass::blit(CommandBufferRecorder &recorder)

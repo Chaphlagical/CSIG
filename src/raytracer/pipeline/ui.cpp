@@ -59,7 +59,7 @@ UIPass::UIPass(const Context &context) :
 
 UIPass::~UIPass()
 {
-	vkDeviceWaitIdle(m_context->vk_device);
+	m_context->wait();
 
 	ImGui_ImplVulkan_Shutdown();
 	ImGui_ImplGlfw_Shutdown();
@@ -82,6 +82,16 @@ void UIPass::render(CommandBufferRecorder &recorder, uint32_t frame_idx)
 	    .execute([&](VkCommandBuffer cmd_buffer) { ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd_buffer); })
 	    .end_render_pass()
 	    .end_marker();
+}
+
+void UIPass::resize()
+{
+	m_context->wait();
+	for (uint32_t i = 0; i < m_frame_buffers.size(); i++)
+	{
+		vkDestroyFramebuffer(m_context->vk_device, m_frame_buffers[i], nullptr);
+	}
+	create_frame_buffer();
 }
 
 void UIPass::begin_frame()

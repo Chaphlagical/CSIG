@@ -17,34 +17,8 @@ static const uint32_t NUM_THREADS_X = 8;
 static const uint32_t NUM_THREADS_Y = 8;
 
 RayTracedAO::RayTracedAO(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, RayTracedScale scale) :
-    m_context(&context)
+    m_context(&context), m_scale(scale)
 {
-	float scale_divisor = powf(2.0f, float(scale));
-
-	m_width       = static_cast<uint32_t>(static_cast<float>(context.render_extent.width) / scale_divisor);
-	m_height      = static_cast<uint32_t>(static_cast<float>(context.render_extent.height) / scale_divisor);
-	m_gbuffer_mip = static_cast<uint32_t>(scale);
-
-	raytraced_image      = m_context->create_texture_2d("AO RayTraced Image", static_cast<uint32_t>(ceil(float(m_width) / float(RAY_TRACE_NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(RAY_TRACE_NUM_THREADS_Y))), VK_FORMAT_R32_UINT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-	raytraced_image_view = m_context->create_texture_view("AO RayTraced Image View", raytraced_image.vk_image, VK_FORMAT_R32_UINT);
-
-	for (uint32_t i = 0; i < 2; i++)
-	{
-		ao_image[i]             = m_context->create_texture_2d(fmt::format("AO Image - {}", i), m_width, m_height, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
-		history_length_image[i] = m_context->create_texture_2d(fmt::format("History Length Image - {}", i), m_width, m_height, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
-		bilateral_blur_image[i] = m_context->create_texture_2d(fmt::format("Bilateral Blur Image - {}", i), m_width, m_height, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
-
-		ao_image_view[i]             = m_context->create_texture_view(fmt::format("AO Image View - {}", i), ao_image[i].vk_image, VK_FORMAT_R32_SFLOAT);
-		history_length_image_view[i] = m_context->create_texture_view(fmt::format("History Length Image View - {}", i), history_length_image[i].vk_image, VK_FORMAT_R32_SFLOAT);
-		bilateral_blur_image_view[i] = m_context->create_texture_view(fmt::format("Bilateral Blur Image View - {}", i), bilateral_blur_image[i].vk_image, VK_FORMAT_R32_SFLOAT);
-	}
-
-	upsampled_ao_image      = m_context->create_texture_2d("AO Upsampled Image", m_context->render_extent.width, m_context->render_extent.height, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
-	upsampled_ao_image_view = m_context->create_texture_view("AO Upsampled Image View", upsampled_ao_image.vk_image, VK_FORMAT_R32_SFLOAT);
-
-	denoise_tile_buffer               = m_context->create_buffer("AO Denoise Tile Buffer", sizeof(glm::ivec2) * static_cast<uint32_t>(ceil(float(m_width) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_X))) * static_cast<uint32_t>(ceil(float(m_height) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_Y))), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	denoise_tile_dispatch_args_buffer = m_context->create_buffer("AO Denoise Tile Dispatch Args Buffer", sizeof(VkDispatchIndirectCommand), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-
 	m_raytraced.descriptor_set_layout = m_context->create_descriptor_layout()
 	                                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                                        .create();
@@ -84,67 +58,19 @@ RayTracedAO::RayTracedAO(const Context &context, const Scene &scene, const GBuff
 	m_upsampling.pipeline_layout = m_context->create_pipeline_layout({scene.descriptor.layout, gbuffer_pass.descriptor.layout, m_upsampling.descriptor_set_layout}, sizeof(m_upsampling.push_constant), VK_SHADER_STAGE_COMPUTE_BIT);
 	m_upsampling.pipeline        = m_context->create_compute_pipeline("ao_upsampling.slang", m_upsampling.pipeline_layout);
 
-	m_context->update_descriptor()
-	    .write_storage_images(0, {raytraced_image_view})
-	    .update(m_raytraced.descriptor_set);
-
-	for (uint32_t i = 0; i < 2; i++)
-	{
-		m_context->update_descriptor()
-		    .write_sampled_images(0, {raytraced_image_view})
-		    .write_storage_images(1, {ao_image_view[i]})
-		    .write_storage_images(2, {history_length_image_view[i]})
-		    .write_sampled_images(3, {ao_image_view[!i]})
-		    .write_sampled_images(4, {history_length_image_view[!i]})
-		    .write_storage_buffers(5, {denoise_tile_buffer.vk_buffer})
-		    .write_storage_buffers(6, {denoise_tile_dispatch_args_buffer.vk_buffer})
-		    .update(m_temporal_accumulation.descriptor_sets[i]);
-	}
-
-	for (uint32_t i = 0; i < 2; i++)
-	{
-		for (uint32_t j = 0; j < 2; j++)
-		{
-			m_context->update_descriptor()
-			    .write_storage_images(0, {bilateral_blur_image_view[j]})
-			    .write_sampled_images(1, {j == 0 ? ao_image_view[i] : bilateral_blur_image_view[0]})
-			    .write_sampled_images(2, {history_length_image_view[i]})
-			    .write_storage_buffers(3, {denoise_tile_buffer.vk_buffer})
-			    .update(m_bilateral_blur.descriptor_sets[i][j]);
-		}
-	}
-
-	m_context->update_descriptor()
-	    .write_storage_images(0, {upsampled_ao_image_view})
-	    .write_sampled_images(1, {bilateral_blur_image_view[1]})
-	    .update(m_upsampling.descriptor_set);
-
 	descriptor.layout = m_context->create_descriptor_layout()
 	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                        .create();
 	descriptor.set = m_context->allocate_descriptor_set(descriptor.layout);
-	m_context->update_descriptor()
-	    .write_sampled_images(0, {upsampled_ao_image_view})
-	    .update(descriptor.set);
 
-	init();
+	create_resource();
 }
 
 RayTracedAO::~RayTracedAO()
 {
-	m_context->destroy(raytraced_image)
-	    .destroy(raytraced_image_view)
-	    .destroy(ao_image)
-	    .destroy(ao_image_view)
-	    .destroy(history_length_image)
-	    .destroy(history_length_image_view)
-	    .destroy(bilateral_blur_image)
-	    .destroy(bilateral_blur_image_view)
-	    .destroy(upsampled_ao_image)
-	    .destroy(upsampled_ao_image_view)
-	    .destroy(denoise_tile_buffer)
-	    .destroy(denoise_tile_dispatch_args_buffer)
-	    .destroy(descriptor.layout)
+	destroy_resource();
+	m_context
+	    ->destroy(descriptor.layout)
 	    .destroy(descriptor.set)
 	    .destroy(m_raytraced.descriptor_set_layout)
 	    .destroy(m_raytraced.descriptor_set)
@@ -174,27 +100,27 @@ void RayTracedAO::init()
 	        0, VK_ACCESS_SHADER_WRITE_BIT,
 	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL)
 	    .add_image_barrier(
-	        ao_image[0].vk_image,
+	        ao_image[m_context->ping_pong].vk_image,
 	        0, VK_ACCESS_SHADER_WRITE_BIT,
 	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL)
 	    .add_image_barrier(
-	        ao_image[1].vk_image,
+	        ao_image[!m_context->ping_pong].vk_image,
 	        0, VK_ACCESS_SHADER_READ_BIT,
 	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 	    .add_image_barrier(
-	        history_length_image[0].vk_image,
+	        history_length_image[m_context->ping_pong].vk_image,
 	        0, VK_ACCESS_SHADER_WRITE_BIT,
 	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL)
 	    .add_image_barrier(
-	        history_length_image[1].vk_image,
+	        history_length_image[!m_context->ping_pong].vk_image,
 	        0, VK_ACCESS_SHADER_READ_BIT,
 	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 	    .add_image_barrier(
-	        bilateral_blur_image[0].vk_image,
+	        bilateral_blur_image[m_context->ping_pong].vk_image,
 	        0, VK_ACCESS_SHADER_WRITE_BIT,
 	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL)
 	    .add_image_barrier(
-	        bilateral_blur_image[1].vk_image,
+	        bilateral_blur_image[!m_context->ping_pong].vk_image,
 	        0, VK_ACCESS_SHADER_WRITE_BIT,
 	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL)
 	    .add_image_barrier(
@@ -210,6 +136,13 @@ void RayTracedAO::init()
 	    .insert()
 	    .end()
 	    .flush();
+}
+
+void RayTracedAO::resize()
+{
+	m_context->wait();
+	destroy_resource();
+	create_resource();
 }
 
 void RayTracedAO::draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass)
@@ -237,7 +170,7 @@ void RayTracedAO::draw(CommandBufferRecorder &recorder, const Scene &scene, cons
 	        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 	    .add_buffer_barrier(
 	        denoise_tile_buffer.vk_buffer,
-	        VK_ACCESS_INDIRECT_COMMAND_READ_BIT,VK_ACCESS_SHADER_WRITE_BIT)
+	        VK_ACCESS_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
 	    .add_buffer_barrier(
 	        denoise_tile_dispatch_args_buffer.vk_buffer,
 	        VK_ACCESS_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
@@ -352,6 +285,12 @@ bool RayTracedAO::draw_ui()
 	bool update = false;
 	if (ImGui::TreeNode("Ray Traced AO"))
 	{
+		const char *const rt_scale[] = {"Full", "Half", "Quater"};
+		if (ImGui::Combo("Resolution", reinterpret_cast<int32_t*>(&m_scale), rt_scale, 3))
+		{
+			resize();
+		}
+
 		update |= ImGui::SliderFloat("Ray Length", &m_raytraced.push_constant.ray_length, 0.0f, 10.0f);
 		update |= ImGui::DragFloat("Ray Traced Bias", &m_raytraced.push_constant.bias, 0.001f, 0.0f, 100.0f, "%.3f");
 		update |= ImGui::DragInt("Blur Radius", &m_bilateral_blur.push_constant.radius, 1, 1, 10);
@@ -359,4 +298,94 @@ bool RayTracedAO::draw_ui()
 		ImGui::TreePop();
 	}
 	return update;
+}
+
+void RayTracedAO::create_resource()
+{
+	float scale_divisor = powf(2.0f, float(m_scale));
+
+	m_width       = static_cast<uint32_t>(static_cast<float>(m_context->render_extent.width) / scale_divisor);
+	m_height      = static_cast<uint32_t>(static_cast<float>(m_context->render_extent.height) / scale_divisor);
+	m_gbuffer_mip = static_cast<uint32_t>(m_scale);
+
+	raytraced_image      = m_context->create_texture_2d("AO RayTraced Image", static_cast<uint32_t>(ceil(float(m_width) / float(RAY_TRACE_NUM_THREADS_X))), static_cast<uint32_t>(ceil(float(m_height) / float(RAY_TRACE_NUM_THREADS_Y))), VK_FORMAT_R32_UINT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+	raytraced_image_view = m_context->create_texture_view("AO RayTraced Image View", raytraced_image.vk_image, VK_FORMAT_R32_UINT);
+
+	for (uint32_t i = 0; i < 2; i++)
+	{
+		ao_image[i]             = m_context->create_texture_2d(fmt::format("AO Image - {}", i), m_width, m_height, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+		history_length_image[i] = m_context->create_texture_2d(fmt::format("History Length Image - {}", i), m_width, m_height, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+		bilateral_blur_image[i] = m_context->create_texture_2d(fmt::format("Bilateral Blur Image - {}", i), m_width, m_height, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+
+		ao_image_view[i]             = m_context->create_texture_view(fmt::format("AO Image View - {}", i), ao_image[i].vk_image, VK_FORMAT_R32_SFLOAT);
+		history_length_image_view[i] = m_context->create_texture_view(fmt::format("History Length Image View - {}", i), history_length_image[i].vk_image, VK_FORMAT_R32_SFLOAT);
+		bilateral_blur_image_view[i] = m_context->create_texture_view(fmt::format("Bilateral Blur Image View - {}", i), bilateral_blur_image[i].vk_image, VK_FORMAT_R32_SFLOAT);
+	}
+
+	upsampled_ao_image      = m_context->create_texture_2d("AO Upsampled Image", m_context->render_extent.width, m_context->render_extent.height, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+	upsampled_ao_image_view = m_context->create_texture_view("AO Upsampled Image View", upsampled_ao_image.vk_image, VK_FORMAT_R32_SFLOAT);
+
+	denoise_tile_buffer               = m_context->create_buffer("AO Denoise Tile Buffer", sizeof(glm::ivec2) * static_cast<uint32_t>(ceil(float(m_width) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_X))) * static_cast<uint32_t>(ceil(float(m_height) / float(TEMPORAL_ACCUMULATION_NUM_THREADS_Y))), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	denoise_tile_dispatch_args_buffer = m_context->create_buffer("AO Denoise Tile Dispatch Args Buffer", sizeof(VkDispatchIndirectCommand), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+
+	init();
+	update_descriptor();
+}
+
+void RayTracedAO::update_descriptor()
+{
+	m_context->update_descriptor()
+	    .write_storage_images(0, {raytraced_image_view})
+	    .update(m_raytraced.descriptor_set);
+
+	for (uint32_t i = 0; i < 2; i++)
+	{
+		m_context->update_descriptor()
+		    .write_sampled_images(0, {raytraced_image_view})
+		    .write_storage_images(1, {ao_image_view[i]})
+		    .write_storage_images(2, {history_length_image_view[i]})
+		    .write_sampled_images(3, {ao_image_view[!i]})
+		    .write_sampled_images(4, {history_length_image_view[!i]})
+		    .write_storage_buffers(5, {denoise_tile_buffer.vk_buffer})
+		    .write_storage_buffers(6, {denoise_tile_dispatch_args_buffer.vk_buffer})
+		    .update(m_temporal_accumulation.descriptor_sets[i]);
+	}
+
+	for (uint32_t i = 0; i < 2; i++)
+	{
+		for (uint32_t j = 0; j < 2; j++)
+		{
+			m_context->update_descriptor()
+			    .write_storage_images(0, {bilateral_blur_image_view[j]})
+			    .write_sampled_images(1, {j == 0 ? ao_image_view[i] : bilateral_blur_image_view[0]})
+			    .write_sampled_images(2, {history_length_image_view[i]})
+			    .write_storage_buffers(3, {denoise_tile_buffer.vk_buffer})
+			    .update(m_bilateral_blur.descriptor_sets[i][j]);
+		}
+	}
+
+	m_context->update_descriptor()
+	    .write_storage_images(0, {upsampled_ao_image_view})
+	    .write_sampled_images(1, {bilateral_blur_image_view[1]})
+	    .update(m_upsampling.descriptor_set);
+
+	m_context->update_descriptor()
+	    .write_sampled_images(0, {upsampled_ao_image_view})
+	    .update(descriptor.set);
+}
+
+void RayTracedAO::destroy_resource()
+{
+	m_context->destroy(raytraced_image)
+	    .destroy(raytraced_image_view)
+	    .destroy(ao_image)
+	    .destroy(ao_image_view)
+	    .destroy(history_length_image)
+	    .destroy(history_length_image_view)
+	    .destroy(bilateral_blur_image)
+	    .destroy(bilateral_blur_image_view)
+	    .destroy(upsampled_ao_image)
+	    .destroy(upsampled_ao_image_view)
+	    .destroy(denoise_tile_buffer)
+	    .destroy(denoise_tile_dispatch_args_buffer);
 }

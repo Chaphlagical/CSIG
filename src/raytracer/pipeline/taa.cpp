@@ -16,19 +16,6 @@ static unsigned char g_taa_comp_spv_data[] = {
 TAA::TAA(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, const DeferredPass &deferred) :
     m_context(&context)
 {
-	for (uint32_t i = 0; i < 2; i++)
-	{
-		output_image[i] = m_context->create_texture_2d(
-		    fmt::format("TAA Image - {}", i),
-		    m_context->render_extent.width, m_context->render_extent.height,
-		    VK_FORMAT_R16G16B16A16_SFLOAT,
-		    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
-		output_view[i] = m_context->create_texture_view(
-		    fmt::format("TAA View - {}", i),
-		    output_image[i].vk_image,
-		    VK_FORMAT_R16G16B16A16_SFLOAT);
-	}
-
 	m_descriptor_set_layout = m_context->create_descriptor_layout()
 	                              // Output Image
 	                              .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
@@ -51,15 +38,7 @@ TAA::TAA(const Context &context, const Scene &scene, const GBufferPass &gbuffer_
 	                        .create();
 	descriptor.sets = m_context->allocate_descriptor_sets<2>(descriptor.layout);
 
-	for (uint32_t i = 0; i < 2; i++)
-	{
-		m_context->update_descriptor()
-		    .write_storage_images(0, {output_view[i]})
-		    .write_sampled_images(1, {output_view[!i]})
-		    .update(m_descriptor_sets[i]);
-	}
-
-	init();
+	create_resource();
 }
 
 TAA::~TAA()
@@ -69,6 +48,8 @@ TAA::~TAA()
 	    .destroy(output_view)
 	    .destroy(m_descriptor_sets)
 	    .destroy(m_descriptor_set_layout)
+	    .destroy(descriptor.sets)
+	    .destroy(descriptor.layout)
 	    .destroy(m_pipeline_layout)
 	    .destroy(m_pipeline);
 }
@@ -91,10 +72,16 @@ void TAA::init()
 	    .flush();
 }
 
+void TAA::resize()
+{
+	m_context->wait();
+	destroy_resource();
+	create_resource();
+}
+
 void TAA::draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass, const DeferredPass &deferred)
 {
-	m_push_constants.time_params = glm::vec4(static_cast<float>(glfwGetTime()), sinf(static_cast<float>(glfwGetTime())), cosf(static_cast<float>(glfwGetTime())), m_delta_time);
-	m_push_constants.texel_size  = glm::vec4(1.0f / float(m_context->render_extent.width), 1.0f / float(m_context->render_extent.height), float(m_context->render_extent.width), float(m_context->render_extent.height));
+	m_push_constants.texel_size = glm::vec4(1.0f / float(m_context->render_extent.width), 1.0f / float(m_context->render_extent.height), float(m_context->render_extent.width), float(m_context->render_extent.height));
 
 	recorder
 	    .begin_marker("TAA")
@@ -124,6 +111,55 @@ void TAA::draw(CommandBufferRecorder &recorder, const Scene &scene, const GBuffe
 
 bool TAA::draw_ui()
 {
-	m_delta_time = ImGui::GetIO().DeltaTime;
-	return false;
+	bool update = false;
+	if (ImGui::TreeNode("TAA"))
+	{
+		update |= ImGui::SliderFloat("Min Blend Factor", &m_push_constants.min_blend_factor, 0.f, 1.f);
+		ImGui::TreePop();
+	}
+	return update;
+}
+
+void TAA::create_resource()
+{
+	for (uint32_t i = 0; i < 2; i++)
+	{
+		output_image[i] = m_context->create_texture_2d(
+		    fmt::format("TAA Image - {}", i),
+		    m_context->render_extent.width, m_context->render_extent.height,
+		    VK_FORMAT_R16G16B16A16_SFLOAT,
+		    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+		output_view[i] = m_context->create_texture_view(
+		    fmt::format("TAA View - {}", i),
+		    output_image[i].vk_image,
+		    VK_FORMAT_R16G16B16A16_SFLOAT);
+	}
+
+	update_descriptor();
+	init();
+}
+
+void TAA::update_descriptor()
+{
+	for (uint32_t i = 0; i < 2; i++)
+	{
+		m_context->update_descriptor()
+		    .write_storage_images(0, {output_view[i]})
+		    .write_sampled_images(1, {output_view[!i]})
+		    .update(m_descriptor_sets[i]);
+	}
+
+	for (uint32_t i = 0; i < 2; i++)
+	{
+		m_context->update_descriptor()
+		    .write_sampled_images(0, {output_view[i]})
+		    .update(descriptor.sets[i]);
+	}
+}
+
+void TAA::destroy_resource()
+{
+	m_context
+	    ->destroy(output_image)
+	    .destroy(output_view);
 }

@@ -1,9 +1,0 @@
-#version 460
-
-#extension GL_GOOGLE_include_directive : enable
-#extension GL_EXT_ray_query : enable
-#extension GL_EXT_nonuniform_qualifier : enable
-
-#define UPDATE_DEPTH
-
-#include "gi_probe_update.glsl"

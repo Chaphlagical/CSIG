@@ -13,9 +13,18 @@ struct RayTracedDI
 
 	void init();
 
+	void resize();
+
 	void draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass);
 
 	bool draw_ui();
+
+  private:
+	void create_resource();
+
+	void update_descriptor();
+
+	void destroy_resource();
 
   public:
 	// Output image
@@ -57,6 +66,8 @@ struct RayTracedDI
 
 	bool m_spatial_reuse  = true;
 	bool m_temporal_reuse = true;
+
+	RayTracedScale m_scale = RayTracedScale::Full_Res;
 
 	uint32_t m_width       = 0;
 	uint32_t m_height      = 0;

@@ -5,19 +5,10 @@
 DeferredPass::DeferredPass(const Context &context, const Scene &scene, const GBufferPass &gbuffer, const RayTracedAO &ao, const RayTracedDI &di, const RayTracedGI &gi, const RayTracedReflection &reflection) :
     m_context(&context)
 {
-	deferred_image = m_context->create_texture_2d(
-	    "Deferred Image",
-	    m_context->render_extent.width, m_context->render_extent.height,
-	    VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-	deferred_view = m_context->create_texture_view("Deferred View", deferred_image.vk_image, VK_FORMAT_R16G16B16A16_SFLOAT);
-
 	m_descriptor_layout = m_context->create_descriptor_layout()
 	                          .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                          .create();
 	m_descriptor_set = m_context->allocate_descriptor_set(m_descriptor_layout);
-	m_context->update_descriptor()
-	    .write_storage_images(0, {deferred_view})
-	    .update(m_descriptor_set);
 
 	m_pipeline_layout = m_context->create_pipeline_layout(
 	    {
@@ -36,11 +27,8 @@ DeferredPass::DeferredPass(const Context &context, const Scene &scene, const GBu
 	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                        .create();
 	descriptor.set = m_context->allocate_descriptor_set(descriptor.layout);
-	m_context->update_descriptor()
-	    .write_sampled_images(0, {deferred_view})
-	    .update(descriptor.set);
-
-	init();
+	
+	create_resource();
 }
 
 DeferredPass::~DeferredPass()
@@ -67,6 +55,13 @@ void DeferredPass::init()
 	    .insert()
 	    .end()
 	    .flush();
+}
+
+void DeferredPass::resize()
+{
+	m_context->wait();
+	destroy_resource();
+	create_resource();
 }
 
 void DeferredPass::draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer, const RayTracedAO &ao, const RayTracedDI &di, const RayTracedGI &gi, const RayTracedReflection &reflection)
@@ -102,8 +97,40 @@ void DeferredPass::draw(CommandBufferRecorder &recorder, const Scene &scene, con
 bool DeferredPass::draw_ui()
 {
 	bool update = false;
-	update |= ImGui::Checkbox("Enable AO", reinterpret_cast<bool *>(&m_push_constant.enable_ao));
-	update |= ImGui::Checkbox("Enable Reflection", reinterpret_cast<bool *>(&m_push_constant.enable_reflection));
-	update |= ImGui::Checkbox("Enable GI", reinterpret_cast<bool *>(&m_push_constant.enable_gi));
+	if (ImGui::TreeNode("Deferred"))
+	{
+		update |= ImGui::Checkbox("Enable AO", reinterpret_cast<bool *>(&m_push_constant.enable_ao));
+		update |= ImGui::Checkbox("Enable Reflection", reinterpret_cast<bool *>(&m_push_constant.enable_reflection));
+		update |= ImGui::Checkbox("Enable GI", reinterpret_cast<bool *>(&m_push_constant.enable_gi));
+		ImGui::TreePop();
+	}
 	return update;
+}
+
+void DeferredPass::create_resource()
+{
+	deferred_image = m_context->create_texture_2d(
+	    "Deferred Image",
+	    m_context->render_extent.width, m_context->render_extent.height,
+	    VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+	deferred_view = m_context->create_texture_view("Deferred View", deferred_image.vk_image, VK_FORMAT_R16G16B16A16_SFLOAT);
+
+	update_descriptor();
+	init();
+}
+
+void DeferredPass::update_descriptor()
+{
+	m_context->update_descriptor()
+	    .write_storage_images(0, {deferred_view})
+	    .update(m_descriptor_set);
+	m_context->update_descriptor()
+	    .write_sampled_images(0, {deferred_view})
+	    .update(descriptor.set);
+}
+
+void DeferredPass::destroy_resource()
+{
+	m_context->destroy(deferred_image)
+	    .destroy(deferred_view);
 }

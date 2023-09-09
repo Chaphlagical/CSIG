@@ -46,16 +46,11 @@ struct Scene
 		glm::mat4 prev_projection          = glm::mat4(1.f);
 		glm::mat4 prev_view_projection     = glm::mat4(1.f);
 		glm::mat4 prev_view_projection_inv = glm::mat4(1.f);
+		glm::vec4 extent                   = glm::vec4(0.f);        // xy - render extent, zw - viewport extent
 		glm::vec4 cam_pos                  = glm::vec4(0.f);        // xyz - position, w - num_frames
 		glm::vec4 prev_cam_pos             = glm::vec4(0.f);        // xyz - position, w - padding
 		glm::vec4 jitter                   = glm::vec4(0.f);
 	} view_info;
-
-	struct
-	{
-		VkDescriptorSetLayout layout = VK_NULL_HANDLE;
-		VkDescriptorSet       set    = VK_NULL_HANDLE;
-	} glsl_descriptor;
 
 	struct
 	{

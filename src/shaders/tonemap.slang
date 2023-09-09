@@ -91,5 +91,10 @@ void main(CSParam param)
 	uv = (uv - 0.5) * 2.0;
 	color *= 1.0 - dot(uv, uv) * push_constant.vignette;
 
+    if (any(isnan(color)))
+    {
+        color = float3(0);
+    }
+
     OutputImage[param.DispatchThreadID.xy] = float4(color, hdr.a);
 }

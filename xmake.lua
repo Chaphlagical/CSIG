@@ -62,19 +62,9 @@ target("raytracer")
     end
 
     add_files("src/**.cpp")
-    add_files(
-        "src/shaders/**.comp",
-        "src/shaders/**.vert",
-        "src/shaders/**.frag")
+    add_files("src/shaders/**.comp")
 
-    add_headerfiles(
-        "include/**.hpp",
-        "src/shaders/**.glsl",
-        "src/shaders/**.hpp",
-        "src/shaders/**.comp",
-        "src/shaders/**.vert",
-        "src/shaders/**.frag")
-    
+    add_headerfiles("src/shaders/**.comp")
     add_headerfiles("include/**.hpp", "include/**.h")
     add_headerfiles("src/**slang", "src/**.slangh")
 

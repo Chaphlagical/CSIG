@@ -52,7 +52,8 @@ struct View
 	float4x4 prev_view;
 	float4x4 prev_projection;
 	float4x4 prev_view_projection;
-	float4x4 prev_view_projection_inv;
+    float4x4 prev_view_projection_inv;
+    float4 extent;  // xy - render extent, zw - viewport extent
 	float4 cam_pos; // xyz - position, w - num_frames
 	float4 prev_cam_pos; // xyz - position, w - padding
 	float4 jitter;

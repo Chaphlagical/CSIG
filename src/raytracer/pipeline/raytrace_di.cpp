@@ -17,101 +17,8 @@ struct Reservoir
 };
 
 RayTracedDI::RayTracedDI(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, RayTracedScale scale) :
-    m_context(&context)
+    m_context(&context), m_scale(scale)
 {
-	float scale_divisor = powf(2.0f, float(scale));
-
-	m_width  = static_cast<uint32_t>(static_cast<float>(context.render_extent.width) / scale_divisor);
-	m_height = static_cast<uint32_t>(static_cast<float>(context.render_extent.height) / scale_divisor);
-
-	m_gbuffer_mip = static_cast<uint32_t>(scale);
-
-	size_t reservoir_size = static_cast<size_t>(m_width * m_height) * sizeof(Reservoir);
-
-	temporal_reservoir_buffer = m_context->create_buffer(
-	    "DI Temporal Reservoir Buffer",
-	    reservoir_size,
-	    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-	    VMA_MEMORY_USAGE_GPU_ONLY);
-	passthrough_reservoir_buffer = m_context->create_buffer(
-	    "DI Passthrough Reservoir Buffer",
-	    reservoir_size,
-	    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-	    VMA_MEMORY_USAGE_GPU_ONLY);
-	spatial_reservoir_buffer = m_context->create_buffer(
-	    "DI Spatial Reservoir Buffer",
-	    reservoir_size,
-	    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-	    VMA_MEMORY_USAGE_GPU_ONLY);
-	denoise_tile_data_buffer = m_context->create_buffer(
-	    "DI Denoise Tile Data Buffer",
-	    sizeof(glm::ivec2) * static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))) * static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))),
-	    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-	    VMA_MEMORY_USAGE_GPU_ONLY);
-	copy_tile_data_buffer = m_context->create_buffer(
-	    "DI Copy Tile Data Buffer",
-	    sizeof(glm::ivec2) * static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))) * static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))),
-	    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-	    VMA_MEMORY_USAGE_GPU_ONLY);
-	denoise_tile_dispatch_args_buffer = m_context->create_buffer(
-	    "DI Denoise Tile Dispatch Args Buffer",
-	    sizeof(int32_t) * 3,
-	    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-	    VMA_MEMORY_USAGE_GPU_ONLY);
-	copy_tile_dispatch_args_buffer = m_context->create_buffer(
-	    "DI Copy Tile Dispatch Args Buffer",
-	    sizeof(int32_t) * 3,
-	    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-	    VMA_MEMORY_USAGE_GPU_ONLY);
-
-	raytraced_image = m_context->create_texture_2d(
-	    "DI RayTraced Image",
-	    m_width, m_height,
-	    VK_FORMAT_R32G32B32A32_SFLOAT,
-	    VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
-	raytraced_view = m_context->create_texture_view("DI RayTraced View", raytraced_image.vk_image, VK_FORMAT_R32G32B32A32_SFLOAT);
-
-	for (uint32_t i = 0; i < 2; i++)
-	{
-		reprojection_output_image[i] = m_context->create_texture_2d(
-		    fmt::format("DI Reprojection Output Image - {}", i),
-		    m_width, m_height,
-		    VK_FORMAT_R16G16B16A16_SFLOAT,
-		    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
-		reprojection_moment_image[i] = m_context->create_texture_2d(
-		    fmt::format("DI Reprojection Moment Image - {}", i),
-		    m_width, m_height,
-		    VK_FORMAT_R16G16B16A16_SFLOAT,
-		    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
-		a_trous_image[i] = m_context->create_texture_2d(
-		    fmt::format("DI A-Trous Image - {}", i),
-		    m_width, m_height,
-		    VK_FORMAT_R16G16B16A16_SFLOAT,
-		    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
-		reprojection_output_view[i] = m_context->create_texture_view(
-		    fmt::format("DI Reprojection Output View - {}", i),
-		    reprojection_output_image[i].vk_image,
-		    VK_FORMAT_R16G16B16A16_SFLOAT);
-		reprojection_moment_view[i] = m_context->create_texture_view(
-		    fmt::format("DI Reprojection Moment View - {}", i),
-		    reprojection_moment_image[i].vk_image,
-		    VK_FORMAT_R16G16B16A16_SFLOAT);
-		a_trous_view[i] = m_context->create_texture_view(
-		    fmt::format("DI A-Trous View - {}", i),
-		    a_trous_image[i].vk_image,
-		    VK_FORMAT_R16G16B16A16_SFLOAT);
-	}
-
-	upsampling_image = m_context->create_texture_2d(
-	    "DI Upsampling Output Image",
-	    m_context->render_extent.width, m_context->render_extent.height,
-	    VK_FORMAT_R16G16B16A16_SFLOAT,
-	    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
-	upsampling_view = m_context->create_texture_view(
-	    "DI Upsampling Output View",
-	    upsampling_image.vk_image,
-	    VK_FORMAT_R16G16B16A16_SFLOAT);
-
 	m_raytrace.temporal.descriptor_set_layout = m_context->create_descriptor_layout()
 	                                                // Temporal Reservoir
 	                                                .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
@@ -228,75 +135,12 @@ RayTracedDI::RayTracedDI(const Context &context, const Scene &scene, const GBuff
 	                                                                 sizeof(m_upsampling.push_constants), VK_SHADER_STAGE_COMPUTE_BIT);
 	m_upsampling.pipeline        = m_context->create_compute_pipeline("di_upsampling.slang", m_upsampling.pipeline_layout);
 
-	m_context->update_descriptor()
-	    .write_storage_buffers(0, {temporal_reservoir_buffer.vk_buffer})
-	    .write_storage_buffers(1, {passthrough_reservoir_buffer.vk_buffer})
-	    .update(m_raytrace.temporal.descriptor_set);
-
-	m_context->update_descriptor()
-	    .write_storage_buffers(0, {spatial_reservoir_buffer.vk_buffer})
-	    .write_storage_buffers(1, {passthrough_reservoir_buffer.vk_buffer})
-	    .update(m_raytrace.spatial.descriptor_set);
-
-	m_context->update_descriptor()
-	    .write_storage_buffers(0, {temporal_reservoir_buffer.vk_buffer})
-	    .write_storage_buffers(1, {spatial_reservoir_buffer.vk_buffer})
-	    .write_storage_images(2, {raytraced_view})
-	    .update(m_raytrace.composite.descriptor_set);
-
-	for (uint32_t i = 0; i < 2; i++)
-	{
-		m_context->update_descriptor()
-		    .write_storage_images(0, {reprojection_output_view[i]})
-		    .write_storage_images(1, {reprojection_moment_view[i]})
-		    .write_sampled_images(2, {raytraced_view})
-		    .write_sampled_images(3, {reprojection_output_view[!i]})
-		    .write_sampled_images(4, {reprojection_moment_view[!i]})
-		    .write_storage_buffers(5, {denoise_tile_data_buffer.vk_buffer})
-		    .write_storage_buffers(6, {denoise_tile_dispatch_args_buffer.vk_buffer})
-		    .write_storage_buffers(7, {copy_tile_data_buffer.vk_buffer})
-		    .write_storage_buffers(8, {copy_tile_dispatch_args_buffer.vk_buffer})
-		    .update(m_reprojection.descriptor_sets[i]);
-
-		m_context->update_descriptor()
-		    .write_storage_images(0, {a_trous_view[0]})
-		    .write_sampled_images(1, {reprojection_output_view[i]})
-		    .write_storage_buffers(2, {copy_tile_data_buffer.vk_buffer})
-		    .update(m_denoise.copy_tiles.copy_reprojection_sets[i]);
-
-		m_context->update_descriptor()
-		    .write_storage_images(0, {a_trous_view[i]})
-		    .write_sampled_images(1, {a_trous_view[!i]})
-		    .write_storage_buffers(2, {copy_tile_data_buffer.vk_buffer})
-		    .update(m_denoise.copy_tiles.copy_atrous_sets[i]);
-
-		m_context->update_descriptor()
-		    .write_storage_images(0, {a_trous_view[0]})
-		    .write_sampled_images(1, {reprojection_output_view[i]})
-		    .write_storage_buffers(2, {denoise_tile_data_buffer.vk_buffer})
-		    .update(m_denoise.a_trous.filter_reprojection_sets[i]);
-
-		m_context->update_descriptor()
-		    .write_storage_images(0, {a_trous_view[i]})
-		    .write_sampled_images(1, {a_trous_view[!i]})
-		    .write_storage_buffers(2, {denoise_tile_data_buffer.vk_buffer})
-		    .update(m_denoise.a_trous.filter_atrous_sets[i]);
-	}
-
-	m_context->update_descriptor()
-	    .write_storage_images(0, {upsampling_view})
-	    .write_sampled_images(1, {a_trous_view[0]})
-	    .update(m_upsampling.descriptor_set);
-
 	descriptor.layout = m_context->create_descriptor_layout()
 	                        .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                        .create();
 	descriptor.set = m_context->allocate_descriptor_set(descriptor.layout);
-	m_context->update_descriptor()
-	    .write_sampled_images(0, {upsampling_view})
-	    .update(descriptor.set);
 
-	init();
+	create_resource();
 }
 
 RayTracedDI::~RayTracedDI()
@@ -371,27 +215,27 @@ void RayTracedDI::init()
 	        0, VK_ACCESS_SHADER_WRITE_BIT,
 	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL)
 	    .add_image_barrier(
-	        reprojection_output_image[0].vk_image,
+	        reprojection_output_image[m_context->ping_pong].vk_image,
 	        0, VK_ACCESS_SHADER_WRITE_BIT,
 	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL)
 	    .add_image_barrier(
-	        reprojection_output_image[1].vk_image,
+	        reprojection_output_image[!m_context->ping_pong].vk_image,
 	        0, VK_ACCESS_SHADER_READ_BIT,
 	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 	    .add_image_barrier(
-	        reprojection_moment_image[0].vk_image,
+	        reprojection_moment_image[m_context->ping_pong].vk_image,
 	        0, VK_ACCESS_SHADER_WRITE_BIT,
 	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL)
 	    .add_image_barrier(
-	        reprojection_moment_image[1].vk_image,
+	        reprojection_moment_image[!m_context->ping_pong].vk_image,
 	        0, VK_ACCESS_SHADER_READ_BIT,
 	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 	    .add_image_barrier(
-	        a_trous_image[0].vk_image,
+	        a_trous_image[m_context->ping_pong].vk_image,
 	        0, VK_ACCESS_SHADER_WRITE_BIT,
 	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL)
 	    .add_image_barrier(
-	        a_trous_image[1].vk_image,
+	        a_trous_image[!m_context->ping_pong].vk_image,
 	        0, VK_ACCESS_SHADER_READ_BIT,
 	        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 	    .add_image_barrier(
@@ -415,11 +259,18 @@ void RayTracedDI::init()
 	    .flush();
 }
 
+void RayTracedDI::resize()
+{
+	m_context->wait();
+	destroy_resource();
+	create_resource();
+}
+
 void RayTracedDI::draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass)
 {
-	m_raytrace.temporal.push_constants.gbuffer_mip = m_gbuffer_mip;
-	m_raytrace.spatial.push_constants.gbuffer_mip  = m_gbuffer_mip;
-	m_raytrace.composite.push_constants.gbuffer_mip  = m_gbuffer_mip;
+	m_raytrace.temporal.push_constants.gbuffer_mip  = m_gbuffer_mip;
+	m_raytrace.spatial.push_constants.gbuffer_mip   = m_gbuffer_mip;
+	m_raytrace.composite.push_constants.gbuffer_mip = m_gbuffer_mip;
 
 	recorder
 	    .begin_marker("Raytraced DI")
@@ -467,14 +318,12 @@ void RayTracedDI::draw(CommandBufferRecorder &recorder, const Scene &scene, cons
 	        VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
 	    .add_image_barrier(
 	        raytraced_image.vk_image,
-	        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, 
+	        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
 	        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 	    .insert(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
 	    .end_marker()
 
-
-
-		.begin_marker("Reprojection")
+	    .begin_marker("Reprojection")
 	    .bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, m_reprojection.pipeline_layout, {scene.descriptor.set, gbuffer_pass.descriptor.sets[m_context->ping_pong], m_reprojection.descriptor_sets[m_context->ping_pong]})
 	    .bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, m_reprojection.pipeline)
 	    .push_constants(m_reprojection.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, m_reprojection.push_constants)
@@ -584,18 +433,204 @@ void RayTracedDI::draw(CommandBufferRecorder &recorder, const Scene &scene, cons
 	        VK_ACCESS_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT)
 	    .insert()
 
-
 	    .end_marker();
 }
 
 bool RayTracedDI::draw_ui()
 {
 	bool update = false;
-	if (ImGui::TreeNode("DI"))
+	if (ImGui::TreeNode("RayTraced DI"))
 	{
 		update |= ImGui::Checkbox("Temporal Reuse", reinterpret_cast<bool *>(&m_raytrace.temporal.push_constants.temporal_reuse));
 		update |= ImGui::Checkbox("Spatial Reuse", reinterpret_cast<bool *>(&m_raytrace.spatial.push_constants.spatial_reuse));
 		ImGui::TreePop();
 	}
 	return update;
+}
+
+void RayTracedDI::create_resource()
+{
+	float scale_divisor = powf(2.0f, float(m_scale));
+
+	m_width  = static_cast<uint32_t>(static_cast<float>(m_context->render_extent.width) / scale_divisor);
+	m_height = static_cast<uint32_t>(static_cast<float>(m_context->render_extent.height) / scale_divisor);
+
+	m_gbuffer_mip = static_cast<uint32_t>(m_scale);
+
+	size_t reservoir_size = static_cast<size_t>(m_width * m_height) * sizeof(Reservoir);
+
+	temporal_reservoir_buffer = m_context->create_buffer(
+	    "DI Temporal Reservoir Buffer",
+	    reservoir_size,
+	    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+	    VMA_MEMORY_USAGE_GPU_ONLY);
+	passthrough_reservoir_buffer = m_context->create_buffer(
+	    "DI Passthrough Reservoir Buffer",
+	    reservoir_size,
+	    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+	    VMA_MEMORY_USAGE_GPU_ONLY);
+	spatial_reservoir_buffer = m_context->create_buffer(
+	    "DI Spatial Reservoir Buffer",
+	    reservoir_size,
+	    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+	    VMA_MEMORY_USAGE_GPU_ONLY);
+	denoise_tile_data_buffer = m_context->create_buffer(
+	    "DI Denoise Tile Data Buffer",
+	    sizeof(glm::ivec2) * static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))) * static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))),
+	    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+	    VMA_MEMORY_USAGE_GPU_ONLY);
+	copy_tile_data_buffer = m_context->create_buffer(
+	    "DI Copy Tile Data Buffer",
+	    sizeof(glm::ivec2) * static_cast<uint32_t>(ceil(float(m_width) / float(NUM_THREADS_X))) * static_cast<uint32_t>(ceil(float(m_height) / float(NUM_THREADS_Y))),
+	    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+	    VMA_MEMORY_USAGE_GPU_ONLY);
+	denoise_tile_dispatch_args_buffer = m_context->create_buffer(
+	    "DI Denoise Tile Dispatch Args Buffer",
+	    sizeof(int32_t) * 3,
+	    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+	    VMA_MEMORY_USAGE_GPU_ONLY);
+	copy_tile_dispatch_args_buffer = m_context->create_buffer(
+	    "DI Copy Tile Dispatch Args Buffer",
+	    sizeof(int32_t) * 3,
+	    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+	    VMA_MEMORY_USAGE_GPU_ONLY);
+
+	raytraced_image = m_context->create_texture_2d(
+	    "DI RayTraced Image",
+	    m_width, m_height,
+	    VK_FORMAT_R32G32B32A32_SFLOAT,
+	    VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+	raytraced_view = m_context->create_texture_view("DI RayTraced View", raytraced_image.vk_image, VK_FORMAT_R32G32B32A32_SFLOAT);
+
+	for (uint32_t i = 0; i < 2; i++)
+	{
+		reprojection_output_image[i] = m_context->create_texture_2d(
+		    fmt::format("DI Reprojection Output Image - {}", i),
+		    m_width, m_height,
+		    VK_FORMAT_R16G16B16A16_SFLOAT,
+		    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+		reprojection_moment_image[i] = m_context->create_texture_2d(
+		    fmt::format("DI Reprojection Moment Image - {}", i),
+		    m_width, m_height,
+		    VK_FORMAT_R16G16B16A16_SFLOAT,
+		    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+		a_trous_image[i] = m_context->create_texture_2d(
+		    fmt::format("DI A-Trous Image - {}", i),
+		    m_width, m_height,
+		    VK_FORMAT_R16G16B16A16_SFLOAT,
+		    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+		reprojection_output_view[i] = m_context->create_texture_view(
+		    fmt::format("DI Reprojection Output View - {}", i),
+		    reprojection_output_image[i].vk_image,
+		    VK_FORMAT_R16G16B16A16_SFLOAT);
+		reprojection_moment_view[i] = m_context->create_texture_view(
+		    fmt::format("DI Reprojection Moment View - {}", i),
+		    reprojection_moment_image[i].vk_image,
+		    VK_FORMAT_R16G16B16A16_SFLOAT);
+		a_trous_view[i] = m_context->create_texture_view(
+		    fmt::format("DI A-Trous View - {}", i),
+		    a_trous_image[i].vk_image,
+		    VK_FORMAT_R16G16B16A16_SFLOAT);
+	}
+
+	upsampling_image = m_context->create_texture_2d(
+	    "DI Upsampling Output Image",
+	    m_context->render_extent.width, m_context->render_extent.height,
+	    VK_FORMAT_R16G16B16A16_SFLOAT,
+	    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+	upsampling_view = m_context->create_texture_view(
+	    "DI Upsampling Output View",
+	    upsampling_image.vk_image,
+	    VK_FORMAT_R16G16B16A16_SFLOAT);
+
+	update_descriptor();
+	init();
+}
+
+void RayTracedDI::update_descriptor()
+{
+	m_context->update_descriptor()
+	    .write_storage_buffers(0, {temporal_reservoir_buffer.vk_buffer})
+	    .write_storage_buffers(1, {passthrough_reservoir_buffer.vk_buffer})
+	    .update(m_raytrace.temporal.descriptor_set);
+
+	m_context->update_descriptor()
+	    .write_storage_buffers(0, {spatial_reservoir_buffer.vk_buffer})
+	    .write_storage_buffers(1, {passthrough_reservoir_buffer.vk_buffer})
+	    .update(m_raytrace.spatial.descriptor_set);
+
+	m_context->update_descriptor()
+	    .write_storage_buffers(0, {temporal_reservoir_buffer.vk_buffer})
+	    .write_storage_buffers(1, {spatial_reservoir_buffer.vk_buffer})
+	    .write_storage_images(2, {raytraced_view})
+	    .update(m_raytrace.composite.descriptor_set);
+
+	for (uint32_t i = 0; i < 2; i++)
+	{
+		m_context->update_descriptor()
+		    .write_storage_images(0, {reprojection_output_view[i]})
+		    .write_storage_images(1, {reprojection_moment_view[i]})
+		    .write_sampled_images(2, {raytraced_view})
+		    .write_sampled_images(3, {reprojection_output_view[!i]})
+		    .write_sampled_images(4, {reprojection_moment_view[!i]})
+		    .write_storage_buffers(5, {denoise_tile_data_buffer.vk_buffer})
+		    .write_storage_buffers(6, {denoise_tile_dispatch_args_buffer.vk_buffer})
+		    .write_storage_buffers(7, {copy_tile_data_buffer.vk_buffer})
+		    .write_storage_buffers(8, {copy_tile_dispatch_args_buffer.vk_buffer})
+		    .update(m_reprojection.descriptor_sets[i]);
+
+		m_context->update_descriptor()
+		    .write_storage_images(0, {a_trous_view[0]})
+		    .write_sampled_images(1, {reprojection_output_view[i]})
+		    .write_storage_buffers(2, {copy_tile_data_buffer.vk_buffer})
+		    .update(m_denoise.copy_tiles.copy_reprojection_sets[i]);
+
+		m_context->update_descriptor()
+		    .write_storage_images(0, {a_trous_view[i]})
+		    .write_sampled_images(1, {a_trous_view[!i]})
+		    .write_storage_buffers(2, {copy_tile_data_buffer.vk_buffer})
+		    .update(m_denoise.copy_tiles.copy_atrous_sets[i]);
+
+		m_context->update_descriptor()
+		    .write_storage_images(0, {a_trous_view[0]})
+		    .write_sampled_images(1, {reprojection_output_view[i]})
+		    .write_storage_buffers(2, {denoise_tile_data_buffer.vk_buffer})
+		    .update(m_denoise.a_trous.filter_reprojection_sets[i]);
+
+		m_context->update_descriptor()
+		    .write_storage_images(0, {a_trous_view[i]})
+		    .write_sampled_images(1, {a_trous_view[!i]})
+		    .write_storage_buffers(2, {denoise_tile_data_buffer.vk_buffer})
+		    .update(m_denoise.a_trous.filter_atrous_sets[i]);
+	}
+
+	m_context->update_descriptor()
+	    .write_storage_images(0, {upsampling_view})
+	    .write_sampled_images(1, {a_trous_view[0]})
+	    .update(m_upsampling.descriptor_set);
+
+	m_context->update_descriptor()
+	    .write_sampled_images(0, {upsampling_view})
+	    .update(descriptor.set);
+}
+
+void RayTracedDI::destroy_resource()
+{
+	m_context->destroy(raytraced_image)
+	    .destroy(raytraced_view)
+	    .destroy(reprojection_output_image)
+	    .destroy(reprojection_output_view)
+	    .destroy(reprojection_moment_image)
+	    .destroy(reprojection_moment_view)
+	    .destroy(a_trous_image)
+	    .destroy(a_trous_view)
+	    .destroy(upsampling_image)
+	    .destroy(upsampling_view)
+	    .destroy(temporal_reservoir_buffer)
+	    .destroy(passthrough_reservoir_buffer)
+	    .destroy(spatial_reservoir_buffer)
+	    .destroy(denoise_tile_data_buffer)
+	    .destroy(copy_tile_data_buffer)
+	    .destroy(denoise_tile_dispatch_args_buffer)
+	    .destroy(copy_tile_dispatch_args_buffer);
 }

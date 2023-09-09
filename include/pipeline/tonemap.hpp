@@ -1,8 +1,10 @@
 #pragma once
 
 #include "context.hpp"
-#include "path_tracing.hpp"
-#include "deferred.hpp"
+#include "pipeline/bloom.hpp"
+#include "pipeline/deferred.hpp"
+#include "pipeline/path_tracing.hpp"
+#include "pipeline/taa.hpp"
 
 struct Tonemap
 {
@@ -11,15 +13,36 @@ struct Tonemap
 
 	~Tonemap();
 
+	void init();
+
+	void resize();
+
 	void draw(CommandBufferRecorder &recorder, const PathTracing &path_tracing);
 
 	void draw(CommandBufferRecorder &recorder, const DeferredPass &deferred);
 
+	void draw(CommandBufferRecorder &recorder, const TAA &taa);
+
+	void draw(CommandBufferRecorder &recorder, const Bloom &bloom);
+
 	bool draw_ui();
+
+  private:
+	void create_resource();
+
+	void update_descriptor();
+
+	void destroy_resource();
 
   public:
 	Texture     render_target;
 	VkImageView render_target_view = VK_NULL_HANDLE;
+
+	struct
+	{
+		VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+		VkDescriptorSet       set    = VK_NULL_HANDLE;
+	} descriptor;
 
   private:
 	const Context *m_context = nullptr;
@@ -39,7 +62,7 @@ struct Tonemap
 	{
 		VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
 		VkPipeline       pipeline        = VK_NULL_HANDLE;
-	}m_average_lum;
+	} m_average_lum;
 
 	VkPipelineLayout m_pipeline_layout = VK_NULL_HANDLE;
 	VkPipeline       m_pipeline        = VK_NULL_HANDLE;
@@ -49,5 +72,5 @@ struct Tonemap
 		VkDescriptorSetLayout input_layout  = VK_NULL_HANDLE;
 		VkDescriptorSetLayout output_layout = VK_NULL_HANDLE;
 		VkDescriptorSet       output_set    = VK_NULL_HANDLE;
-	}m_descriptor;
+	} m_descriptor;
 };

@@ -27,7 +27,7 @@ float3 direct_lighting(ShadeState sstate, float3 wo, float3 T, inout uint seed)
     LightBuffer.GetDimensions(num_light, light_stride);
     float3 radiance = 0.0;
     uint light_count = min(num_light, MAX_NUM_LIGHTS);
-    float pdf = float(MAX_NUM_LIGHTS) / float(num_light);
+    float pdf = float(light_count) / float(num_light);
     for (uint i = 0; i < light_count; i++)
     {
         uint light_idx = uint(float(num_light) * rand(seed));

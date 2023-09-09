@@ -91,6 +91,12 @@ void main(CSParam param)
         Lo = EnvMap.SampleLevel(Samplers[int(SamplerType::Linear)], direction, 0.0).rgb;
     }
 
+    float lum = dot(Lo, float3(0.212671, 0.715160, 0.072169));
+    if (lum > 1.0)
+    {
+        Lo *= 1.0 / lum;
+    }
+
     Radiance[coord] = float4(Lo, 0.0);
     DirectionDistance[coord] = float4(direction, hit_distance);
 }

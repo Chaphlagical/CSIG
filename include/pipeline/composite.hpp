@@ -1,6 +1,7 @@
 #pragma once
 
 #include "context.hpp"
+#include "pipeline/fsr.hpp"
 #include "pipeline/gbuffer.hpp"
 #include "pipeline/path_tracing.hpp"
 #include "pipeline/raytrace_ao.hpp"
@@ -33,21 +34,26 @@ struct CompositePass
 
 	void init();
 
-	void draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer, GBufferOption option);
+	void resize();
 
-	void draw(CommandBufferRecorder &recorder, const Scene &scene, const Tonemap &tonemap);
+	void draw(CommandBufferRecorder     &recorder,
+	          const Scene               &scene,
+	          const GBufferPass         &gbuffer,
+	          const RayTracedAO         &ao,
+	          const RayTracedDI         &di,
+	          const RayTracedGI         &gi,
+	          const RayTracedReflection &reflection,
+	          const FSR1Pass            &fsr);
 
-	void draw(CommandBufferRecorder &recorder, const Scene &scene, const RayTracedAO &ao);
-
-	void draw(CommandBufferRecorder &recorder, const Scene &scene, const RayTracedDI &di);
-
-	void draw(CommandBufferRecorder &recorder, const Scene &scene, const RayTracedGI &gi);
-
-	void draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer, const RayTracedGI &gi);
-
-	void draw(CommandBufferRecorder &recorder, const Scene &scene, const RayTracedReflection &reflection);
+	bool draw_ui();
 
   private:
+	void create_resource();
+
+	void update_descriptor();
+
+	void destroy_resource();
+
 	void blit(CommandBufferRecorder &recorder);
 
   public:
@@ -59,6 +65,20 @@ struct CompositePass
 
 	VkDescriptorSetLayout m_descriptor_layout = VK_NULL_HANDLE;
 	VkDescriptorSet       m_descriptor_set    = VK_NULL_HANDLE;
+
+	enum class Option : int32_t
+	{
+		Result,
+		Albedo,
+		Normal,
+		Metallic,
+		Roughness,
+		Position,
+		AO,
+		Reflection,
+		DI,
+		GI
+	} option = Option::Result;
 
 	struct
 	{

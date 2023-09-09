@@ -13,9 +13,18 @@ struct RayTracedAO
 
 	void init();
 
+	void resize();
+
 	void draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass);
 
 	bool draw_ui();
+
+  private:
+	void create_resource();
+
+	void update_descriptor();
+
+	void destroy_resource();
 
   public:
 	// Raytraced AO image
@@ -48,10 +57,12 @@ struct RayTracedAO
 	{
 		VkDescriptorSetLayout layout = VK_NULL_HANDLE;
 		VkDescriptorSet       set    = VK_NULL_HANDLE;
-	}descriptor;
+	} descriptor;
 
   private:
 	const Context *m_context = nullptr;
+
+	RayTracedScale m_scale = RayTracedScale::Full_Res;
 
 	uint32_t m_width       = 0;
 	uint32_t m_height      = 0;
@@ -107,8 +118,8 @@ struct RayTracedAO
 	{
 		struct
 		{
-			int32_t  gbuffer_mip = 0;
-			float    power       = 1.2f;
+			int32_t gbuffer_mip = 0;
+			float   power       = 1.2f;
 		} push_constant;
 
 		VkPipelineLayout      pipeline_layout       = VK_NULL_HANDLE;

@@ -140,7 +140,7 @@ void main(CSParam param)
                                  history_moments,
                                  history_length);
 
-        history_length = min(32.0f, success ? history_length + 1.0f : 1.0f);
+        history_length = min(16.0f, success ? history_length + 1.0f : 1.0f);
 
         if (success)
         {

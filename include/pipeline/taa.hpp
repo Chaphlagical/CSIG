@@ -14,9 +14,18 @@ struct TAA
 
 	void init();
 
+	void resize();
+
 	void draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass, const DeferredPass &deferred);
 
 	bool draw_ui();
+
+  private:
+	void create_resource();
+
+	void update_descriptor();
+
+	void destroy_resource();
 
   public:
 	std::array<Texture, 2>     output_image;
@@ -31,15 +40,10 @@ struct TAA
   private:
 	const Context *m_context = nullptr;
 
-	float m_delta_time = 0.f;
-
 	struct
 	{
-		glm::vec4 time_params   = {};
-		glm::vec4 texel_size    = {};
-		float     feed_back_min = 0.88f;
-		float     feed_back_max = 0.97f;
-		uint32_t  sharpen       = 1;
+		glm::vec4 texel_size       = {};
+		float     min_blend_factor = 0.3f;
 	} m_push_constants;
 
 	VkPipelineLayout               m_pipeline_layout       = VK_NULL_HANDLE;

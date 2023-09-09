@@ -48,7 +48,7 @@ inline glm::vec3 smooth_step(const glm::vec3 &v1, const glm::vec3 &v2, float t)
 }
 
 Application::Application() :
-    m_context{1920, 1080},
+    m_context{1920, 1080, 1.3f},
     m_scene{m_context},
     m_renderer{
         .ui{m_context},
@@ -60,6 +60,7 @@ Application::Application() :
         .reflection{m_context, m_scene, m_renderer.gbuffer, m_renderer.gi},
         .deferred{m_context, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.gi, m_renderer.reflection},
         .taa{m_context, m_scene, m_renderer.gbuffer, m_renderer.deferred},
+        .bloom{m_context},
         .tonemap{m_context},
         .fsr{m_context, m_renderer.tonemap},
         .composite{m_context, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.gi, m_renderer.reflection},
@@ -140,7 +141,45 @@ void Application::run()
 
 void Application::begin_render()
 {
-	m_context.acquire_next_image(m_present_complete);
+	if (!m_context.acquire_next_image(m_present_complete))
+	{
+		m_context.wait();
+		m_context.resize();
+		m_context.acquire_next_image(m_present_complete);
+		m_renderer.ui.resize();
+		m_resize = true;
+	}
+	if (m_resize)
+	{
+		m_context.ping_pong = false;
+
+		const float scale_factor[] = {
+		    1.f,
+		    1.3f,
+		    1.5f,
+		    1.7f,
+		    2.f,
+		};
+
+		m_context.upscale_factor = scale_factor[(uint32_t) m_renderer.fsr.option];
+		m_context.render_extent  = VkExtent2D{
+		     .width  = (uint32_t) ((float) m_context.extent.width / m_context.upscale_factor),
+		     .height = (uint32_t) ((float) m_context.extent.height / m_context.upscale_factor),
+        };
+
+		m_renderer.gbuffer.resize();
+		m_renderer.ao.resize();
+		m_renderer.di.resize();
+		m_renderer.gi.resize();
+		m_renderer.reflection.resize();
+		m_renderer.taa.resize();
+		m_renderer.tonemap.resize();
+		m_renderer.deferred.resize();
+		m_renderer.fsr.resize();
+		m_renderer.composite.resize();
+
+		m_resize = false;
+	}
 	m_context.wait(m_fences[m_current_frame]);
 	m_recorders[m_current_frame].begin();
 }
@@ -230,10 +269,10 @@ void Application::update_view()
 	}
 	else
 	{
-		m_camera.velocity = glm::vec3(0.f);
+		m_camera.velocity = smooth_step(m_camera.velocity, glm::vec3(0.f), 0.2f);
 		m_prev_jitter     = m_current_jitter;
 		glm::vec2 halton  = m_jitter_samples[m_num_frames % m_jitter_samples.size()];
-		m_current_jitter  = glm::vec2(halton.x / float(m_context.render_extent.width), halton.y / float(m_context.render_extent.height));
+		m_current_jitter  = 0.5f * glm::vec2(halton.x / float(m_context.render_extent.width), halton.y / float(m_context.render_extent.height));
 
 		hide_cursor = false;
 	}
@@ -252,6 +291,7 @@ void Application::update_view()
 		    .prev_projection          = m_camera.prev_proj,
 		    .prev_view_projection     = m_camera.prev_view_proj,
 		    .prev_view_projection_inv = m_camera.prev_view_proj_inv,
+		    .extent                   = {m_context.render_extent.width, m_context.render_extent.height, m_context.extent.width, m_context.extent.height},
 		    .cam_pos                  = glm::vec4(m_camera.position, static_cast<float>(m_num_frames)),
 		    .prev_cam_pos             = glm::vec4(m_camera.prev_position, 0.f),
 		    .jitter                   = glm::vec4(m_current_jitter, m_prev_jitter),
@@ -279,32 +319,12 @@ void Application::render(CommandBufferRecorder &recorder)
 {
 	m_renderer.gbuffer.draw(recorder, m_scene);
 
-	switch (m_render_mode)
-	{
-		case RenderMode::Normal:
-			m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, CompositePass::GBufferOption::Normal);
-			break;
-		case RenderMode::Albedo:
-			m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, CompositePass::GBufferOption::Albedo);
-			break;
-		case RenderMode::Roughness:
-			m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, CompositePass::GBufferOption::Roughness);
-			break;
-		case RenderMode::Metallic:
-			m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, CompositePass::GBufferOption::Metallic);
-			break;
-		case RenderMode::Position:
-			m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, CompositePass::GBufferOption::Position);
-			break;
-		default:
-			break;
-	}
-
 	if (m_render_mode == RenderMode::PathTracing)
 	{
 		m_renderer.path_tracing.draw(recorder, m_scene, m_renderer.gbuffer);
 		m_renderer.tonemap.draw(recorder, m_renderer.path_tracing);
-		m_renderer.composite.draw(recorder, m_scene, m_renderer.tonemap);
+		m_renderer.fsr.draw(recorder, m_renderer.tonemap);
+		m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.gi, m_renderer.reflection, m_renderer.fsr);
 	}
 	else
 	{
@@ -314,31 +334,12 @@ void Application::render(CommandBufferRecorder &recorder)
 		m_renderer.reflection.draw(recorder, m_scene, m_renderer.gbuffer, m_renderer.gi);
 		m_renderer.deferred.draw(recorder, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.gi, m_renderer.reflection);
 		m_renderer.taa.draw(recorder, m_scene, m_renderer.gbuffer, m_renderer.deferred);
-		m_renderer.tonemap.draw(recorder, m_renderer.deferred);
-		m_renderer.fsr.draw(recorder);
-		if (m_render_mode == RenderMode::AO)
-		{
-			m_renderer.composite.draw(recorder, m_scene, m_renderer.ao);
-		}
-		else if (m_render_mode == RenderMode::Reflection)
-		{
-			m_renderer.composite.draw(recorder, m_scene, m_renderer.reflection);
-		}
-		else if (m_render_mode == RenderMode::DI)
-		{
-			m_renderer.composite.draw(recorder, m_scene, m_renderer.di);
-		}
-		else if (m_render_mode == RenderMode::GI)
-		{
-			m_renderer.composite.draw(recorder, m_scene, m_renderer.gi);
-			// m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, m_renderer.gi);
-		}
-		else if (m_render_mode == RenderMode::Hybrid)
-		{
-			m_renderer.composite.draw(recorder, m_scene, m_renderer.tonemap);
-		}
+		m_renderer.bloom.draw(recorder, m_renderer.taa);
+		m_renderer.tonemap.draw(recorder, m_renderer.bloom);
+		m_renderer.fsr.draw(recorder, m_renderer.tonemap);
+		m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.gi, m_renderer.reflection, m_renderer.fsr);
 	}
-	m_renderer.ui.render(recorder, m_current_frame);
+	m_renderer.ui.render(recorder, m_context.image_index);
 }
 
 void Application::update_ui()
@@ -364,6 +365,7 @@ void Application::update_ui()
 			{
 				m_scene.load_scene(path);
 				m_scene.update();
+				m_renderer.gi.update(m_scene);
 				m_update = true;
 			}
 		}
@@ -380,8 +382,9 @@ void Application::update_ui()
 				m_update = true;
 			}
 		}
-		const char *const render_modes[] = {"Path Tracing", "Hybrid", "Normal", "Albedo", "Roughness", "Metallic", "Position", "AO", "Reflection", "DI", "GI"};
-		if (ImGui::Combo("Render Mode", reinterpret_cast<int *>(&m_render_mode), render_modes, 11))
+
+		const char *const render_modes[] = {"Path Tracing", "Hybrid"};
+		if (ImGui::Combo("Render Mode", reinterpret_cast<int32_t *>(&m_render_mode), render_modes, 2))
 		{
 			m_context.ping_pong = false;
 			m_context.wait();
@@ -393,6 +396,7 @@ void Application::update_ui()
 			m_renderer.reflection.init();
 			m_renderer.deferred.init();
 			m_renderer.taa.init();
+			m_renderer.bloom.init();
 			m_renderer.fsr.init();
 			m_renderer.composite.init();
 		}
@@ -401,30 +405,29 @@ void Application::update_ui()
 		if (m_render_mode == RenderMode::PathTracing)
 		{
 			update |= m_renderer.path_tracing.draw_ui();
+			update |= m_renderer.tonemap.draw_ui();
+			update |= m_renderer.fsr.draw_ui();
 			if (update)
 			{
 				m_renderer.path_tracing.reset_frames();
 			}
 		}
-		if (m_render_mode == RenderMode::Hybrid || m_render_mode == RenderMode::AO)
+		else
 		{
+			ImGui::Checkbox("Enable TAA", &m_enable_taa);
+
 			update |= m_renderer.ao.draw_ui();
-		}
-		if (m_render_mode == RenderMode::Hybrid || m_render_mode == RenderMode::DI)
-		{
 			update |= m_renderer.di.draw_ui();
-		}
-		if (m_render_mode == RenderMode::Hybrid || m_render_mode == RenderMode::Reflection)
-		{
+			update |= m_renderer.gi.draw_ui();
 			update |= m_renderer.reflection.draw_ui();
-		}
-		if (m_render_mode == RenderMode::Hybrid)
-		{
 			update |= m_renderer.deferred.draw_ui();
-		}
-		if (m_render_mode == RenderMode::Hybrid || m_render_mode == RenderMode::PathTracing)
-		{
+			update |= m_renderer.taa.draw_ui();
+			update |= m_renderer.bloom.draw_ui();
 			update |= m_renderer.tonemap.draw_ui();
+			bool fsr_update = m_renderer.fsr.draw_ui();
+			m_resize |= fsr_update;
+			update |= fsr_update;
+			update |= m_renderer.composite.draw_ui();
 		}
 
 		ImGui::End();

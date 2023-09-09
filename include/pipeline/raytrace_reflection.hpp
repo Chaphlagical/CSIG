@@ -14,9 +14,18 @@ struct RayTracedReflection
 
 	void init();
 
+	void resize();
+
 	void draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass, const RayTracedGI &raytraced_gi);
 
 	bool draw_ui();
+
+  private:
+	void create_resource();
+
+	void update_descriptor();
+
+	void destroy_resource();
 
   public:
 	// Ray trace image
@@ -52,6 +61,8 @@ struct RayTracedReflection
 
   private:
 	const Context *m_context = nullptr;
+
+	RayTracedScale m_scale = RayTracedScale::Full_Res;
 
 	uint32_t m_width       = 0;
 	uint32_t m_height      = 0;

@@ -334,6 +334,7 @@ struct Context
 	VkDescriptorPool vk_descriptor_pool = VK_NULL_HANDLE;
 
 	VkFormat vk_format = VK_FORMAT_UNDEFINED;
+	VkSurfaceFormatKHR surface_format = {};
 
 	VkCommandPool graphics_cmd_pool = VK_NULL_HANDLE;
 	VkCommandPool compute_cmd_pool  = VK_NULL_HANDLE;
@@ -354,6 +355,8 @@ struct Context
 	VkExtent2D extent        = {};
 	VkExtent2D render_extent = {};
 
+	float upscale_factor = 1.f;
+
 	uint32_t image_index = 0;
 	bool     ping_pong   = false;
 
@@ -367,6 +370,8 @@ struct Context
 	explicit Context(uint32_t width = 0, uint32_t height = 0, float upscale_factor = 1.f);
 
 	~Context();
+
+	void resize();
 
 	CommandBufferRecorder record_command(bool compute = false) const;
 
@@ -490,7 +495,7 @@ struct Context
 
 	void wait() const;
 
-	void acquire_next_image(VkSemaphore semaphore);
+	bool acquire_next_image(VkSemaphore semaphore);
 
 	void blit_back_buffer(
 	    VkCommandBuffer cmd_buffer,
