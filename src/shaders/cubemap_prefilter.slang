@@ -126,5 +126,4 @@ void main(CSParam param)
 
     prefilter_color /= total_weight;
     PrefilterMap[int3(param.DispatchThreadID.xyz)] = float4(prefilter_color, 1.0);
-    //PrefilterMap[int3(param.DispatchThreadID.xyz)] = float4(colors[level], 1.0);
 }

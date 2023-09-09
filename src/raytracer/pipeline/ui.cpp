@@ -54,7 +54,7 @@ UIPass::UIPass(const Context &context) :
 
 	ImGui_ImplVulkan_DestroyFontUploadObjects();
 
-	io.Fonts->AddFontFromFileTTF("assets/fonts/ArialUnicodeMS.ttf", 20.0f, NULL, io.Fonts->GetGlyphRangesChineseFull());
+	io.Fonts->AddFontFromFileTTF("assets/fonts/ArialUnicodeMS.ttf", 60.0f, NULL, io.Fonts->GetGlyphRangesChineseFull());
 }
 
 UIPass::~UIPass()

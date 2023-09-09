@@ -150,6 +150,39 @@ struct CommandBufferRecorder
 	         .baseArrayLayer = 0,
 	         .layerCount     = 1,
         });
+	CommandBufferRecorder &copy_image_to_buffer(
+	    VkImage                         image,
+	    VkBuffer                        buffer,
+	    const VkExtent3D               &extent,
+	    const VkOffset3D               &offset = {0, 0, 0},
+	    const VkImageSubresourceLayers &range  = {
+	         .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+	         .mipLevel       = 0,
+	         .baseArrayLayer = 0,
+	         .layerCount     = 1,
+        });
+
+	CommandBufferRecorder &blit_image(
+	    VkImage                         src_image,
+	    VkImage                         dst_image,
+	    const VkOffset3D               &src_offset,
+	    const VkOffset3D               &dst_offset,
+	    const VkFilter                 &filter    = VK_FILTER_LINEAR,
+	    const VkOffset3D               &src_start = {0, 0, 0},
+	    const VkOffset3D               &dst_start = {0, 0, 0},
+	    const VkImageSubresourceLayers &src_range = {
+	        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+	        .mipLevel       = 0,
+	        .baseArrayLayer = 0,
+	        .layerCount     = 1,
+	    },
+	    const VkImageSubresourceLayers &dst_range = {
+	        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+	        .mipLevel       = 0,
+	        .baseArrayLayer = 0,
+	        .layerCount     = 1,
+	    });
+
 	CommandBufferRecorder &bind_descriptor_set(
 	    VkPipelineBindPoint                 bind_point,
 	    VkPipelineLayout                    pipeline_layout,
@@ -333,7 +366,7 @@ struct Context
 	VkPipelineCache  vk_pipeline_cache  = VK_NULL_HANDLE;
 	VkDescriptorPool vk_descriptor_pool = VK_NULL_HANDLE;
 
-	VkFormat vk_format = VK_FORMAT_UNDEFINED;
+	VkFormat           vk_format      = VK_FORMAT_UNDEFINED;
 	VkSurfaceFormatKHR surface_format = {};
 
 	VkCommandPool graphics_cmd_pool = VK_NULL_HANDLE;

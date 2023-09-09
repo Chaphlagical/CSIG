@@ -27,7 +27,6 @@ void main(CSParam param)
     uint width = uint(CUBEMAP_SIZE * pow(0.5, CUBEMAP_MIP_LEVEL));
     uint height = uint(CUBEMAP_SIZE * pow(0.5, CUBEMAP_MIP_LEVEL));
 
-    // Generate spherical harmonics basis
     float3  dir         = calculate_cubemap_direction(param.DispatchThreadID.z, param.DispatchThreadID.x, param.DispatchThreadID.y, width, height);
     float solid_angle = calculate_solid_angle(param.DispatchThreadID.x, param.DispatchThreadID.y, width, height);
     float3  texel       = EnvMap.SampleLevel(Sampler, dir, CUBEMAP_MIP_LEVEL).rgb;

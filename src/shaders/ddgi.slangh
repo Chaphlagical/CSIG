@@ -29,21 +29,15 @@ int3 base_grid_coord(in DDGIUniforms ddgi, float3 X)
     return clamp(int3((X - ddgi.grid_start_position) / ddgi.grid_step), int3(0, 0, 0), int3(ddgi.probe_counts) - int3(1, 1, 1));
 }
 
-// ------------------------------------------------------------------------
-
 float3 grid_coord_to_position(in DDGIUniforms ddgi, int3 c)
 {
     return ddgi.grid_step * float3(c) + ddgi.grid_start_position;
 }
 
-// ------------------------------------------------------------------------
-
 int grid_coord_to_probe_index(in DDGIUniforms ddgi, in int3 probe_coords)
 {
     return int(probe_coords.x + probe_coords.y * ddgi.probe_counts.x + probe_coords.z * ddgi.probe_counts.x * ddgi.probe_counts.y);
 }
-
-// ------------------------------------------------------------------------
 
 int3 probe_index_to_grid_coord(in DDGIUniforms ddgi, int index)
 {
@@ -64,8 +58,6 @@ int3 probe_index_to_grid_coord(in DDGIUniforms ddgi, int index)
     return i_pos;
 }
 
-// ------------------------------------------------------------------------
-
 float3 probe_location(in DDGIUniforms ddgi, int index)
 {
     // Compute grid coord from instance ID.
@@ -75,42 +67,30 @@ float3 probe_location(in DDGIUniforms ddgi, int index)
     return grid_coord_to_position(ddgi, grid_coord);
 }
 
-// ------------------------------------------------------------------------
-
 float square(float v)
 {
     return v * v;
 }
-
-// ------------------------------------------------------------------------
 
 float3 square(float3 v)
 {
     return v * v;
 }
 
-// ------------------------------------------------------------------------
-
 float pow3(float x)
 {
     return x * x * x;
 }
-
-// ------------------------------------------------------------------------
 
 float sign_not_zero(in float k)
 {
     return (k >= 0.0) ? 1.0 : -1.0;
 }
 
-// ------------------------------------------------------------------------
-
 float2 sign_not_zero(in float2 v)
 {
     return float2(sign_not_zero(v.x), sign_not_zero(v.y));
 }
-
-// ------------------------------------------------------------------------
 
 float2 oct_encode(in float3 v)
 {
@@ -120,8 +100,6 @@ float2 oct_encode(in float3 v)
         result = (1.0 - abs(result.yx)) * sign_not_zero(result.xy);
     return result;
 }
-
-// ------------------------------------------------------------------
 
 float3 oct_decode(float2 o)
 {
@@ -133,16 +111,12 @@ float3 oct_decode(float2 o)
     return normalize(v);
 }
 
-// ------------------------------------------------------------------------
-
 int probe_id(float2 texel_xy, int full_texture_width, int probe_side_length)
 {
     int probe_with_border_side = probe_side_length + 2;
     int probes_per_side = (full_texture_width - 2) / probe_with_border_side;
     return int(texel_xy.x / probe_with_border_side) + probes_per_side * int(texel_xy.y / probe_with_border_side);
 }
-
-// ------------------------------------------------------------------------
 
 // Compute normalized oct coord, mapping top left of top left pixel to (-1,-1)
 float2 normalized_oct_coord(int2 frag_coord, int probe_side_length)
@@ -153,8 +127,6 @@ float2 normalized_oct_coord(int2 frag_coord, int probe_side_length)
     // Add back the half pixel to get pixel center normalized coordinates
     return (float2(oct_frag_coord) + float2(0.5f)) * (2.0f / float(probe_side_length)) - float2(1.0f, 1.0f);
 }
-
-// ------------------------------------------------------------------------
 
 float2 texture_coord_from_direction(float3 dir, int probe_index, int full_texture_width, int full_texture_height, int probe_side_length)
 {
@@ -177,8 +149,6 @@ float2 texture_coord_from_direction(float3 dir, int probe_index, int full_textur
 
     return float2(normalized_probe_top_left_position + oct_coord_normalized_to_texture_dimensions);
 }
-
-// ------------------------------------------------------------------------
 
 float3 sample_irradiance(in DDGIUniforms ddgi, float3 P, float3 N, float3 Wo, Texture2D irradiance_texture, Texture2D depth_texture)
 {

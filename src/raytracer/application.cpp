@@ -13,6 +13,9 @@
 
 #include <filesystem>
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb/stb_image_write.h>
+
 #define HALTON_SAMPLES 16
 #define CAMERA_NEAR_PLANE 0.01f
 #define CAMERA_FAR_PLANE 1000.f
@@ -254,6 +257,7 @@ void Application::update_view()
 		}
 
 		m_camera.speed += 0.1f * ImGui::GetIO().MouseWheel;
+		m_camera.speed    = std::max(0.f, m_camera.speed);
 		m_camera.velocity = smooth_step(m_camera.velocity, direction * m_camera.speed, 0.2f);
 		m_camera.position += ImGui::GetIO().DeltaTime * m_camera.velocity;
 
@@ -322,7 +326,8 @@ void Application::render(CommandBufferRecorder &recorder)
 	if (m_render_mode == RenderMode::PathTracing)
 	{
 		m_renderer.path_tracing.draw(recorder, m_scene, m_renderer.gbuffer);
-		m_renderer.tonemap.draw(recorder, m_renderer.path_tracing);
+		m_renderer.bloom.draw(recorder, m_renderer.path_tracing);
+		m_renderer.tonemap.draw(recorder, m_renderer.bloom);
 		m_renderer.fsr.draw(recorder, m_renderer.tonemap);
 		m_renderer.composite.draw(recorder, m_scene, m_renderer.gbuffer, m_renderer.ao, m_renderer.di, m_renderer.gi, m_renderer.reflection, m_renderer.fsr);
 	}
@@ -349,6 +354,51 @@ void Application::update_ui()
 	if (ImGui::IsKeyPressed(ImGuiKey_G, false))
 	{
 		m_enable_ui = !m_enable_ui;
+	}
+
+	if (ImGui::IsKeyPressed(ImGuiKey_H, false))
+	{
+		char *output_path = nullptr;
+		if (NFD_SaveDialog("png", std::filesystem::current_path().string().c_str(), &output_path) == NFD_OKAY)
+		{
+			m_context.wait();
+			Buffer  image_buffer = m_context.create_buffer("Image Buffer", sizeof(glm::vec4) * m_context.extent.width * m_context.extent.height, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+			Texture stage_image  = m_context.create_texture_2d("Stage Image", m_context.extent.width, m_context.extent.height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+
+			m_context.record_command()
+			    .begin()
+			    .insert_barrier()
+			    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+			                       VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+			                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+			    .add_image_barrier(stage_image.vk_image,
+			                       0, VK_ACCESS_TRANSFER_WRITE_BIT,
+			                       VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+			    .insert()
+			    .blit_image(
+			        m_context.swapchain_images[m_context.image_index], stage_image.vk_image,
+			        {(int32_t) m_context.extent.width, (int32_t) m_context.extent.height, 1},
+			        {(int32_t) m_context.extent.width, (int32_t) m_context.extent.height, 1})
+			    .insert_barrier()
+			    .add_image_barrier(stage_image.vk_image,
+			                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+			                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+			    .insert()
+			    .copy_image_to_buffer(stage_image.vk_image, image_buffer.vk_buffer, {m_context.extent.width, m_context.extent.height, 1})
+			    .insert_barrier()
+			    .add_image_barrier(m_context.swapchain_images[m_context.image_index],
+			                       VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_MEMORY_READ_BIT,
+			                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+			    .insert()
+			    .end()
+			    .flush();
+			std::vector<float> image_data(4 * m_context.extent.width * m_context.extent.height);
+			m_context.buffer_copy_to_host(image_data.data(), sizeof(float) * image_data.size(), image_buffer, true);
+			std::string output_name = std::filesystem::path(output_path).extension() == ".png" ? output_path : fmt::format("{}.png", output_path);
+			stbi_write_png(output_name.c_str(), (int32_t) m_context.extent.width, (int32_t) m_context.extent.height, 4, image_data.data(), (int32_t) m_context.extent.width * 4);
+			m_context.destroy(image_buffer)
+			    .destroy(stage_image);
+		}
 	}
 
 	if (m_enable_ui)

@@ -51,6 +51,4 @@ float compute_edge_stopping_weight(
     return w;
 }
 
-// ------------------------------------------------------------------
-
 #endif

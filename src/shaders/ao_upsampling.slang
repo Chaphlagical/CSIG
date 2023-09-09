@@ -52,7 +52,6 @@ void main(CSParam param)
         float2 coarse_tex_coord = tex_coord + kernal[i] * texel_size;
         float coarse_depth = GBufferC.SampleLevel(Samplers[int(SamplerType::Linear)], coarse_tex_coord, push_constant.gbuffer_mip).a;
 
-        // If depth belongs to skybox, skip
         if (coarse_depth == -1.0f)
             continue;
 

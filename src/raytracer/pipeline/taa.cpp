@@ -9,10 +9,6 @@
 #define NUM_THREADS_X 8
 #define NUM_THREADS_Y 8
 
-static unsigned char g_taa_comp_spv_data[] = {
-#include "taa.comp.spv.h"
-};
-
 TAA::TAA(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass, const DeferredPass &deferred) :
     m_context(&context)
 {

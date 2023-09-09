@@ -454,6 +454,41 @@ CommandBufferRecorder &CommandBufferRecorder::copy_buffer_to_image(VkBuffer buff
 	return *this;
 }
 
+CommandBufferRecorder &CommandBufferRecorder::copy_image_to_buffer(VkImage image, VkBuffer buffer, const VkExtent3D &extent, const VkOffset3D &offset, const VkImageSubresourceLayers &range)
+{
+	VkBufferImageCopy copy_info = {
+	    .bufferOffset      = 0,
+	    .bufferRowLength   = 0,
+	    .bufferImageHeight = 0,
+	    .imageSubresource  = VkImageSubresourceLayers{
+	         .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+	         .mipLevel       = 0,
+	         .baseArrayLayer = 0,
+	         .layerCount     = 1,
+        },
+	    .imageOffset = offset,
+	    .imageExtent = extent,
+	};
+	vkCmdCopyImageToBuffer(cmd_buffer, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1, &copy_info);
+	return *this;
+}
+
+CommandBufferRecorder &CommandBufferRecorder::blit_image(VkImage src_image, VkImage dst_image, const VkOffset3D &src_offset, const VkOffset3D &dst_offset, const VkFilter &filter, const VkOffset3D &src_start, const VkOffset3D &dst_start, const VkImageSubresourceLayers &src_range, const VkImageSubresourceLayers &dst_range)
+{
+	VkImageBlit blit_info = {
+	    .srcSubresource = src_range,
+	    .srcOffsets     = {src_start,src_offset},
+	    .dstSubresource = dst_range,
+	    .dstOffsets     = {dst_start, dst_offset},
+	};
+	vkCmdBlitImage(
+	    cmd_buffer,
+	    src_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+	    dst_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+	    1, &blit_info, filter);
+	return *this;
+}
+
 CommandBufferRecorder &CommandBufferRecorder::bind_descriptor_set(VkPipelineBindPoint bind_point, VkPipelineLayout pipeline_layout, const std::vector<VkDescriptorSet> &descriptor_sets)
 {
 	vkCmdBindDescriptorSets(cmd_buffer, bind_point, pipeline_layout, 0, static_cast<uint32_t>(descriptor_sets.size()), descriptor_sets.data(), 0, nullptr);
@@ -1279,7 +1314,7 @@ VkPipeline GraphicsPipelineBuilder::create()
 	return pipeline;
 }
 
-Context::Context(uint32_t width, uint32_t height, float upscale_factor):
+Context::Context(uint32_t width, uint32_t height, float upscale_factor) :
     upscale_factor(upscale_factor)
 {
 	// Init window
@@ -1310,7 +1345,7 @@ Context::Context(uint32_t width, uint32_t height, float upscale_factor):
 		};
 
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-		//glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+		// glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
 		window = glfwCreateWindow(extent.width, extent.height, "CSIG Renderer", NULL, NULL);
 		if (!window)
@@ -1829,7 +1864,7 @@ Context::Context(uint32_t width, uint32_t height, float upscale_factor):
 		createInfo.imageColorSpace  = surface_format.colorSpace;
 		createInfo.imageExtent      = extent;
 		createInfo.imageArrayLayers = 1;
-		createInfo.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+		createInfo.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
 		uint32_t queueFamilyIndices[] = {present_family.value()};
 
@@ -1943,7 +1978,7 @@ void Context::resize()
 	createInfo.imageColorSpace  = surface_format.colorSpace;
 	createInfo.imageExtent      = extent;
 	createInfo.imageArrayLayers = 1;
-	createInfo.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+	createInfo.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
 	uint32_t queueFamilyIndices[] = {present_family.value()};
 

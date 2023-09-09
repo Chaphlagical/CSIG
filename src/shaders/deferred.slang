@@ -1,6 +1,8 @@
-#include "common.slangh" 
-#include "scene.slangh"  
+#include "common.slangh"
 #include "gbuffer.slangh"
+#include "raytrace.slangh"
+#include "scene.slangh"
+
 
 #define NUM_THREADS_X 8
 #define NUM_THREADS_Y 8
@@ -25,7 +27,7 @@ float3 fresnel_schlick_roughness(float cosTheta, float3 F0, float roughness)
     return F0 + (max(float3(1.0 - roughness), F0) - F0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
 }
 
-float3 indirect_lighting(float2 uv, float3 N, float3 diffuse_color, float roughness, float metallic, float ao, float3 wo, float3 F0)
+float3 indirect_lighting(ShadeState sstate, float2 uv, float3 N, float3 diffuse_color, float roughness, float metallic, float ao, float3 wo, float3 F0)
 {
     const float3 R = reflect(-wo, N);
 
@@ -41,7 +43,7 @@ float3 indirect_lighting(float2 uv, float3 N, float3 diffuse_color, float roughn
     const float MAX_REFLECTION_LOD = 4.0;
     float3 prefilteredColor = push_constant.enable_reflection == 1 ? 
         Reflection_Image.SampleLevel(Samplers[int(SamplerType::Linear)], uv, 0).rgb : 
-        PrefilterMap.SampleLevel(Samplers[int(SamplerType::Linear)], R, roughness * MAX_REFLECTION_LOD).rgb;
+        PrefilterMap.SampleLevel(Samplers[int(SamplerType::Linear)], R, roughness * MAX_REFLECTION_LOD).rgb * float(!any_hit(sstate.position, R, 1e32));
     float2 brdf = GGXLut.SampleLevel(Samplers[int(SamplerType::Linear)], float2(max(dot(N, wo), 0.0), roughness), 0).rg;
     float3 specular = prefilteredColor * (F * brdf.x + brdf.y) * push_constant.indirect_specular_strength;
 
@@ -76,7 +78,7 @@ void main(CSParam param)
 
         float ao = push_constant.enable_ao == 1 ? AO_Image.SampleLevel(Samplers[int(SamplerType::Linear)], uv, 0).r : 1.0;
         float3 direct_light = DI_Image.SampleLevel(Samplers[int(SamplerType::Linear)], uv, 0).rgb;
-        float3 indirect_light = indirect_lighting(uv, N, c_diff, roughness, metallic, ao, wo, F0);
+        float3 indirect_light = indirect_lighting(sstate, uv, N, c_diff, roughness, metallic, ao, wo, F0);
 
         Lo = direct_light + indirect_light;
     }

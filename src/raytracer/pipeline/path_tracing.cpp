@@ -7,10 +7,6 @@
 #define RAY_TRACE_NUM_THREADS_X 8
 #define RAY_TRACE_NUM_THREADS_Y 8
 
-//static unsigned char g_path_tracing_comp_spv_data[] = {
-//#include "path_tracing.comp.spv.h"
-//};
-
 PathTracing::PathTracing(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass) :
     m_context(&context)
 {
