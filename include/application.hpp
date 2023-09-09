@@ -54,7 +54,6 @@ class Application
 
 	bool m_update     = true;
 	bool m_enable_ui  = true;
-	bool m_enable_taa = true;
 	bool m_resize     = false;
 
 	struct

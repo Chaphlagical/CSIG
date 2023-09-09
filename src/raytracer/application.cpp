@@ -90,9 +90,8 @@ Application::Application() :
 		m_jitter_samples.push_back(glm::vec2((2.f * halton_sequence(2, i) - 1.f), (2.f * halton_sequence(3, i) - 1.f)));
 	}
 
-	// m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\default.glb)");
-	m_scene.load_scene(R"(D:\Workspace\CSIG\assets\scenes\Deferred\Deferred.gltf)");
-	m_scene.load_envmap(R"(D:\Workspace\CSIG\assets\textures\hdr\default.hdr)");
+	m_scene.load_scene(PROJECT_DIR "/assets/scenes/default.glb");
+	m_scene.load_envmap(PROJECT_DIR "/assets/textures/hdr/default.hdr");
 	m_scene.update();
 
 	m_renderer.gi.update(m_scene);
@@ -173,6 +172,7 @@ void Application::begin_render()
 		m_renderer.gi.resize();
 		m_renderer.reflection.resize();
 		m_renderer.taa.resize();
+		m_renderer.bloom.resize();
 		m_renderer.tonemap.resize();
 		m_renderer.deferred.resize();
 		m_renderer.fsr.resize();
@@ -414,8 +414,6 @@ void Application::update_ui()
 		}
 		else
 		{
-			ImGui::Checkbox("Enable TAA", &m_enable_taa);
-
 			update |= m_renderer.ao.draw_ui();
 			update |= m_renderer.di.draw_ui();
 			update |= m_renderer.gi.draw_ui();
