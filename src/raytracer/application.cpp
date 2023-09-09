@@ -170,6 +170,7 @@ void Application::begin_render()
         };
 
 		m_renderer.gbuffer.resize();
+		m_renderer.path_tracing.resize();
 		m_renderer.ao.resize();
 		m_renderer.di.resize();
 		m_renderer.gi.resize();

@@ -12,11 +12,20 @@ struct PathTracing
 
 	void init();
 
+	void resize();
+
 	void draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass);
 
 	bool draw_ui();
 
 	void reset_frames();
+
+  private:
+	void create_resource();
+
+	void update_descriptor();
+
+	void destroy_resource();
 
   public:
 	std::array<Texture, 2>     render_target;

@@ -10,12 +10,6 @@
 PathTracing::PathTracing(const Context &context, const Scene &scene, const GBufferPass &gbuffer_pass) :
     m_context(&context)
 {
-	for (uint32_t i = 0; i < 2; i++)
-	{
-		render_target[i]      = m_context->create_texture_2d(fmt::format("Path Tracing Image - {}", i), m_context->render_extent.width, m_context->render_extent.height, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-		render_target_view[i] = m_context->create_texture_view(fmt::format("Path Tracing Image View - {}", i), render_target[i].vk_image, VK_FORMAT_R32G32B32A32_SFLOAT);
-	}
-
 	m_descriptor_set_layout = m_context->create_descriptor_layout()
 	                              .add_descriptor_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
 	                              .add_descriptor_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
@@ -29,18 +23,7 @@ PathTracing::PathTracing(const Context &context, const Scene &scene, const GBuff
 	                        .create();
 	descriptor.sets = m_context->allocate_descriptor_sets<2>(descriptor.layout);
 
-	for (uint32_t i = 0; i < 2; i++)
-	{
-		m_context->update_descriptor()
-		    .write_storage_images(0, {render_target_view[i]})
-		    .write_sampled_images(1, {render_target_view[i]})
-		    .update(m_descriptor_sets[i]);
-		m_context->update_descriptor()
-		    .write_sampled_images(0, {render_target_view[i]})
-		    .update(descriptor.sets[i]);
-	}
-
-	init();
+	create_resource();
 }
 
 PathTracing::~PathTracing()
@@ -60,15 +43,22 @@ void PathTracing::init()
 	m_context->record_command()
 	    .begin()
 	    .insert_barrier()
-	    .add_image_barrier(render_target[0].vk_image,
+	    .add_image_barrier(render_target[m_context->ping_pong].vk_image,
 	                       0, VK_ACCESS_SHADER_WRITE_BIT,
 	                       VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL)
-	    .add_image_barrier(render_target[1].vk_image,
+	    .add_image_barrier(render_target[!m_context->ping_pong].vk_image,
 	                       0, VK_ACCESS_SHADER_READ_BIT,
 	                       VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 	    .insert()
 	    .end()
 	    .flush();
+}
+
+void PathTracing::resize()
+{
+	m_context->wait();
+	destroy_resource();
+	create_resource();
 }
 
 void PathTracing::draw(CommandBufferRecorder &recorder, const Scene &scene, const GBufferPass &gbuffer_pass)
@@ -106,4 +96,36 @@ bool PathTracing::draw_ui()
 void PathTracing::reset_frames()
 {
 	m_push_constant.frame_count = 0;
+}
+
+void PathTracing::create_resource()
+{
+	for (uint32_t i = 0; i < 2; i++)
+	{
+		render_target[i]      = m_context->create_texture_2d(fmt::format("Path Tracing Image - {}", i), m_context->render_extent.width, m_context->render_extent.height, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+		render_target_view[i] = m_context->create_texture_view(fmt::format("Path Tracing Image View - {}", i), render_target[i].vk_image, VK_FORMAT_R32G32B32A32_SFLOAT);
+	}
+
+	update_descriptor();
+	init();
+}
+
+void PathTracing::update_descriptor()
+{
+	for (uint32_t i = 0; i < 2; i++)
+	{
+		m_context->update_descriptor()
+		    .write_storage_images(0, {render_target_view[i]})
+		    .write_sampled_images(1, {render_target_view[i]})
+		    .update(m_descriptor_sets[i]);
+		m_context->update_descriptor()
+		    .write_sampled_images(0, {render_target_view[i]})
+		    .update(descriptor.sets[i]);
+	}
+}
+
+void PathTracing::destroy_resource()
+{
+	m_context->destroy(render_target)
+	    .destroy(render_target_view);
 }
