@@ -337,27 +337,27 @@ void Bloom::create_resource()
 	mask_image = m_context->create_texture_2d(
 	    "Bloom Mask Image",
 	    m_context->render_extent.width, m_context->render_extent.height,
-	    VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-	mask_view = m_context->create_texture_view("Bloom Mask View", mask_image.vk_image, VK_FORMAT_R16G16B16A16_SFLOAT);
+	    VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+	mask_view = m_context->create_texture_view("Bloom Mask View", mask_image.vk_image, VK_FORMAT_R32G32B32A32_SFLOAT);
 
 	output_image = m_context->create_texture_2d(
 	    "Bloom Output Image",
 	    m_context->render_extent.width, m_context->render_extent.height,
-	    VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-	output_view = m_context->create_texture_view("Output Mask View", output_image.vk_image, VK_FORMAT_R16G16B16A16_SFLOAT);
+	    VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+	output_view = m_context->create_texture_view("Output Mask View", output_image.vk_image, VK_FORMAT_R32G32B32A32_SFLOAT);
 
 	for (uint32_t i = 0; i < 4; i++)
 	{
 		level_image[i] = m_context->create_texture_2d(
 		    fmt::format("Bloom Level Image - {}", i),
 		    m_context->render_extent.width >> (i + 1), m_context->render_extent.height >> (i + 1),
-		    VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+		    VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 		blur_image[i] = m_context->create_texture_2d(
 		    fmt::format("Bloom Blur Image - {}", i),
 		    m_context->render_extent.width >> (i + 1), m_context->render_extent.height >> (i + 1),
-		    VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-		level_view[i] = m_context->create_texture_view(fmt::format("Bloom Level View - {}", i), level_image[i].vk_image, VK_FORMAT_R16G16B16A16_SFLOAT);
-		blur_view[i]  = m_context->create_texture_view(fmt::format("Bloom Blur View - {}", i), blur_image[i].vk_image, VK_FORMAT_R16G16B16A16_SFLOAT);
+		    VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+		level_view[i] = m_context->create_texture_view(fmt::format("Bloom Level View - {}", i), level_image[i].vk_image, VK_FORMAT_R32G32B32A32_SFLOAT);
+		blur_view[i]  = m_context->create_texture_view(fmt::format("Bloom Blur View - {}", i), blur_image[i].vk_image, VK_FORMAT_R32G32B32A32_SFLOAT);
 	}
 
 	update_descriptor();

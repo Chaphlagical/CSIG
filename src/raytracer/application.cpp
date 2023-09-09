@@ -455,6 +455,7 @@ void Application::update_ui()
 		if (m_render_mode == RenderMode::PathTracing)
 		{
 			update |= m_renderer.path_tracing.draw_ui();
+			update |= m_renderer.bloom.draw_ui();
 			update |= m_renderer.tonemap.draw_ui();
 			update |= m_renderer.fsr.draw_ui();
 			if (update)

@@ -27,6 +27,11 @@ float3 path_trace(float2 frag_coord)
 	ray.Origin = ViewBuffer.cam_pos.xyz;
 	ray.Direction = normalize(sstate.position - ViewBuffer.cam_pos.xyz);
 
+	if(!is_hit)
+	{
+		return EnvMap.SampleLevel(Samplers[int(SamplerType::Linear)], ray.Direction, 0).rgb;
+	}
+
 	for(uint trace_depth = 0; trace_depth < push_constant.max_depth; trace_depth++)
 	{
 		if(!is_hit)
