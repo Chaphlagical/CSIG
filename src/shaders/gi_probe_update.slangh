@@ -48,8 +48,6 @@ void populate_cache(CSParam param, int relative_probe_id, uint offset, uint num_
     }
 }
 
-// ------------------------------------------------------------------
-
 void gather_rays(int2 current_coord, uint num_rays, inout float3 result, inout float total_weight)
 {
     const float energy_conservation = 0.95f;
@@ -170,8 +168,5 @@ void main(CSParam param)
     OutputIrradiance[current_coord] = float4(result, 1.0);
 #endif
 }
-
-// ------------------------------------------------------------------
-
 
 #endif

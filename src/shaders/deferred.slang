@@ -3,7 +3,6 @@
 #include "raytrace.slangh"
 #include "scene.slangh"
 
-
 #define NUM_THREADS_X 8
 #define NUM_THREADS_Y 8
 

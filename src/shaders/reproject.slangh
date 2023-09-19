@@ -87,11 +87,11 @@ bool reproject(in int2 frag_coord,
                in float4x4 prev_view_proj,
                in float ray_length,
 #endif
-               in Texture2D<float4> sampler_gbuffer_2,
-               in Texture2D<float4> sampler_gbuffer_3,
-               in Texture2D<float4> sampler_prev_gbuffer_2,
-               in Texture2D<float4> sampler_prev_gbuffer_3,
-               in Texture2D<float> sampler_prev_gbuffer_depth,
+               in Texture2D<float4> gbufferB,
+               in Texture2D<float4> gbufferC,
+               in Texture2D<float4> prev_gbufferB,
+               in Texture2D<float4> prev_gbufferC,
+               in Texture2D<float> prev_depth_buffer,
 #if defined(REPROJECTION_REFLECTIONS)
                in Texture2D<float4> sampler_history_output,
 #else
@@ -116,8 +116,8 @@ bool reproject(in int2 frag_coord,
     const float2 pixel_center = float2(frag_coord) + float2(0.5f);
     const float2 tex_coord = pixel_center / float2(image_dim);
 
-    const float4 center_g_buffer_2 = sampler_gbuffer_2.Load(int3(frag_coord, g_buffer_mip));
-    const float4 center_g_buffer_3 = sampler_gbuffer_3.Load(int3(frag_coord, g_buffer_mip));
+    const float4 center_g_buffer_2 = gbufferB.Load(int3(frag_coord, g_buffer_mip));
+    const float4 center_g_buffer_3 = gbufferC.Load(int3(frag_coord, g_buffer_mip));
 
     const float2 current_motion = center_g_buffer_2.zw;
     const float3 current_normal = octohedral_to_direction(center_g_buffer_2.xy);
@@ -160,9 +160,9 @@ bool reproject(in int2 frag_coord,
     {
         int2 loc = int2(history_coord_floor) + offset[sample_idx];
 
-        float4 sample_g_buffer_2 = sampler_prev_gbuffer_2.Load(int3(loc, g_buffer_mip));
-        float4 sample_g_buffer_3 = sampler_prev_gbuffer_3.Load(int3(loc, g_buffer_mip));
-        float sample_depth = sampler_prev_gbuffer_depth.Load(int3(loc, g_buffer_mip)).r;
+        float4 sample_g_buffer_2 = prev_gbufferB.Load(int3(loc, g_buffer_mip));
+        float4 sample_g_buffer_3 = prev_gbufferC.Load(int3(loc, g_buffer_mip));
+        float sample_depth = prev_depth_buffer.Load(int3(loc, g_buffer_mip)).r;
 
         float3 history_normal = octohedral_to_direction(sample_g_buffer_2.xy);
         float history_mesh_id = sample_g_buffer_3.z;
@@ -229,9 +229,9 @@ bool reproject(in int2 frag_coord,
             {
                 int2 p = history_coord + int2(xx, yy);
 
-                float4 sample_g_buffer_2 = sampler_prev_gbuffer_2.Load(int3(p, g_buffer_mip));
-                float4 sample_g_buffer_3 = sampler_prev_gbuffer_3.Load(int3(p, g_buffer_mip));
-                float sample_depth = sampler_prev_gbuffer_depth.Load(int3(p, g_buffer_mip)).r;
+                float4 sample_g_buffer_2 = prev_gbufferB.Load(int3(p, g_buffer_mip));
+                float4 sample_g_buffer_3 = prev_gbufferC.Load(int3(p, g_buffer_mip));
+                float sample_depth = prev_depth_buffer.Load(int3(p, g_buffer_mip)).r;
 
                 float3 history_normal = octohedral_to_direction(sample_g_buffer_2.xy);
                 float history_mesh_id = sample_g_buffer_3.z;

@@ -42,19 +42,9 @@ int grid_coord_to_probe_index(in DDGIUniforms ddgi, in int3 probe_coords)
 int3 probe_index_to_grid_coord(in DDGIUniforms ddgi, int index)
 {
     int3 i_pos;
-
-    // Slow, but works for any # of probes
     i_pos.x = index % ddgi.probe_counts.x;
     i_pos.y = (index % (ddgi.probe_counts.x * ddgi.probe_counts.y)) / ddgi.probe_counts.x;
     i_pos.z = index / (ddgi.probe_counts.x * ddgi.probe_counts.y);
-
-    // Assumes probeCounts are powers of two.
-    // Saves ~10ms compared to the divisions above
-    // Precomputing the MSB actually slows this code down substantially
-    //    i_pos.x = index & (ddgi.probe_counts.x - 1);
-    //    i_pos.y = (index & ((ddgi.probe_counts.x * ddgi.probe_counts.y) - 1)) >> findMSB(ddgi.probe_counts.x);
-    //    i_pos.z = index >> findMSB(ddgi.probe_counts.x * ddgi.probe_counts.y);
-
     return i_pos;
 }
 
